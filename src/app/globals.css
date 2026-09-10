@@ -1,26 +1,122 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-foreground: #ffffff;
+  --profit: #059669;
+  --loss: #dc2626;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-profit: var(--profit);
+  --color-loss: var(--loss);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --background: #0b1220;
+    --foreground: #f1f5f9;
+    --card: #131b2e;
+    --card-foreground: #f1f5f9;
+    --muted: #1b2436;
+    --muted-foreground: #94a3b8;
+    --border: #263048;
+    --accent: #3b82f6;
+    --accent-foreground: #0b1220;
+    --profit: #34d399;
+    --loss: #f87171;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #0b1220;
+  --foreground: #f1f5f9;
+  --card: #131b2e;
+  --card-foreground: #f1f5f9;
+  --muted: #1b2436;
+  --muted-foreground: #94a3b8;
+  --border: #263048;
+  --accent: #3b82f6;
+  --accent-foreground: #0b1220;
+  --profit: #34d399;
+  --loss: #f87171;
+}
+
+.theme-toggle-sun,
+.theme-toggle-moon {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 0.25s ease,
+    transform 0.35s ease;
+}
+
+.theme-toggle-sun {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.5);
+}
+
+.theme-toggle-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+:root[data-theme="dark"] .theme-toggle-sun {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+:root[data-theme="dark"] .theme-toggle-moon {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle-sun {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+
+  :root:not([data-theme="light"]) .theme-toggle-moon {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.5);
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+body,
+.bg-card,
+.bg-muted,
+.border-border {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
