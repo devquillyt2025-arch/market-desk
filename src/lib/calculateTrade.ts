@@ -21,7 +21,7 @@ export type TradeCalculation = {
 };
 
 /** Avoids float artifacts like 0.1 + 0.2 showing up in a price column. */
-function round2(value: number): number {
+export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 

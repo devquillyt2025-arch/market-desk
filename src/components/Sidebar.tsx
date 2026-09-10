@@ -11,11 +11,13 @@ import {
   ClockIcon,
   LinkIcon,
   MenuIcon,
+  ReceiptIcon,
   XIcon,
 } from "@/components/icons";
 
 const LINKS = [
   { href: "/", label: "Calculator", icon: CalculatorIcon },
+  { href: "/brokerage", label: "Brokerage", icon: ReceiptIcon },
   { href: "/history", label: "History", icon: ClockIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },

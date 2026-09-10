@@ -1,41 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { calculateTrade } from "@/lib/calculateTrade";
 import { formatINR } from "@/lib/format";
-import { AlertCircleIcon, CheckCircleIcon, PlusIcon, RefreshIcon, TrashIcon } from "@/components/icons";
+import { AlertCircleIcon, CheckCircleIcon, RefreshIcon } from "@/components/icons";
 import { logEvent } from "@/lib/activityLog";
+import LegsTable, { newLeg, toNumber, type LegRow } from "@/components/LegsTable";
+import TradeInputsPanel from "@/components/TradeInputsPanel";
 import { saveTrade } from "@/lib/tradeStore";
-import {
-  DEFAULT_LOT_SIZES,
-  INSTRUMENTS,
-  INSTRUMENT_LABELS,
-  type Instrument,
-  type SaveTradeLegInput,
-} from "@/lib/types";
-
-type LegRow = {
-  key: number;
-  sellPrice: string;
-  buyPrice: string;
-};
-
-let nextLegKey = 0;
-function newLeg(): LegRow {
-  return { key: nextLegKey++, sellPrice: "", buyPrice: "" };
-}
-
-function toNumber(value: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
-
-const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
+import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, type Instrument, type SaveTradeLegInput } from "@/lib/types";
 
 type SaveState =
   | { status: "idle" }
@@ -54,7 +29,6 @@ export default function TradeCalculator() {
   const [legs, setLegs] = useState<LegRow[]>([newLeg(), newLeg()]);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
 
-  const formId = useId();
   const pendingLogs = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -188,165 +162,18 @@ export default function TradeCalculator() {
   return (
     <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
       <div className="flex flex-col gap-6 lg:col-span-2">
-        <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <span className={labelClass}>Instrument</span>
-              <div className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
-                {INSTRUMENTS.map((inst) => (
-                  <button
-                    key={inst}
-                    type="button"
-                    onClick={() => handleInstrumentChange(inst)}
-                    className={
-                      inst === instrument
-                        ? "rounded-md bg-card px-3.5 py-1.5 text-sm font-medium text-foreground shadow-sm"
-                        : "rounded-md px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    }
-                  >
-                    {INSTRUMENT_LABELS[inst]}
-                  </button>
-                ))}
-              </div>
-            </div>
+        <TradeInputsPanel
+          instrument={instrument}
+          lotSize={lotSize}
+          lots={lots}
+          qty={qty}
+          onInstrumentChange={handleInstrumentChange}
+          onLotSizeChange={handleLotSizeChange}
+          onLotsChange={handleLotsChange}
+          onQtyChange={handleQtyChange}
+        />
 
-            <div className="grid grid-cols-3 gap-3 sm:max-w-sm">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor={`${formId}-lot-size`} className={labelClass}>
-                  Lot size
-                </label>
-                <input
-                  id={`${formId}-lot-size`}
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={lotSize}
-                  onChange={(e) =>
-                    handleLotSizeChange(Math.max(1, Math.trunc(toNumber(e.target.value))))
-                  }
-                  className={`${inputClass} font-mono tabular-nums`}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor={`${formId}-lots`} className={labelClass}>
-                  Lots
-                </label>
-                <input
-                  id={`${formId}-lots`}
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={lots}
-                  onChange={(e) =>
-                    handleLotsChange(Math.max(1, Math.trunc(toNumber(e.target.value))))
-                  }
-                  className={`${inputClass} font-mono tabular-nums`}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor={`${formId}-qty`} className={labelClass}>
-                  Qty
-                </label>
-                <input
-                  id={`${formId}-qty`}
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={qty}
-                  onChange={(e) => handleQtyChange(Math.max(1, Math.trunc(toNumber(e.target.value))))}
-                  className={`${inputClass} font-mono font-medium tabular-nums`}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
-                  <th className="w-10 py-3 pl-5 pr-2 font-medium">#</th>
-                  <th className="px-2 py-3 font-medium">Sell Price</th>
-                  <th className="px-2 py-3 font-medium">Buy Price</th>
-                  <th className="px-2 py-3 text-right font-medium">Net</th>
-                  <th className="w-12 py-3 pr-4" />
-                </tr>
-              </thead>
-              <tbody>
-                {legs.map((leg, index) => {
-                  const net = toNumber(leg.sellPrice) - toNumber(leg.buyPrice);
-                  const legSign = net > 0 ? "profit" : net < 0 ? "loss" : null;
-                  return (
-                    <tr
-                      key={leg.key}
-                      className="border-b border-border last:border-0 hover:bg-muted/30"
-                    >
-                      <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{index + 1}</td>
-                      <td className="px-2 py-2.5">
-                        <input
-                          type="number"
-                          step="0.05"
-                          inputMode="decimal"
-                          value={leg.sellPrice}
-                          onChange={(e) => updateLeg(leg.key, "sellPrice", e.target.value)}
-                          placeholder="0.00"
-                          className={`${inputClass} max-w-32 font-mono tabular-nums`}
-                        />
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <input
-                          type="number"
-                          step="0.05"
-                          inputMode="decimal"
-                          value={leg.buyPrice}
-                          onChange={(e) => updateLeg(leg.key, "buyPrice", e.target.value)}
-                          placeholder="0.00"
-                          className={`${inputClass} max-w-32 font-mono tabular-nums`}
-                        />
-                      </td>
-                      <td className="px-2 py-2.5 text-right">
-                        <span
-                          className={`inline-block min-w-20 rounded-md px-2 py-1 font-mono text-sm font-medium tabular-nums ${
-                            legSign === "profit"
-                              ? "bg-profit/10 text-profit"
-                              : legSign === "loss"
-                                ? "bg-loss/10 text-loss"
-                                : "text-muted-foreground"
-                          }`}
-                        >
-                          {net.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => removeLeg(leg.key)}
-                          disabled={legs.length === 1}
-                          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-                          aria-label={`Remove leg ${index + 1}`}
-                        >
-                          <TrashIcon className="size-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <button
-            type="button"
-            onClick={addLeg}
-            className="flex w-full items-center justify-center gap-1.5 border-t border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-          >
-            <PlusIcon className="size-4" />
-            Add Leg
-          </button>
-        </section>
+        <LegsTable legs={legs} onLegChange={updateLeg} onAddLeg={addLeg} onRemoveLeg={removeLeg} />
       </div>
 
       <div className="flex flex-col gap-4 lg:sticky lg:top-8">
