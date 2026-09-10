@@ -36,8 +36,8 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
           <thead>
             <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
               <th className="w-10 py-3 pl-5 pr-2 font-medium">#</th>
-              <th className="px-2 py-3 font-medium">Sell Price</th>
               <th className="px-2 py-3 font-medium">Buy Price</th>
+              <th className="px-2 py-3 font-medium">Sell Price</th>
               <th className="px-2 py-3 text-right font-medium">Net</th>
               <th className="w-12 py-3 pr-4" />
             </tr>
@@ -54,8 +54,8 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
                       type="number"
                       step="0.05"
                       inputMode="decimal"
-                      value={leg.sellPrice}
-                      onChange={(e) => onLegChange(leg.key, "sellPrice", e.target.value)}
+                      value={leg.buyPrice}
+                      onChange={(e) => onLegChange(leg.key, "buyPrice", e.target.value)}
                       placeholder="0.00"
                       className={`${inputClass} max-w-32 font-mono tabular-nums`}
                     />
@@ -65,8 +65,8 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
                       type="number"
                       step="0.05"
                       inputMode="decimal"
-                      value={leg.buyPrice}
-                      onChange={(e) => onLegChange(leg.key, "buyPrice", e.target.value)}
+                      value={leg.sellPrice}
+                      onChange={(e) => onLegChange(leg.key, "sellPrice", e.target.value)}
                       placeholder="0.00"
                       className={`${inputClass} max-w-32 font-mono tabular-nums`}
                     />

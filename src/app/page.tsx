@@ -1,15 +1,15 @@
-import TradeCalculator from "@/components/TradeCalculator";
+import BrokerageCalculator from "@/components/BrokerageCalculator";
 
 export default function Home() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Trade Calculator</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Brokerage Calculator</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Build a multi-leg options-selling trade and see live P&amp;L as you type.
+          Estimate brokerage, taxes, and net P&amp;L across delivery, intraday, futures, and options.
         </p>
       </div>
-      <TradeCalculator />
+      <BrokerageCalculator />
     </div>
   );
 }

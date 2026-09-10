@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ChevronDownIcon, InboxIcon, TrashIcon } from "@/components/icons";
@@ -66,13 +65,7 @@ export default function HistoryView() {
       ) : trades.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            No trades saved yet. Save one from the{" "}
-            <Link href="/" className="text-accent underline underline-offset-2">
-              Calculator
-            </Link>
-            .
-          </p>
+          <p className="text-sm text-muted-foreground">No trades saved yet.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -133,8 +126,8 @@ export default function HistoryView() {
                       <thead>
                         <tr className="border-b border-border text-left text-muted-foreground">
                           <th className="py-1.5 pr-3 font-medium">Leg</th>
-                          <th className="py-1.5 pr-3 font-medium">Sell Price</th>
                           <th className="py-1.5 pr-3 font-medium">Buy Price</th>
+                          <th className="py-1.5 pr-3 font-medium">Sell Price</th>
                           <th className="py-1.5 font-medium">Net</th>
                         </tr>
                       </thead>
@@ -143,10 +136,10 @@ export default function HistoryView() {
                           <tr key={leg.id} className="border-b border-border last:border-0">
                             <td className="py-1.5 pr-3 text-muted-foreground">{index + 1}</td>
                             <td className="py-1.5 pr-3 font-mono tabular-nums">
-                              {leg.sell_price.toFixed(2)}
+                              {leg.buy_price.toFixed(2)}
                             </td>
                             <td className="py-1.5 pr-3 font-mono tabular-nums">
-                              {leg.buy_price.toFixed(2)}
+                              {leg.sell_price.toFixed(2)}
                             </td>
                             <td className="py-1.5 font-mono tabular-nums">{leg.net.toFixed(2)}</td>
                           </tr>

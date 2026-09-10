@@ -5,19 +5,10 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import ThemeToggle from "@/components/ThemeToggle";
-import {
-  ActivityIcon,
-  CalculatorIcon,
-  ClockIcon,
-  LinkIcon,
-  MenuIcon,
-  ReceiptIcon,
-  XIcon,
-} from "@/components/icons";
+import { ActivityIcon, ClockIcon, LinkIcon, MenuIcon, ReceiptIcon, XIcon } from "@/components/icons";
 
 const LINKS = [
-  { href: "/", label: "Calculator", icon: CalculatorIcon },
-  { href: "/brokerage", label: "Brokerage", icon: ReceiptIcon },
+  { href: "/", label: "Brokerage", icon: ReceiptIcon },
   { href: "/history", label: "History", icon: ClockIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },

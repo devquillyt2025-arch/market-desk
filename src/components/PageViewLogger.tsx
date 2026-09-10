@@ -6,8 +6,7 @@ import { useEffect } from "react";
 import { logEvent } from "@/lib/activityLog";
 
 const PAGE_LABELS: Record<string, string> = {
-  "/": "Calculator",
-  "/brokerage": "Brokerage Calculator",
+  "/": "Brokerage Calculator",
   "/history": "History",
   "/links": "Important Links",
   "/logs": "Logs",
