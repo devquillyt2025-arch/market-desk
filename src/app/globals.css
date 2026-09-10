@@ -12,6 +12,7 @@
   --accent-foreground: #ffffff;
   --profit: #059669;
   --loss: #dc2626;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -43,6 +44,7 @@
     --accent-foreground: #0b1220;
     --profit: #34d399;
     --loss: #f87171;
+    color-scheme: dark;
   }
 }
 
@@ -58,6 +60,11 @@
   --accent-foreground: #0b1220;
   --profit: #34d399;
   --loss: #f87171;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 .theme-toggle-sun,
