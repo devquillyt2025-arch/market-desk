@@ -1,14 +1,22 @@
 /**
- * Local-only persistence for trades. Shaped like the eventual Supabase-backed
- * store (same `TradeWithLegs` rows, async functions) so swapping the body of
- * these functions for real queries later doesn't touch any call site.
+ * Supabase-backed persistence for trades. `save_trade` inserts the trade and
+ * its legs atomically server-side (see the migration) — a plain client-side
+ * insert-then-insert would leave an orphaned trade row if the legs insert
+ * failed partway through.
  */
 
 import { logEvent } from "@/lib/activityLog";
 import { formatINR } from "@/lib/format";
-import { INSTRUMENT_LABELS, type Instrument, type SaveTradeLegInput, type TradeWithLegs } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
+import {
+  INSTRUMENT_LABELS,
+  type Instrument,
+  type SaveTradeLegInput,
+  type TradeLeg,
+  type TradeWithLegs,
+} from "@/lib/types";
 
-const STORAGE_KEY = "marketdesk:trades";
+const supabase = createClient();
 
 export type SaveTradeInput = {
   instrument: Instrument;
@@ -20,63 +28,58 @@ export type SaveTradeInput = {
   legs: SaveTradeLegInput[];
 };
 
-function uuid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `trade_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function readAll(): TradeWithLegs[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeAll(trades: TradeWithLegs[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
-}
-
 export async function getTrades(): Promise<TradeWithLegs[]> {
-  return readAll();
+  const { data: trades, error: tradesError } = await supabase
+    .from("trades")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (tradesError) throw tradesError;
+  if (!trades || trades.length === 0) return [];
+
+  const { data: legs, error: legsError } = await supabase
+    .from("trade_legs")
+    .select("*")
+    .in(
+      "trade_id",
+      trades.map((trade) => trade.id),
+    )
+    .order("leg_order", { ascending: true });
+  if (legsError) throw legsError;
+
+  const legsByTrade = new Map<string, TradeLeg[]>();
+  for (const leg of legs ?? []) {
+    const forTrade = legsByTrade.get(leg.trade_id);
+    if (forTrade) forTrade.push(leg);
+    else legsByTrade.set(leg.trade_id, [leg]);
+  }
+
+  return trades.map((trade) => ({ ...trade, legs: legsByTrade.get(trade.id) ?? [] }));
 }
 
 export async function saveTrade(input: SaveTradeInput): Promise<TradeWithLegs> {
   try {
-    const now = new Date().toISOString();
-    const tradeId = uuid();
+    const { data: tradeId, error: rpcError } = await supabase.rpc("save_trade", {
+      p_instrument: input.instrument,
+      p_lots: input.lots,
+      p_lot_size: input.lotSize,
+      p_qty: input.qty,
+      p_total_net: input.totalNet,
+      p_total_pnl: input.totalPnl,
+      p_legs: input.legs,
+    });
+    if (rpcError) throw rpcError;
 
-    const trade: TradeWithLegs = {
-      id: tradeId,
-      user_id: null,
-      instrument: input.instrument,
-      trade_date: now,
-      lots: input.lots,
-      lot_size: input.lotSize,
-      qty: input.qty,
-      total_net: input.totalNet,
-      total_pnl: input.totalPnl,
-      created_at: now,
-      legs: input.legs.map((leg) => ({
-        id: uuid(),
-        trade_id: tradeId,
-        sell_price: leg.sell_price,
-        buy_price: leg.buy_price,
-        net: leg.net,
-        leg_order: leg.leg_order,
-        created_at: now,
-      })),
-    };
+    const [{ data: trade, error: tradeError }, { data: legs, error: legsError }] = await Promise.all([
+      supabase.from("trades").select("*").eq("id", tradeId).single(),
+      supabase.from("trade_legs").select("*").eq("trade_id", tradeId).order("leg_order", { ascending: true }),
+    ]);
+    if (tradeError) throw tradeError;
+    if (legsError) throw legsError;
 
-    writeAll([trade, ...readAll()]);
     logEvent(
       `Saved trade: ${INSTRUMENT_LABELS[input.instrument]}, Qty ${input.qty}, P&L ${formatINR(input.totalPnl)}`,
     );
-    return trade;
+    return { ...trade, legs: legs ?? [] };
   } catch (err) {
     logEvent(`Failed to save trade: ${err instanceof Error ? err.message : "unknown error"}`);
     throw err;
@@ -84,16 +87,22 @@ export async function saveTrade(input: SaveTradeInput): Promise<TradeWithLegs> {
 }
 
 export async function deleteTrade(id: string): Promise<void> {
-  const trades = readAll();
-  const trade = trades.find((t) => t.id === id);
-  writeAll(trades.filter((t) => t.id !== id));
+  const { data: trade, error } = await supabase.from("trades").delete().eq("id", id).select().maybeSingle();
+  if (error) throw error;
   if (trade) {
     logEvent(`Deleted trade: ${INSTRUMENT_LABELS[trade.instrument]}, Qty ${trade.qty}`);
   }
 }
 
 export async function clearTrades(): Promise<void> {
-  const count = readAll().length;
-  writeAll([]);
-  if (count > 0) logEvent(`Cleared all trades (${count} removed)`);
+  const { count, error: countError } = await supabase
+    .from("trades")
+    .select("*", { count: "exact", head: true });
+  if (countError) throw countError;
+  if (!count) return;
+
+  const { error } = await supabase.from("trades").delete().not("id", "is", null);
+  if (error) throw error;
+
+  logEvent(`Cleared all trades (${count} removed)`);
 }
