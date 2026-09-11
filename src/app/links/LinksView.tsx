@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { CheckIcon, ExternalLinkIcon, InboxIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons";
 import { logEvent } from "@/lib/activityLog";
-import { addLink, deleteLink, getLinks, type LinkItem } from "@/lib/linksStore";
+import { addLink, deleteLink, getLinks, NECESSARY_LINK_GROUPS, type LinkItem } from "@/lib/linksStore";
 
 const inputClass =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
@@ -37,6 +37,11 @@ export default function LinksView() {
   }, []);
 
   const groupNames = links ? Array.from(new Set(links.map((link) => link.group))) : [];
+  // Custom groups first, built-in/necessary groups (Market Data, Exchange & Regulatory) last.
+  const orderedGroupNames = [
+    ...groupNames.filter((g) => !NECESSARY_LINK_GROUPS.includes(g)),
+    ...groupNames.filter((g) => NECESSARY_LINK_GROUPS.includes(g)),
+  ];
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
@@ -200,7 +205,7 @@ export default function LinksView() {
         </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {groupNames.map((groupName) => (
+          {orderedGroupNames.map((groupName) => (
             <div key={groupName} className="flex flex-col gap-3">
               <h2 className="text-sm font-medium text-muted-foreground">{groupName}</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

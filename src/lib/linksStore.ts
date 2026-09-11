@@ -61,6 +61,9 @@ const DEFAULT_LINKS: LinkItem[] = [
   },
 ];
 
+/** Group names seeded by DEFAULT_LINKS — used to keep built-in links visually separate from custom ones. */
+export const NECESSARY_LINK_GROUPS: string[] = Array.from(new Set(DEFAULT_LINKS.map((link) => link.group)));
+
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `link_${Date.now()}_${Math.random().toString(16).slice(2)}`;
