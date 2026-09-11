@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { ActivityIcon, ChevronDownIcon } from "@/components/icons";
@@ -13,6 +14,7 @@ import {
   type BrokerageSegment,
 } from "@/lib/calculateBrokerage";
 import LegsTable, { newLeg, toNumber, type LegRow } from "@/components/LegsTable";
+import { pnlColorClass } from "@/lib/format";
 import TradeInputsPanel from "@/components/TradeInputsPanel";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, type Instrument } from "@/lib/types";
 
@@ -142,8 +144,7 @@ export default function BrokerageCalculator() {
   const charges = calculateBrokerage(segment, numericLegs, qty);
   const otherCharges = charges.totalCharges - charges.brokerage;
   const netPnl = trade.totalPnl - charges.totalCharges;
-  const netSign = netPnl > 0 ? "profit" : netPnl < 0 ? "loss" : "flat";
-  const netColor = netSign === "profit" ? "text-profit" : netSign === "loss" ? "text-loss" : "text-foreground";
+  const netColor = pnlColorClass(netPnl);
 
   const topStats = [
     { label: "Brokerage", value: rupees(charges.brokerage), color: "" },
@@ -153,12 +154,17 @@ export default function BrokerageCalculator() {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-6"
+    >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {topStats.map((stat) => (
           <section key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
             <dt className="text-xs text-muted-foreground">{stat.label}</dt>
-            <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums ${stat.color}`}>
+            <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums transition-colors ${stat.color}`}>
               {stat.value}
             </dd>
           </section>
@@ -176,13 +182,18 @@ export default function BrokerageCalculator() {
                     key={seg}
                     type="button"
                     onClick={() => handleSegmentChange(seg)}
-                    className={
-                      seg === segment
-                        ? "rounded-md bg-card px-3.5 py-1.5 text-sm font-medium text-foreground shadow-sm"
-                        : "rounded-md px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    }
+                    className={`relative rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                      seg === segment ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   >
-                    {SEGMENT_RATES[seg].label}
+                    {seg === segment && (
+                      <motion.span
+                        layoutId="active-segment-pill"
+                        className="absolute inset-0 rounded-md bg-card shadow-sm"
+                        transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <span className="relative z-10">{SEGMENT_RATES[seg].label}</span>
                   </button>
                 ))}
               </div>
@@ -266,27 +277,36 @@ export default function BrokerageCalculator() {
               />
             </button>
 
-            {showBreakup && (
-              <>
-                <dl className="mt-4 flex flex-col gap-3">
-                  {BREAKUP_ROWS.map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <dt className="text-sm text-muted-foreground">{label}</dt>
-                      <dd className="font-mono text-sm font-medium tabular-nums">
-                        {rupees(charges[key])}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+            <AnimatePresence initial={false}>
+              {showBreakup && (
+                <motion.div
+                  key="breakup"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  className="overflow-hidden"
+                >
+                  <dl className="mt-4 flex flex-col gap-3">
+                    {BREAKUP_ROWS.map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between">
+                        <dt className="text-sm text-muted-foreground">{label}</dt>
+                        <dd className="font-mono text-sm font-medium tabular-nums">
+                          {rupees(charges[key])}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
 
-                <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-                  <dt className="text-sm font-medium">Total taxes and charges</dt>
-                  <dd className="font-mono text-lg font-semibold tabular-nums">
-                    {rupees(charges.totalCharges)}
-                  </dd>
-                </div>
-              </>
-            )}
+                  <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                    <dt className="text-sm font-medium">Total taxes and charges</dt>
+                    <dd className="font-mono text-lg font-semibold tabular-nums">
+                      {rupees(charges.totalCharges)}
+                    </dd>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -314,6 +334,6 @@ export default function BrokerageCalculator() {
           </section>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

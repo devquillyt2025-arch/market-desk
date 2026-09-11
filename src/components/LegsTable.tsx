@@ -1,5 +1,7 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
+
 import { PlusIcon, TrashIcon } from "@/components/icons";
 
 export type LegRow = {
@@ -43,11 +45,18 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
             </tr>
           </thead>
           <tbody>
-            {legs.map((leg, index) => {
+            <AnimatePresence initial={false}>
+              {legs.map((leg, index) => {
               const net = toNumber(leg.sellPrice) - toNumber(leg.buyPrice);
               const legSign = net > 0 ? "profit" : net < 0 ? "loss" : null;
               return (
-                <tr key={leg.key} className="border-b border-border last:border-0 hover:bg-muted/30">
+                <motion.tr
+                  key={leg.key}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="border-b border-border last:border-0 hover:bg-muted/30">
                   <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{index + 1}</td>
                   <td className="px-2 py-2.5">
                     <input
@@ -89,15 +98,16 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
                       type="button"
                       onClick={() => onRemoveLeg(leg.key)}
                       disabled={legs.length === 1}
-                      className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent active:scale-90"
                       aria-label={`Remove leg ${index + 1}`}
                     >
                       <TrashIcon className="size-4" />
                     </button>
                   </td>
-                </tr>
+                </motion.tr>
               );
-            })}
+              })}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>
@@ -105,7 +115,7 @@ export default function LegsTable({ legs, onLegChange, onAddLeg, onRemoveLeg }: 
       <button
         type="button"
         onClick={onAddLeg}
-        className="flex w-full items-center justify-center gap-1.5 border-t border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        className="flex w-full items-center justify-center gap-1.5 border-t border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground active:scale-[0.98]"
       >
         <PlusIcon className="size-4" />
         Add Leg

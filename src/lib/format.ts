@@ -8,3 +8,10 @@ const inr = new Intl.NumberFormat("en-IN", {
 export function formatINR(amount: number): string {
   return inr.format(Math.round(amount));
 }
+
+/** Text color token for a P&L figure — green above zero, red below, neutral at zero. */
+export function pnlColorClass(pnl: number): string {
+  if (pnl > 0) return "text-profit";
+  if (pnl < 0) return "text-loss";
+  return "text-foreground";
+}

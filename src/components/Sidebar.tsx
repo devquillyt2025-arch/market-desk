@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -48,19 +49,25 @@ export default function Sidebar() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
         >
           <MenuIcon className="size-5" />
         </button>
       </div>
 
-      {open && (
-        <div
-          onClick={() => setOpen(false)}
-          aria-hidden="true"
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-        />
-      )}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
 
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-muted transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-none ${
@@ -73,7 +80,7 @@ export default function Sidebar() {
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close menu"
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden active:scale-90"
           >
             <XIcon className="size-4" />
           </button>
@@ -88,14 +95,19 @@ export default function Sidebar() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className={
-                  active
-                    ? "flex items-center gap-2.5 rounded-lg bg-card px-3 py-2.5 text-sm font-medium text-accent shadow-sm"
-                    : "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
-                }
+                className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
+                }`}
               >
-                <Icon className="size-4 shrink-0" />
-                {link.label}
+                {active && (
+                  <motion.span
+                    layoutId="active-nav-pill"
+                    className="absolute inset-0 rounded-lg bg-card shadow-sm"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <Icon className="relative z-10 size-4 shrink-0" />
+                <span className="relative z-10">{link.label}</span>
               </Link>
             );
           })}
