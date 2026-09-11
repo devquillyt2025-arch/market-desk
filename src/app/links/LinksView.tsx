@@ -1,10 +1,20 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { CheckIcon, ExternalLinkIcon, InboxIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons";
 import { logEvent } from "@/lib/activityLog";
-import { addLink, deleteLink, getLinks, NECESSARY_LINK_GROUPS, type LinkItem } from "@/lib/linksStore";
+import {
+  addLink,
+  deleteLink,
+  getCachedLinks,
+  getLinks,
+  NECESSARY_LINK_GROUPS,
+  subscribeToLinkChanges,
+  type LinkItem,
+} from "@/lib/linksStore";
+import { showToast } from "@/lib/toast";
 
 const inputClass =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
@@ -23,7 +33,7 @@ function normalizeUrl(raw: string): string | null {
 }
 
 export default function LinksView() {
-  const [links, setLinks] = useState<LinkItem[] | null>(null);
+  const [links, setLinks] = useState<LinkItem[] | null>(getCachedLinks);
   const [showForm, setShowForm] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [label, setLabel] = useState("");
@@ -31,9 +41,18 @@ export default function LinksView() {
   const [description, setDescription] = useState("");
   const [group, setGroup] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getLinks().then(setLinks);
+    async function load() {
+      try {
+        setLinks(await getLinks());
+      } catch {
+        showToast("Couldn't load links. Check your connection.");
+      }
+    }
+    load();
+    return subscribeToLinkChanges(load);
   }, []);
 
   const groupNames = links ? Array.from(new Set(links.map((link) => link.group))) : [];
@@ -53,34 +72,50 @@ export default function LinksView() {
       return;
     }
 
-    const newLink = await addLink({
-      label: trimmedLabel,
-      url: normalizedUrl,
-      description: description.trim() || undefined,
-      group: group.trim() || "My Links",
-    });
+    setSaving(true);
+    try {
+      const newLink = await addLink({
+        label: trimmedLabel,
+        url: normalizedUrl,
+        description: description.trim() || undefined,
+        group: group.trim() || "My Links",
+      });
 
-    setLinks((prev) => (prev ? [...prev, newLink] : [newLink]));
-    setLabel("");
-    setUrl("");
-    setDescription("");
-    setGroup("");
-    setFormError(null);
-    setShowForm(false);
+      setLinks((prev) => (prev ? [...prev, newLink] : [newLink]));
+      setLabel("");
+      setUrl("");
+      setDescription("");
+      setGroup("");
+      setFormError(null);
+      setShowForm(false);
+    } catch {
+      setFormError("Couldn't save the link. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDelete(link: LinkItem) {
+    const previous = links;
     setLinks((prev) => (prev ? prev.filter((l) => l.id !== link.id) : prev));
-    void deleteLink(link.id);
+    deleteLink(link.id).catch(() => {
+      setLinks(previous);
+      showToast("Couldn't delete the link. Try again.");
+    });
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-6"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Important Links</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Quick access to market data and reference sites used while trading — add your own below.
+            Quick access to market data and reference sites, synced across devices — add your own below.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -89,8 +124,8 @@ export default function LinksView() {
             onClick={() => setEditMode((prev) => !prev)}
             className={
               editMode
-                ? "flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
-                : "flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                ? "flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 active:scale-95"
+                : "flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
             }
           >
             {editMode ? <CheckIcon className="size-4" /> : <PencilIcon className="size-4" />}
@@ -99,7 +134,7 @@ export default function LinksView() {
           <button
             type="button"
             onClick={() => setShowForm((prev) => !prev)}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
             <PlusIcon className="size-4" />
             Add Link
@@ -107,90 +142,98 @@ export default function LinksView() {
         </div>
       </div>
 
-      {showForm && (
-        <form
-          onSubmit={handleAdd}
-          className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="link-label" className={labelClass}>
-                Name
-              </label>
-              <input
-                id="link-label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Sensibull"
-                className={inputClass}
-              />
+      <AnimatePresence initial={false}>
+        {showForm && (
+          <motion.form
+            key="link-form"
+            onSubmit={handleAdd}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="link-label" className={labelClass}>
+                  Name
+                </label>
+                <input
+                  id="link-label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="e.g. Sensibull"
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="link-url" className={labelClass}>
+                  URL
+                </label>
+                <input
+                  id="link-url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="example.com"
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label htmlFor="link-description" className={labelClass}>
+                  Description (optional)
+                </label>
+                <input
+                  id="link-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="What this link is for"
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="link-group" className={labelClass}>
+                  Group (optional)
+                </label>
+                <input
+                  id="link-group"
+                  value={group}
+                  onChange={(e) => setGroup(e.target.value)}
+                  placeholder="My Links"
+                  list="link-groups"
+                  className={inputClass}
+                />
+                <datalist id="link-groups">
+                  {groupNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </div>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="link-url" className={labelClass}>
-                URL
-              </label>
-              <input
-                id="link-url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="example.com"
-                className={inputClass}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <label htmlFor="link-description" className={labelClass}>
-                Description (optional)
-              </label>
-              <input
-                id="link-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What this link is for"
-                className={inputClass}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="link-group" className={labelClass}>
-                Group (optional)
-              </label>
-              <input
-                id="link-group"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                placeholder="My Links"
-                list="link-groups"
-                className={inputClass}
-              />
-              <datalist id="link-groups">
-                {groupNames.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </div>
-          </div>
 
-          {formError && <p className="text-sm text-loss">{formError}</p>}
+            {formError && <p className="text-sm text-loss">{formError}</p>}
 
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
-            >
-              Save Link
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowForm(false);
-                setFormError(null);
-              }}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
+              >
+                {saving ? "Saving…" : "Save Link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForm(false);
+                  setFormError(null);
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
 
       {links === null ? (
         <div className="flex flex-col gap-3">
@@ -209,45 +252,53 @@ export default function LinksView() {
             <div key={groupName} className="flex flex-col gap-3">
               <h2 className="text-sm font-medium text-muted-foreground">{groupName}</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {links
-                  .filter((link) => link.group === groupName)
-                  .map((link) => (
-                    <div
-                      key={link.id}
-                      className="relative rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent/50"
-                    >
-                      {editMode && (
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(link)}
-                          aria-label={`Delete ${link.label}`}
-                          className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss"
-                        >
-                          <XIcon className="size-3.5" />
-                        </button>
-                      )}
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => logEvent(`Opened link: ${link.label}`)}
-                        className={`flex flex-col gap-1 ${editMode ? "pr-6" : ""}`}
+                <AnimatePresence initial={false} mode="popLayout">
+                  {links
+                    .filter((link) => link.group === groupName)
+                    .map((link) => (
+                      <motion.div
+                        key={link.id}
+                        layout
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        whileHover={{ y: -2 }}
+                        className="relative rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent/50"
                       >
-                        <span className="flex items-center gap-1.5 font-medium">
-                          {link.label}
-                          <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        </span>
-                        {link.description && (
-                          <span className="text-sm text-muted-foreground">{link.description}</span>
+                        {editMode && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(link)}
+                            aria-label={`Delete ${link.label}`}
+                            className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
+                          >
+                            <XIcon className="size-3.5" />
+                          </button>
                         )}
-                      </a>
-                    </div>
-                  ))}
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => logEvent(`Opened link: ${link.label}`)}
+                          className={`flex flex-col gap-1 ${editMode ? "pr-6" : ""}`}
+                        >
+                          <span className="flex items-center gap-1.5 font-medium">
+                            {link.label}
+                            <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                          </span>
+                          {link.description && (
+                            <span className="text-sm text-muted-foreground">{link.description}</span>
+                          )}
+                        </a>
+                      </motion.div>
+                    ))}
+                </AnimatePresence>
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

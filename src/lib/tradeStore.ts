@@ -8,6 +8,7 @@
 import { logEvent } from "@/lib/activityLog";
 import { formatINR } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import {
   INSTRUMENT_LABELS,
   type Instrument,
@@ -28,13 +29,28 @@ export type SaveTradeInput = {
   legs: SaveTradeLegInput[];
 };
 
+/**
+ * Last-known result, kept warm so revisiting History after switching tabs
+ * away and back can paint instantly instead of flashing a loading skeleton
+ * while it refetches over the network.
+ */
+let cachedTrades: TradeWithLegs[] | null = null;
+
+/** Synchronous — for a view's initial state, so it can skip the skeleton on a repeat visit. */
+export function getCachedTrades(): TradeWithLegs[] | null {
+  return cachedTrades;
+}
+
 export async function getTrades(): Promise<TradeWithLegs[]> {
   const { data: trades, error: tradesError } = await supabase
     .from("trades")
     .select("*")
     .order("created_at", { ascending: false });
   if (tradesError) throw tradesError;
-  if (!trades || trades.length === 0) return [];
+  if (!trades || trades.length === 0) {
+    cachedTrades = [];
+    return cachedTrades;
+  }
 
   const { data: legs, error: legsError } = await supabase
     .from("trade_legs")
@@ -53,7 +69,8 @@ export async function getTrades(): Promise<TradeWithLegs[]> {
     else legsByTrade.set(leg.trade_id, [leg]);
   }
 
-  return trades.map((trade) => ({ ...trade, legs: legsByTrade.get(trade.id) ?? [] }));
+  cachedTrades = trades.map((trade) => ({ ...trade, legs: legsByTrade.get(trade.id) ?? [] }));
+  return cachedTrades;
 }
 
 export async function saveTrade(input: SaveTradeInput): Promise<TradeWithLegs> {
@@ -105,4 +122,9 @@ export async function clearTrades(): Promise<void> {
   if (error) throw error;
 
   logEvent(`Cleared all trades (${count} removed)`);
+}
+
+/** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
+export function subscribeToTradeChanges(callback: () => void): () => void {
+  return subscribeToTableChanges("trades", callback);
 }

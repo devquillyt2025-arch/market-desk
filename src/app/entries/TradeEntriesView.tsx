@@ -1,14 +1,17 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ChevronDownIcon, InboxIcon, PlusIcon, TrashIcon } from "@/components/icons";
-import { formatINR } from "@/lib/format";
+import { formatINR, pnlColorClass } from "@/lib/format";
+import { showToast } from "@/lib/toast";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
 import {
   addTradeEntry,
   calculateEntryPnl,
   deleteTradeEntry,
+  getCachedTradeEntries,
   getTradeEntries,
   setTradeEntryStatus,
   subscribeToTradeEntryChanges,
@@ -47,12 +50,6 @@ function todayISODate(): string {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
-function pnlColorClass(pnl: number): string {
-  if (pnl > 0) return "text-profit";
-  if (pnl < 0) return "text-loss";
-  return "text-foreground";
-}
-
 function formatEntryDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", {
     weekday: "short",
@@ -63,7 +60,7 @@ function formatEntryDate(iso: string): string {
 }
 
 export default function TradeEntriesView() {
-  const [entries, setEntries] = useState<TradeEntry[] | null>(null);
+  const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
   const [showForm, setShowForm] = useState(false);
   const [entryDate, setEntryDate] = useState(todayISODate());
   const [instrument, setInstrument] = useState<Instrument>("NIFTY");
@@ -87,10 +84,15 @@ export default function TradeEntriesView() {
     : null;
 
   useEffect(() => {
-    getTradeEntries().then(setEntries);
-    return subscribeToTradeEntryChanges(() => {
-      getTradeEntries().then(setEntries);
-    });
+    async function load() {
+      try {
+        setEntries(await getTradeEntries());
+      } catch {
+        showToast("Couldn't load trade entries. Check your connection.");
+      }
+    }
+    load();
+    return subscribeToTradeEntryChanges(load);
   }, []);
 
   async function handleAdd(e: FormEvent) {
@@ -129,18 +131,31 @@ export default function TradeEntriesView() {
   }
 
   function handleToggleStatus(entry: TradeEntry) {
+    const previous = entries;
     const next: TradeEntryStatus = entry.status === "squared_off" ? "hold" : "squared_off";
     setEntries((prev) => (prev ? prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)) : prev));
-    void setTradeEntryStatus(entry.id, next);
+    setTradeEntryStatus(entry.id, next).catch(() => {
+      setEntries(previous);
+      showToast("Couldn't update the status. Try again.");
+    });
   }
 
   function handleDelete(entry: TradeEntry) {
+    const previous = entries;
     setEntries((prev) => (prev ? prev.filter((e) => e.id !== entry.id) : prev));
-    void deleteTradeEntry(entry.id);
+    deleteTradeEntry(entry.id).catch(() => {
+      setEntries(previous);
+      showToast("Couldn't delete the entry. Try again.");
+    });
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-6"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Trade Entries</h1>
@@ -152,18 +167,24 @@ export default function TradeEntriesView() {
         <button
           type="button"
           onClick={() => setShowForm((prev) => !prev)}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
         >
           <PlusIcon className="size-4" />
           Add Entry
         </button>
       </div>
 
-      {showForm && (
-        <form
-          onSubmit={handleAdd}
-          className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
-        >
+      <AnimatePresence initial={false}>
+        {showForm && (
+          <motion.form
+            key="entry-form"
+            onSubmit={handleAdd}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
+          >
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="entry-instrument" className={labelClass}>
@@ -297,7 +318,7 @@ export default function TradeEntriesView() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
             >
               {saving ? "Saving…" : "Save Entry"}
             </button>
@@ -307,13 +328,14 @@ export default function TradeEntriesView() {
                 setShowForm(false);
                 setFormError(null);
               }}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
             >
               Cancel
             </button>
           </div>
-        </form>
-      )}
+          </motion.form>
+        )}
+      </AnimatePresence>
 
       {entries === null ? (
         <div className="flex flex-col gap-3">
@@ -328,46 +350,53 @@ export default function TradeEntriesView() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {entries.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm"
-            >
-              <span className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-muted-foreground">{formatEntryDate(entry.entry_date)}</span>
-                <span className="font-medium">{INSTRUMENT_LABELS[entry.instrument]}</span>
-                <span className={badgeClass}>
-                  {entry.lots} lot{entry.lots === 1 ? "" : "s"}
+          <AnimatePresence initial={false} mode="popLayout">
+            {entries.map((entry) => (
+              <motion.div
+                key={entry.id}
+                layout
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -12, transition: { duration: 0.15 } }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm"
+              >
+                <span className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm text-muted-foreground">{formatEntryDate(entry.entry_date)}</span>
+                  <span className="font-medium">{INSTRUMENT_LABELS[entry.instrument]}</span>
+                  <span className={badgeClass}>
+                    {entry.lots} lot{entry.lots === 1 ? "" : "s"}
+                  </span>
+                  <span className={badgeClass}>{SIDE_LABELS[entry.side]}</span>
+                  <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {entry.buy_price.toFixed(2)} → {entry.sell_price.toFixed(2)}
+                  </span>
+                  <span className={`font-mono font-semibold tabular-nums ${pnlColorClass(entry.pnl)}`}>
+                    {formatINR(entry.pnl)}
+                  </span>
                 </span>
-                <span className={badgeClass}>{SIDE_LABELS[entry.side]}</span>
-                <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {entry.buy_price.toFixed(2)} → {entry.sell_price.toFixed(2)}
+                <span className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStatus(entry)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 active:scale-95 ${STATUS_CLASSES[entry.status]}`}
+                  >
+                    {STATUS_LABELS[entry.status]}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(entry)}
+                    aria-label="Delete entry"
+                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
+                  >
+                    <TrashIcon className="size-4" />
+                  </button>
                 </span>
-                <span className={`font-mono font-semibold tabular-nums ${pnlColorClass(entry.pnl)}`}>
-                  {formatINR(entry.pnl)}
-                </span>
-              </span>
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleToggleStatus(entry)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 ${STATUS_CLASSES[entry.status]}`}
-                >
-                  {STATUS_LABELS[entry.status]}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(entry)}
-                  aria-label="Delete entry"
-                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss"
-                >
-                  <TrashIcon className="size-4" />
-                </button>
-              </span>
-            </div>
-          ))}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

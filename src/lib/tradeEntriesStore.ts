@@ -8,6 +8,7 @@ import { logEvent } from "@/lib/activityLog";
 import { round2 } from "@/lib/calculateTrade";
 import { formatINR } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import {
   DEFAULT_LOT_SIZES,
   INSTRUMENT_LABELS,
@@ -44,6 +45,14 @@ export function calculateEntryPnl(params: {
   return round2(net * DEFAULT_LOT_SIZES[params.instrument] * params.lots);
 }
 
+/** Last-known result, kept warm so revisiting the tab paints instantly instead of flashing a skeleton. */
+let cachedEntries: TradeEntry[] | null = null;
+
+/** Synchronous — for a view's initial state, so it can skip the skeleton on a repeat visit. */
+export function getCachedTradeEntries(): TradeEntry[] | null {
+  return cachedEntries;
+}
+
 export async function getTradeEntries(): Promise<TradeEntry[]> {
   const { data, error } = await supabase
     .from("trade_entries")
@@ -51,7 +60,8 @@ export async function getTradeEntries(): Promise<TradeEntry[]> {
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  cachedEntries = data ?? [];
+  return cachedEntries;
 }
 
 export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
@@ -93,14 +103,5 @@ export async function deleteTradeEntry(id: string): Promise<void> {
 
 /** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
 export function subscribeToTradeEntryChanges(callback: () => void): () => void {
-  const channel = supabase
-    .channel("trade-entries-changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "trade_entries" }, () => {
-      callback();
-    })
-    .subscribe();
-
-  return () => {
-    void supabase.removeChannel(channel);
-  };
+  return subscribeToTableChanges("trade_entries", callback);
 }

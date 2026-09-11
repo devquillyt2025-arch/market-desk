@@ -102,6 +102,25 @@ export type TradeEntry = {
   updated_at: string;
 };
 
+/** `links` row shape — snake_case; app-facing `LinkItem` (in linksStore.ts) maps `group_name` to `group`. */
+export type LinkRow = {
+  id: string;
+  user_id: string | null;
+  label: string;
+  url: string;
+  description: string | null;
+  group_name: string;
+  created_at: string;
+};
+
+/** `activity_log` row shape — backs the Logs tab. */
+export type ActivityLogRow = {
+  id: string;
+  user_id: string | null;
+  message: string;
+  created_at: string;
+};
+
 /** jsonb payload shape the `save_trade` RPC expects per leg. */
 export type SaveTradeLegInput = {
   sell_price: number;
@@ -153,6 +172,18 @@ export type Database = {
         Row: TradeEntry;
         Insert: Insert<TradeEntry, "id" | "user_id" | "entry_date" | "created_at" | "updated_at">;
         Update: Partial<TradeEntry>;
+        Relationships: [];
+      };
+      links: {
+        Row: LinkRow;
+        Insert: Insert<LinkRow, "id" | "user_id" | "created_at">;
+        Update: Partial<LinkRow>;
+        Relationships: [];
+      };
+      activity_log: {
+        Row: ActivityLogRow;
+        Insert: Insert<ActivityLogRow, "id" | "user_id" | "created_at">;
+        Update: Partial<ActivityLogRow>;
         Relationships: [];
       };
     };

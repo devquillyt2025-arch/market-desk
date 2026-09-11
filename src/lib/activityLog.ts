@@ -1,13 +1,19 @@
 /**
- * Local-only activity log. Every meaningful change made in the app calls
- * `logEvent` so the Logs tab has a full trail, without persisting anywhere
- * beyond this browser.
+ * Supabase-backed activity log. `logEvent` stays synchronous (fire-and-forget)
+ * because every other store calls it inline after a mutation without
+ * awaiting it — making it async would mean touching every call site for no
+ * behavioral benefit, since none of them need to know when the log write
+ * finishes.
  */
 
-const STORAGE_KEY = "marketdesk:logs";
+import { createClient } from "@/lib/supabase/client";
+import { subscribeToTableChanges } from "@/lib/supabase/realtime";
+
 const MAX_ENTRIES = 500;
-/** Swallows duplicate calls from React re-invoking an effect twice in dev. */
+/** Swallows duplicate calls from React re-invoking an effect twice in dev. Checked in-memory, not via a DB round-trip, since logEvent fires on nearly every action. */
 const DEDUPE_WINDOW_MS = 300;
+
+const supabase = createClient();
 
 export type LogEntry = {
   id: string;
@@ -15,48 +21,50 @@ export type LogEntry = {
   message: string;
 };
 
-function uuid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `log_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function readAll(): LogEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeAll(entries: LogEntry[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-}
+let lastLogged: { message: string; at: number } | null = null;
 
 export function logEvent(message: string): void {
-  if (typeof window === "undefined") return;
-
-  const existing = readAll();
-  const [last] = existing;
-  if (
-    last &&
-    last.message === message &&
-    Date.now() - new Date(last.timestamp).getTime() < DEDUPE_WINDOW_MS
-  ) {
+  const now = Date.now();
+  if (lastLogged && lastLogged.message === message && now - lastLogged.at < DEDUPE_WINDOW_MS) {
     return;
   }
+  lastLogged = { message, at: now };
 
-  const entry: LogEntry = { id: uuid(), timestamp: new Date().toISOString(), message };
-  writeAll([entry, ...existing].slice(0, MAX_ENTRIES));
+  void (async () => {
+    try {
+      const { error } = await supabase.from("activity_log").insert({ message });
+      if (error) throw error;
+    } catch (err) {
+      console.error("Failed to record activity log entry:", err);
+    }
+  })();
+}
+
+/** Last-known result, kept warm so revisiting the tab paints instantly instead of flashing a skeleton. */
+let cachedLogs: LogEntry[] | null = null;
+
+/** Synchronous — for a view's initial state, so it can skip the skeleton on a repeat visit. */
+export function getCachedLogs(): LogEntry[] | null {
+  return cachedLogs;
 }
 
 export async function getLogs(): Promise<LogEntry[]> {
-  return readAll();
+  const { data, error } = await supabase
+    .from("activity_log")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(MAX_ENTRIES);
+  if (error) throw error;
+  cachedLogs = (data ?? []).map((row) => ({ id: row.id, timestamp: row.created_at, message: row.message }));
+  return cachedLogs;
 }
 
 export async function clearLogs(): Promise<void> {
-  writeAll([]);
+  const { error } = await supabase.from("activity_log").delete().not("id", "is", null);
+  if (error) throw error;
+}
+
+/** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
+export function subscribeToLogChanges(callback: () => void): () => void {
+  return subscribeToTableChanges("activity_log", callback);
 }
