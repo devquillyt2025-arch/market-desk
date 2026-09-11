@@ -214,6 +214,15 @@ export function CopyIcon({ className }: IconProps) {
   );
 }
 
+export function CalendarIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4" />
+    </svg>
+  );
+}
+
 export function NoteIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

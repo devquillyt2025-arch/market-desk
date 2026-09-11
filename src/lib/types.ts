@@ -80,6 +80,28 @@ export type NoteRow = {
   updated_at: string;
 };
 
+export const TRADE_ENTRY_STATUSES = ["squared_off", "hold"] as const;
+export type TradeEntryStatus = (typeof TRADE_ENTRY_STATUSES)[number];
+
+export const TRADE_ENTRY_SIDES = ["buy", "sell"] as const;
+export type TradeEntrySide = (typeof TRADE_ENTRY_SIDES)[number];
+
+/** Daily trading journal — one row per day, independent of `trades`. */
+export type TradeEntry = {
+  id: string;
+  user_id: string | null;
+  entry_date: string;
+  instrument: Instrument;
+  lots: number;
+  side: TradeEntrySide;
+  buy_price: number;
+  sell_price: number;
+  pnl: number;
+  status: TradeEntryStatus;
+  created_at: string;
+  updated_at: string;
+};
+
 /** jsonb payload shape the `save_trade` RPC expects per leg. */
 export type SaveTradeLegInput = {
   sell_price: number;
@@ -125,6 +147,12 @@ export type Database = {
         Row: NoteRow;
         Insert: Insert<NoteRow, "id" | "user_id" | "created_at" | "updated_at">;
         Update: Partial<NoteRow>;
+        Relationships: [];
+      };
+      trade_entries: {
+        Row: TradeEntry;
+        Insert: Insert<TradeEntry, "id" | "user_id" | "entry_date" | "created_at" | "updated_at">;
+        Update: Partial<TradeEntry>;
         Relationships: [];
       };
     };

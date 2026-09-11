@@ -7,6 +7,7 @@ import { useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
   ActivityIcon,
+  CalendarIcon,
   ClockIcon,
   LinkIcon,
   MenuIcon,
@@ -18,6 +19,7 @@ import {
 const LINKS = [
   { href: "/", label: "Brokerage", icon: ReceiptIcon },
   { href: "/notes", label: "Notes", icon: NoteIcon },
+  { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/history", label: "History", icon: ClockIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
