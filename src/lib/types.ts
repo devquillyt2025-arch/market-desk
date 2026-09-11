@@ -42,6 +42,44 @@ export type Trade = {
 
 export type TradeWithLegs = Trade & { legs: TradeLeg[] };
 
+export const NOTE_COLORS = [
+  "default",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "teal",
+  "blue",
+  "purple",
+  "pink",
+] as const;
+export type NoteColor = (typeof NOTE_COLORS)[number];
+
+/** App-facing shape — camelCase, predates the Supabase-backed table. */
+export type Note = {
+  id: string;
+  title: string;
+  content: string;
+  color: NoteColor;
+  pinned: boolean;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** `notes` row shape — snake_case, matching every other table in this schema. */
+export type NoteRow = {
+  id: string;
+  user_id: string | null;
+  title: string;
+  content: string;
+  color: NoteColor;
+  pinned: boolean;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 /** jsonb payload shape the `save_trade` RPC expects per leg. */
 export type SaveTradeLegInput = {
   sell_price: number;
@@ -81,6 +119,12 @@ export type Database = {
         Row: TradeLeg;
         Insert: Insert<TradeLeg, "id" | "created_at">;
         Update: Partial<TradeLeg>;
+        Relationships: [];
+      };
+      notes: {
+        Row: NoteRow;
+        Insert: Insert<NoteRow, "id" | "user_id" | "created_at" | "updated_at">;
+        Update: Partial<NoteRow>;
         Relationships: [];
       };
     };

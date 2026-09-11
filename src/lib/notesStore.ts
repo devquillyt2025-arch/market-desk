@@ -1,64 +1,47 @@
 /**
- * Local-only persistence for notes. Same shape as tradeStore.ts/linksStore.ts:
- * async API over localStorage so a real backend can replace the body later
- * without touching call sites, plus activity logging on every mutation since
- * this app already has a Logs tab that expects to see everything.
+ * Supabase-backed persistence for notes. `Note` (app-facing, camelCase) and
+ * `NoteRow` (the `notes` table, snake_case like every other table) differ in
+ * shape because `Note` predates the Supabase-backed table — fromRow/toRow
+ * translate between them so the rest of the app never has to know.
  */
 
 import { logEvent } from "@/lib/activityLog";
+import { createClient } from "@/lib/supabase/client";
+import { NOTE_COLORS, type Note, type NoteColor, type NoteRow } from "@/lib/types";
 
-const STORAGE_KEY = "marketdesk:notes";
-const CHANGE_EVENT = "marketdesk-notes-changed";
+export { NOTE_COLORS, type Note, type NoteColor };
 
-export const NOTE_COLORS = [
-  "default",
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "teal",
-  "blue",
-  "purple",
-  "pink",
-] as const;
-
-export type NoteColor = (typeof NOTE_COLORS)[number];
-
-export type Note = {
-  id: string;
-  title: string;
-  content: string;
-  color: NoteColor;
-  pinned: boolean;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-};
+const supabase = createClient();
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `note_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function readAll(): Note[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+function fromRow(row: NoteRow): Note {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    color: row.color,
+    pinned: row.pinned,
+    tags: row.tags,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function writeAll(notes: Note[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
-  try {
-    window.dispatchEvent(new Event(CHANGE_EVENT));
-  } catch {
-    // window.dispatchEvent can throw in locked-down embeds; the write itself already succeeded.
-  }
+function toRow(note: Note): Omit<NoteRow, "user_id"> {
+  return {
+    id: note.id,
+    title: note.title,
+    content: note.content,
+    color: note.color,
+    pinned: note.pinned,
+    tags: note.tags,
+    created_at: note.createdAt,
+    updated_at: note.updatedAt,
+  };
 }
 
 export function newNote(overrides: Partial<Note> = {}): Note {
@@ -77,48 +60,59 @@ export function newNote(overrides: Partial<Note> = {}): Note {
 }
 
 export async function getNotes(): Promise<Note[]> {
-  return readAll();
+  const { data, error } = await supabase
+    .from("notes")
+    .select("*")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(fromRow);
 }
 
-export async function saveNote(note: Note): Promise<Note[]> {
-  const prev = readAll();
-  const exists = prev.some((n) => n.id === note.id);
-  const updated = exists ? prev.map((n) => (n.id === note.id ? note : n)) : [note, ...prev];
-  writeAll(updated);
-  logEvent(`${exists ? "Updated" : "Created"} note: ${note.title || "Untitled"}`);
-  return updated;
+export async function saveNote(note: Note): Promise<void> {
+  const { data: existing } = await supabase.from("notes").select("id").eq("id", note.id).maybeSingle();
+  const { error } = await supabase.from("notes").upsert(toRow(note), { onConflict: "id" });
+  if (error) throw error;
+  logEvent(`${existing ? "Updated" : "Created"} note: ${note.title || "Untitled"}`);
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  const prev = readAll();
-  const note = prev.find((n) => n.id === id);
-  writeAll(prev.filter((n) => n.id !== id));
+  const { data: note, error } = await supabase.from("notes").delete().eq("id", id).select().maybeSingle();
+  if (error) throw error;
   if (note) logEvent(`Deleted note: ${note.title || "Untitled"}`);
 }
 
-export async function setNotePinned(id: string, pinned: boolean): Promise<Note[]> {
-  const prev = readAll();
-  const note = prev.find((n) => n.id === id);
-  const updated = prev.map((n) =>
-    n.id === id ? { ...n, pinned, updatedAt: new Date().toISOString() } : n,
-  );
-  writeAll(updated);
+export async function setNotePinned(id: string, pinned: boolean): Promise<void> {
+  const { data: note, error } = await supabase
+    .from("notes")
+    .update({ pinned, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
   if (note) logEvent(`${pinned ? "Pinned" : "Unpinned"} note: ${note.title || "Untitled"}`);
-  return updated;
 }
 
-export async function setNoteColor(id: string, color: NoteColor): Promise<Note[]> {
-  const prev = readAll();
-  const updated = prev.map((n) =>
-    n.id === id ? { ...n, color, updatedAt: new Date().toISOString() } : n,
-  );
-  writeAll(updated);
-  return updated;
+export async function setNoteColor(id: string, color: NoteColor): Promise<void> {
+  const { error } = await supabase
+    .from("notes")
+    .update({ color, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
 }
 
-/** Keeps multiple open tabs/windows in sync — cheap and safe to always include. */
+/**
+ * Keeps every open session in sync — other tabs, other devices — via
+ * Supabase Realtime instead of the localStorage-era same-tab change event.
+ */
 export function subscribeToNoteChanges(callback: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(CHANGE_EVENT, callback);
-  return () => window.removeEventListener(CHANGE_EVENT, callback);
+  const channel = supabase
+    .channel("notes-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "notes" }, () => {
+      callback();
+    })
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 }
