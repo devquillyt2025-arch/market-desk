@@ -86,7 +86,13 @@ export type TradeEntryStatus = (typeof TRADE_ENTRY_STATUSES)[number];
 export const TRADE_ENTRY_SIDES = ["buy", "sell"] as const;
 export type TradeEntrySide = (typeof TRADE_ENTRY_SIDES)[number];
 
-/** Daily trading journal — one row per day, independent of `trades`. */
+/**
+ * Daily trading journal — one row per day, independent of `trades`. Doubles
+ * as the running balance-sheet ledger (see calculateBalanceSheet.ts): each
+ * entry's own `pnl` is that day's debit (if negative) or credit (if
+ * positive), so Closing Balance/Fund/% Return are derived from these rows
+ * plus `BalanceSheetSettings.starting_fund` rather than tracked separately.
+ */
 export type TradeEntry = {
   id: string;
   user_id: string | null;
@@ -98,6 +104,7 @@ export type TradeEntry = {
   sell_price: number;
   pnl: number;
   status: TradeEntryStatus;
+  remarks: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -119,6 +126,13 @@ export type ActivityLogRow = {
   user_id: string | null;
   message: string;
   created_at: string;
+};
+
+/** Singleton settings row (`id` is always `true`) — just the starting capital for now. */
+export type BalanceSheetSettings = {
+  id: boolean;
+  starting_fund: number;
+  updated_at: string;
 };
 
 /** jsonb payload shape the `save_trade` RPC expects per leg. */
@@ -170,7 +184,7 @@ export type Database = {
       };
       trade_entries: {
         Row: TradeEntry;
-        Insert: Insert<TradeEntry, "id" | "user_id" | "entry_date" | "created_at" | "updated_at">;
+        Insert: Insert<TradeEntry, "id" | "user_id" | "entry_date" | "remarks" | "created_at" | "updated_at">;
         Update: Partial<TradeEntry>;
         Relationships: [];
       };
@@ -184,6 +198,12 @@ export type Database = {
         Row: ActivityLogRow;
         Insert: Insert<ActivityLogRow, "id" | "user_id" | "created_at">;
         Update: Partial<ActivityLogRow>;
+        Relationships: [];
+      };
+      balance_sheet_settings: {
+        Row: BalanceSheetSettings;
+        Insert: Insert<BalanceSheetSettings, "id" | "updated_at">;
+        Update: Partial<BalanceSheetSettings>;
         Relationships: [];
       };
     };

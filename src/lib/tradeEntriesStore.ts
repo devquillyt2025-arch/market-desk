@@ -32,6 +32,7 @@ export type AddTradeEntryInput = {
   buyPrice: number;
   sellPrice: number;
   status: TradeEntryStatus;
+  remarks?: string;
 };
 
 /** Same formula as the Brokerage Calculator: (sell - buy) * lot size * lots. */
@@ -75,10 +76,34 @@ export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
     sell_price: input.sellPrice,
     pnl,
     status: input.status,
+    remarks: input.remarks?.trim() || null,
   });
   if (error) throw error;
   logEvent(
     `Added trade entry: ${INSTRUMENT_LABELS[input.instrument]} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
+  );
+}
+
+export async function updateTradeEntry(id: string, input: AddTradeEntryInput): Promise<void> {
+  const pnl = calculateEntryPnl(input);
+  const { error } = await supabase
+    .from("trade_entries")
+    .update({
+      entry_date: input.entryDate,
+      instrument: input.instrument,
+      lots: input.lots,
+      side: input.side,
+      buy_price: input.buyPrice,
+      sell_price: input.sellPrice,
+      pnl,
+      status: input.status,
+      remarks: input.remarks?.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+  logEvent(
+    `Edited trade entry: ${INSTRUMENT_LABELS[input.instrument]} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
   );
 }
 
@@ -101,7 +126,40 @@ export async function deleteTradeEntry(id: string): Promise<void> {
   if (entry) logEvent(`Deleted trade entry: ${entry.entry_date}`);
 }
 
-/** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
+/** Kept warm for the same reason as cachedEntries above. */
+let cachedStartingFund: number | null = null;
+
+export function getCachedStartingFund(): number | null {
+  return cachedStartingFund;
+}
+
+/** The balance sheet's starting capital — used to derive Fund and Overall % Ret alongside each entry's own pnl. */
+export async function getStartingFund(): Promise<number> {
+  const { data, error } = await supabase
+    .from("balance_sheet_settings")
+    .select("starting_fund")
+    .limit(1)
+    .single();
+  if (error) throw error;
+  cachedStartingFund = data.starting_fund;
+  return cachedStartingFund;
+}
+
+export async function updateStartingFund(value: number): Promise<void> {
+  const { error } = await supabase
+    .from("balance_sheet_settings")
+    .update({ starting_fund: value, updated_at: new Date().toISOString() })
+    .eq("id", true);
+  if (error) throw error;
+  logEvent(`Updated starting fund to ${value}`);
+}
+
+/** Keeps every open session in sync via Supabase Realtime — covers both the entries and the starting fund. */
 export function subscribeToTradeEntryChanges(callback: () => void): () => void {
-  return subscribeToTableChanges("trade_entries", callback);
+  const unsubscribeEntries = subscribeToTableChanges("trade_entries", callback);
+  const unsubscribeSettings = subscribeToTableChanges("balance_sheet_settings", callback);
+  return () => {
+    unsubscribeEntries();
+    unsubscribeSettings();
+  };
 }
