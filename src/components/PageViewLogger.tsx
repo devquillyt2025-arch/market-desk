@@ -8,6 +8,7 @@ import { logEvent } from "@/lib/activityLog";
 const PAGE_LABELS: Record<string, string> = {
   "/": "Brokerage Calculator",
   "/notes": "Notes",
+  "/entries": "Trade Entries",
   "/history": "History",
   "/links": "Important Links",
   "/logs": "Logs",
