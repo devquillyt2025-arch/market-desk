@@ -3,8 +3,9 @@
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
-import { ChevronDownIcon, GridIcon, InboxIcon, ListIcon, PlusIcon, SearchIcon } from "@/components/icons";
+import { GridIcon, InboxIcon, ListIcon, PlusIcon, SearchIcon } from "@/components/icons";
 import NoteCard from "@/components/NoteCard";
+import Select from "@/components/Select";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_LABELS } from "@/lib/noteColors";
 import {
   deleteNote,
@@ -24,6 +25,15 @@ const PICKABLE_COLORS = NOTE_COLORS.filter(
 
 type ViewMode = "grid" | "list";
 type SortOrder = "updated" | "oldest" | "alpha";
+
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: "updated", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "alpha", label: "A–Z" },
+];
+
+const toolbarSelectClass =
+  "flex h-9 items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 export type NoteEditorContext = {
   note: Note;
@@ -190,34 +200,19 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
           ))}
         </div>
 
-        <div className="relative">
-          <select
-            value={activeTag ?? "all"}
-            onChange={(e) => setActiveTag(e.target.value === "all" ? null : e.target.value)}
-            className="h-9 appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-8 text-sm text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          >
-            <option value="all">All Tags</option>
-            {allTags.map((t) => (
-              <option key={t} value={t}>
-                #{t}
-              </option>
-            ))}
-          </select>
-          <ChevronDownIcon className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        </div>
+        <Select
+          value={activeTag ?? "all"}
+          onChange={(v) => setActiveTag(v === "all" ? null : v)}
+          options={[{ value: "all", label: "All Tags" }, ...allTags.map((t) => ({ value: t, label: `#${t}` }))]}
+          triggerClassName={toolbarSelectClass}
+        />
 
-        <div className="relative">
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-            className="h-9 appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-8 text-sm text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          >
-            <option value="updated">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="alpha">A–Z</option>
-          </select>
-          <ChevronDownIcon className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        </div>
+        <Select
+          value={sortOrder}
+          onChange={setSortOrder}
+          options={SORT_OPTIONS}
+          triggerClassName={toolbarSelectClass}
+        />
 
         <div className="flex overflow-hidden rounded-lg border border-border">
           <button
