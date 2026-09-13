@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
 
+import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
 import Select from "@/components/Select";
 import { formatINR, pnlColorClass } from "@/lib/format";
@@ -223,13 +224,7 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
               <label htmlFor="entry-date" className={labelClass}>
                 Date
               </label>
-              <input
-                id="entry-date"
-                type="date"
-                value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
-                className={`${inputClass} font-mono tabular-nums`}
-              />
+              <DatePicker id="entry-date" value={entryDate} onChange={setEntryDate} />
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor="entry-buy-price" className={labelClass}>
