@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import { ActivityIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Select from "@/components/Select";
 import { clearLogs, getCachedLogs, getLogs, subscribeToLogChanges, type LogEntry } from "@/lib/activityLog";
 import { showToast } from "@/lib/toast";
@@ -29,6 +30,7 @@ export default function LogsView() {
   const [logs, setLogs] = useState<LogEntry[] | null>(getCachedLogs);
   const [query, setQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -51,8 +53,8 @@ export default function LogsView() {
   }, [logs, query, sortOrder]);
 
   function handleClear() {
-    if (!window.confirm("Clear the activity log? This can't be undone.")) return;
     const previous = logs;
+    setConfirmingClear(false);
     setLogs([]);
     clearLogs().catch(() => {
       setLogs(previous);
@@ -77,7 +79,7 @@ export default function LogsView() {
         {logs && logs.length > 0 && (
           <button
             type="button"
-            onClick={handleClear}
+            onClick={() => setConfirmingClear(true)}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-loss/40 hover:bg-loss/10 hover:text-loss active:scale-95"
           >
             <TrashIcon className="size-4" />
@@ -147,6 +149,18 @@ export default function LogsView() {
           </ul>
         </div>
       )}
+
+      <AnimatePresence>
+        {confirmingClear && (
+          <ConfirmDialog
+            title="Clear the activity log?"
+            message="Every log entry will be removed for every device — this can't be undone."
+            confirmLabel="Clear Logs"
+            onConfirm={handleClear}
+            onCancel={() => setConfirmingClear(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

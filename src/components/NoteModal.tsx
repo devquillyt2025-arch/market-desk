@@ -1,8 +1,9 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { CheckIcon, CopyIcon, TrashIcon, XIcon } from "@/components/icons";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_LABELS } from "@/lib/noteColors";
 import type { Note, NoteColor } from "@/lib/notesStore";
@@ -26,6 +27,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
   const [tagInput, setTagInput] = useState("");
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const colorBtnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -86,6 +88,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
   const colorClasses = color !== "default" ? NOTE_COLOR_CLASSES[color as Exclude<NoteColor, "default">] : null;
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -224,10 +227,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
             {!isNew && (
               <button
                 type="button"
-                onClick={() => {
-                  onDelete(note.id);
-                  onClose();
-                }}
+                onClick={() => setConfirmingDelete(true)}
                 title="Delete note"
                 className="flex size-8 items-center justify-center rounded-md text-loss transition-colors hover:bg-loss/10"
               >
@@ -245,5 +245,20 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
         </div>
       </motion.div>
     </motion.div>
+
+    <AnimatePresence>
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete this note?"
+          message={`"${title || "Untitled"}" will be removed for every device — this can't be undone.`}
+          onConfirm={() => {
+            onDelete(note.id);
+            onClose();
+          }}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
 }

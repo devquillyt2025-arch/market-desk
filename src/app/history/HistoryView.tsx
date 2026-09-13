@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { ChevronDownIcon, InboxIcon, TrashIcon } from "@/components/icons";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 import {
@@ -15,9 +16,12 @@ import {
 } from "@/lib/tradeStore";
 import { INSTRUMENT_LABELS, type TradeWithLegs } from "@/lib/types";
 
+type PendingAction = { type: "single"; trade: TradeWithLegs } | { type: "clear-all" } | null;
+
 export default function HistoryView() {
   const [trades, setTrades] = useState<TradeWithLegs[] | null>(getCachedTrades);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   useEffect(() => {
     async function load() {
@@ -31,22 +35,27 @@ export default function HistoryView() {
     return subscribeToTradeChanges(load);
   }, []);
 
-  function handleDelete(id: string) {
+  function confirmAction() {
+    if (!pendingAction) return;
+    const action = pendingAction;
+    setPendingAction(null);
+
+    if (action.type === "clear-all") {
+      const previous = trades;
+      setTrades([]);
+      clearTrades().catch(() => {
+        setTrades(previous);
+        showToast("Couldn't clear trades. Try again.");
+      });
+      return;
+    }
+
+    const { trade } = action;
     const previous = trades;
-    setTrades((prev) => (prev ? prev.filter((trade) => trade.id !== id) : prev));
-    deleteTrade(id).catch(() => {
+    setTrades((prev) => (prev ? prev.filter((t) => t.id !== trade.id) : prev));
+    deleteTrade(trade.id).catch(() => {
       setTrades(previous);
       showToast("Couldn't delete the trade. Try again.");
-    });
-  }
-
-  function handleClearAll() {
-    if (!window.confirm("Delete all saved trades from this browser? This can't be undone.")) return;
-    const previous = trades;
-    setTrades([]);
-    clearTrades().catch(() => {
-      setTrades(previous);
-      showToast("Couldn't clear trades. Try again.");
     });
   }
 
@@ -65,7 +74,7 @@ export default function HistoryView() {
         {trades && trades.length > 0 && (
           <button
             type="button"
-            onClick={handleClearAll}
+            onClick={() => setPendingAction({ type: "clear-all" })}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-loss/40 hover:bg-loss/10 hover:text-loss active:scale-95"
           >
             <TrashIcon className="size-4" />
@@ -136,7 +145,7 @@ export default function HistoryView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDelete(trade.id)}
+                      onClick={() => setPendingAction({ type: "single", trade })}
                       aria-label="Delete trade"
                       className="mr-3 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
                     >
@@ -195,6 +204,24 @@ export default function HistoryView() {
           </AnimatePresence>
         </div>
       )}
+
+      <AnimatePresence>
+        {pendingAction && (
+          <ConfirmDialog
+            title={pendingAction.type === "clear-all" ? "Clear all trade history?" : "Delete this trade?"}
+            message={
+              pendingAction.type === "clear-all"
+                ? "Every saved trade will be removed for every device — this can't be undone."
+                : `${INSTRUMENT_LABELS[pendingAction.trade.instrument]} on ${new Date(
+                    pendingAction.trade.trade_date,
+                  ).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} — this can't be undone.`
+            }
+            confirmLabel={pendingAction.type === "clear-all" ? "Clear All" : "Delete"}
+            onConfirm={confirmAction}
+            onCancel={() => setPendingAction(null)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

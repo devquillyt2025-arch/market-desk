@@ -12,6 +12,7 @@ import {
   PlusIcon,
   XIcon,
 } from "@/components/icons";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { logEvent } from "@/lib/activityLog";
 import {
   addLink,
@@ -56,6 +57,7 @@ export default function LinksView() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [pendingDelete, setPendingDelete] = useState<LinkItem | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
@@ -135,7 +137,16 @@ export default function LinksView() {
     }
   }
 
-  function handleDelete(link: LinkItem) {
+  function requestDelete(link: LinkItem) {
+    setPendingDelete(link);
+  }
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const link = pendingDelete;
+    setPendingDelete(null);
+    if (editingId === link.id) resetForm();
+
     const previous = links;
     setLinks((prev) => (prev ? prev.filter((l) => l.id !== link.id) : prev));
     deleteLink(link.id).catch(() => {
@@ -425,7 +436,7 @@ export default function LinksView() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDelete(link)}
+                              onClick={() => requestDelete(link)}
                               aria-label={`Delete ${link.label}`}
                               className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
                             >
@@ -459,6 +470,17 @@ export default function LinksView() {
           ))}
         </div>
       )}
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <ConfirmDialog
+            title="Delete this link?"
+            message={`"${pendingDelete.label}" will be removed for every device — this can't be undone.`}
+            onConfirm={confirmDelete}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

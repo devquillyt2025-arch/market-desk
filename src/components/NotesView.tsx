@@ -3,6 +3,7 @@
 import { AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { GridIcon, InboxIcon, ListIcon, PlusIcon, SearchIcon } from "@/components/icons";
 import NoteCard from "@/components/NoteCard";
 import Select from "@/components/Select";
@@ -54,6 +55,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
   const [activeColor, setActiveColor] = useState<NoteColor | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("updated");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [pendingDelete, setPendingDelete] = useState<Note | null>(null);
 
   useEffect(() => {
     getNotes().then(setNotes);
@@ -77,7 +79,15 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
     void setNotePinned(id, nextPinned);
   }
 
-  function handleDelete(id: string) {
+  function requestDelete(id: string) {
+    const note = notes?.find((n) => n.id === id);
+    if (note) setPendingDelete(note);
+  }
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
     setNotes((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
     void deleteNote(id);
   }
@@ -140,7 +150,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
               viewMode={viewMode}
               onOpen={openEdit}
               onPin={handlePin}
-              onDelete={handleDelete}
+              onDelete={requestDelete}
               onColorSelect={handleColorSelect}
             />
           ))}
@@ -297,6 +307,17 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
           )}
         </div>
       )}
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <ConfirmDialog
+            title="Delete this note?"
+            message={`"${pendingDelete.title || "Untitled"}" will be removed for every device — this can't be undone.`}
+            onConfirm={confirmDelete}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
