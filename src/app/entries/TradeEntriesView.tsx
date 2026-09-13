@@ -3,12 +3,22 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
-import { DownloadIcon, InboxIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import {
+  ArrowUpDownIcon,
+  DownloadIcon,
+  InboxIcon,
+  PencilIcon,
+  PlusIcon,
+  SearchIcon,
+  TrashIcon,
+  UploadIcon,
+} from "@/components/icons";
+import Select from "@/components/Select";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { summarizeEntries } from "@/lib/calculateReports";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { showToast } from "@/lib/toast";
-import { INSTRUMENT_LABELS } from "@/lib/types";
+import { INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
 import {
   addTradeEntry,
   calculateEntryPnl,
@@ -63,6 +73,41 @@ function formatCellDate(iso: string): string {
   });
 }
 
+/** e.g. "NIFTY 23500 CE" when a strike/option type is set, else just the instrument label. */
+function describeRowContract(row: Pick<TradeEntry, "instrument" | "strike_price" | "option_type">): string {
+  return row.strike_price != null && row.option_type
+    ? `${row.instrument} ${row.strike_price.toFixed(0)} ${row.option_type}`
+    : INSTRUMENT_LABELS[row.instrument];
+}
+
+type SortField = "date" | "pnl" | "buyPrice" | "sellPrice" | "lots";
+type SortDir = "asc" | "desc";
+
+const SORT_FIELD_OPTIONS: { value: SortField; label: string }[] = [
+  { value: "date", label: "Date" },
+  { value: "pnl", label: "P&L" },
+  { value: "buyPrice", label: "Buy Price" },
+  { value: "sellPrice", label: "Sell Price" },
+  { value: "lots", label: "Lots" },
+];
+
+const STATUS_FILTER_OPTIONS: { value: TradeEntryStatus | "all"; label: string }[] = [
+  { value: "all", label: "All Statuses" },
+  { value: "hold", label: "Hold" },
+  { value: "squared_off", label: "Squared Off" },
+];
+
+const SIDE_FILTER_OPTIONS: { value: TradeEntrySide | "all"; label: string }[] = [
+  { value: "all", label: "All Sides" },
+  { value: "buy", label: "Buy" },
+  { value: "sell", label: "Sell" },
+];
+
+const INSTRUMENT_FILTER_OPTIONS: { value: Instrument | "all"; label: string }[] = [
+  { value: "all", label: "All Instruments" },
+  ...INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] })),
+];
+
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -83,6 +128,13 @@ export default function TradeEntriesView() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<TradeEntryStatus | "all">("all");
+  const [sideFilter, setSideFilter] = useState<TradeEntrySide | "all">("all");
+  const [instrumentFilter, setInstrumentFilter] = useState<Instrument | "all">("all");
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   // Re-sorting/re-accumulating the whole ledger is wasted work on renders
   // that don't touch `entries` (opening the modal, an import spinner
   // toggling) — memoized so it only re-runs when the entries themselves
@@ -92,6 +144,61 @@ export default function TradeEntriesView() {
     [entries],
   );
   const summary = useMemo(() => (entries ? summarizeEntries(entries) : null), [entries]);
+
+  // Search/filter/sort operate on top of the already-computed rows — SL
+  // numbering and Closing Bal stay tied to the true chronological ledger
+  // (computed above) no matter how the table is currently displayed, the
+  // same way a bank statement's balance column doesn't change when you sort
+  // by amount instead of date.
+  const displayedRows = useMemo(() => {
+    if (!rows) return null;
+    let result = rows;
+
+    if (statusFilter !== "all") result = result.filter((r) => r.status === statusFilter);
+    if (sideFilter !== "all") result = result.filter((r) => r.side === sideFilter);
+    if (instrumentFilter !== "all") result = result.filter((r) => r.instrument === instrumentFilter);
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter((r) => {
+        return (
+          describeRowContract(r).toLowerCase().includes(q) ||
+          SIDE_LABELS[r.side].toLowerCase().includes(q) ||
+          STATUS_LABELS[r.status].toLowerCase().includes(q) ||
+          (r.remarks ?? "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...result].sort((a, b) => {
+      switch (sortField) {
+        case "pnl":
+          return (a.pnl - b.pnl) * dir;
+        case "buyPrice":
+          return (a.buy_price - b.buy_price) * dir;
+        case "sellPrice":
+          return (a.sell_price - b.sell_price) * dir;
+        case "lots":
+          return (a.lots - b.lots) * dir;
+        case "date":
+        default: {
+          if (a.entry_date !== b.entry_date) return (a.entry_date < b.entry_date ? -1 : 1) * dir;
+          return (a.created_at < b.created_at ? -1 : 1) * dir;
+        }
+      }
+    });
+  }, [rows, statusFilter, sideFilter, instrumentFilter, searchQuery, sortField, sortDir]);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== "" || statusFilter !== "all" || sideFilter !== "all" || instrumentFilter !== "all";
+
+  function resetFilters() {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setSideFilter("all");
+    setInstrumentFilter("all");
+  }
 
   useEffect(() => {
     async function load() {
@@ -281,6 +388,55 @@ export default function TradeEntriesView() {
         </div>
       )}
 
+      {rows !== null && rows.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search instrument, remarks…"
+                className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+              />
+            </div>
+            <div className="w-36 shrink-0">
+              <Select value={statusFilter} onChange={setStatusFilter} options={STATUS_FILTER_OPTIONS} />
+            </div>
+            <div className="w-32 shrink-0">
+              <Select value={sideFilter} onChange={setSideFilter} options={SIDE_FILTER_OPTIONS} />
+            </div>
+            <div className="w-40 shrink-0">
+              <Select value={instrumentFilter} onChange={setInstrumentFilter} options={INSTRUMENT_FILTER_OPTIONS} />
+            </div>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sort by</span>
+            <div className="w-36 shrink-0">
+              <Select value={sortField} onChange={setSortField} options={SORT_FIELD_OPTIONS} />
+            </div>
+            <button
+              type="button"
+              onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
+              aria-label={sortDir === "asc" ? "Ascending — click for descending" : "Descending — click for ascending"}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+            >
+              <ArrowUpDownIcon className="size-4" />
+              {sortDir === "asc" ? "Ascending" : "Descending"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {rows === null ? (
         <div className="flex flex-col gap-3">
           {[0, 1, 2].map((i) => (
@@ -292,10 +448,22 @@ export default function TradeEntriesView() {
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No trade entries yet. Add one above to get started.</p>
         </div>
+      ) : displayedRows && displayedRows.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+          <SearchIcon className="size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No entries match the current search and filters.</p>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="rounded-lg border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            Reset filters
+          </button>
+        </div>
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse text-sm">
+            <table className="w-full min-w-[1080px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50 text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
@@ -305,6 +473,7 @@ export default function TradeEntriesView() {
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Lots</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Buy Price</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
+                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Closing Bal</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>PNL(K)</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
@@ -314,7 +483,7 @@ export default function TradeEntriesView() {
               </thead>
               <tbody>
                 <AnimatePresence initial={false}>
-                  {rows.map((row) => (
+                  {(displayedRows ?? []).map((row) => (
                     <motion.tr
                       key={row.id}
                       initial={{ opacity: 0 }}
@@ -328,11 +497,7 @@ export default function TradeEntriesView() {
                         {formatCellDate(row.entry_date)}
                         <span className="ml-1.5 text-xs text-muted-foreground">{row.day.slice(0, 3)}</span>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 font-medium">
-                        {row.strike_price != null && row.option_type
-                          ? `${row.instrument} ${row.strike_price.toFixed(0)} ${row.option_type}`
-                          : INSTRUMENT_LABELS[row.instrument]}
-                      </td>
+                      <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeRowContract(row)}</td>
                       <td className="px-2 py-2.5">
                         <span className={badgeClass}>{SIDE_LABELS[row.side]}</span>
                       </td>
@@ -342,6 +507,11 @@ export default function TradeEntriesView() {
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
                         {row.sell_price.toFixed(2)}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.pnl)}`}
+                      >
+                        {rupees(row.pnl)}
                       </td>
                       <td
                         className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.closingBalance)}`}
