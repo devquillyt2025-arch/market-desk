@@ -1,17 +1,28 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 
-import { CheckIcon, ExternalLinkIcon, InboxIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons";
+import {
+  CheckIcon,
+  ExternalLinkIcon,
+  GripVerticalIcon,
+  InboxIcon,
+  PencilIcon,
+  PlusIcon,
+  XIcon,
+} from "@/components/icons";
 import { logEvent } from "@/lib/activityLog";
 import {
   addLink,
   deleteLink,
   getCachedLinks,
   getLinks,
+  moveLink,
   NECESSARY_LINK_GROUPS,
+  renameLinkGroup,
   subscribeToLinkChanges,
+  updateLink,
   type LinkItem,
 } from "@/lib/linksStore";
 import { showToast } from "@/lib/toast";
@@ -36,12 +47,20 @@ export default function LinksView() {
   const [links, setLinks] = useState<LinkItem[] | null>(getCachedLinks);
   const [showForm, setShowForm] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  /** null = the form (if open) is adding a new link; otherwise the link being edited. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [group, setGroup] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [groupRenameValue, setGroupRenameValue] = useState("");
+  const groupRenameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -62,7 +81,27 @@ export default function LinksView() {
     ...groupNames.filter((g) => NECESSARY_LINK_GROUPS.includes(g)),
   ];
 
-  async function handleAdd(e: FormEvent) {
+  function resetForm() {
+    setLabel("");
+    setUrl("");
+    setDescription("");
+    setGroup("");
+    setFormError(null);
+    setEditingId(null);
+    setShowForm(false);
+  }
+
+  function handleStartEdit(link: LinkItem) {
+    setEditingId(link.id);
+    setLabel(link.label);
+    setUrl(link.url);
+    setDescription(link.description ?? "");
+    setGroup(link.group);
+    setFormError(null);
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmedLabel = label.trim();
     const normalizedUrl = normalizeUrl(url);
@@ -72,24 +111,25 @@ export default function LinksView() {
       return;
     }
 
+    const input = {
+      label: trimmedLabel,
+      url: normalizedUrl,
+      description: description.trim() || undefined,
+      group: group.trim() || "My Links",
+    };
+
     setSaving(true);
     try {
-      const newLink = await addLink({
-        label: trimmedLabel,
-        url: normalizedUrl,
-        description: description.trim() || undefined,
-        group: group.trim() || "My Links",
-      });
-
-      setLinks((prev) => (prev ? [...prev, newLink] : [newLink]));
-      setLabel("");
-      setUrl("");
-      setDescription("");
-      setGroup("");
-      setFormError(null);
-      setShowForm(false);
+      if (editingId) {
+        const updated = await updateLink(editingId, input);
+        setLinks((prev) => (prev ? prev.map((l) => (l.id === editingId ? updated : l)) : prev));
+      } else {
+        const newLink = await addLink(input);
+        setLinks((prev) => (prev ? [...prev, newLink] : [newLink]));
+      }
+      resetForm();
     } catch {
-      setFormError("Couldn't save the link. Try again.");
+      setFormError(editingId ? "Couldn't save changes. Try again." : "Couldn't save the link. Try again.");
     } finally {
       setSaving(false);
     }
@@ -102,6 +142,67 @@ export default function LinksView() {
       setLinks(previous);
       showToast("Couldn't delete the link. Try again.");
     });
+  }
+
+  function handleDragStart(e: DragEvent<HTMLDivElement>, link: LinkItem) {
+    setDraggedId(link.id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", link.id);
+  }
+
+  function handleDragEnd() {
+    setDraggedId(null);
+    setDragOverGroup(null);
+  }
+
+  function handleDragOverGroup(e: DragEvent<HTMLDivElement>, groupName: string) {
+    if (!draggedId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverGroup !== groupName) setDragOverGroup(groupName);
+  }
+
+  function handleDropOnGroup(e: DragEvent<HTMLDivElement>, groupName: string) {
+    e.preventDefault();
+    const id = draggedId ?? e.dataTransfer.getData("text/plain");
+    setDraggedId(null);
+    setDragOverGroup(null);
+    if (!id) return;
+
+    const link = links?.find((l) => l.id === id);
+    if (!link || link.group === groupName) return;
+
+    const previous = links;
+    setLinks((prev) => (prev ? prev.map((l) => (l.id === id ? { ...l, group: groupName } : l)) : prev));
+    moveLink(id, groupName).catch(() => {
+      setLinks(previous);
+      showToast("Couldn't move the link. Try again.");
+    });
+  }
+
+  function handleStartRenameGroup(groupName: string) {
+    setRenamingGroup(groupName);
+    setGroupRenameValue(groupName);
+    requestAnimationFrame(() => groupRenameInputRef.current?.select());
+  }
+
+  function commitGroupRename() {
+    const oldName = renamingGroup;
+    const newName = groupRenameValue.trim();
+    setRenamingGroup(null);
+    if (!oldName || !newName || newName === oldName) return;
+
+    const previous = links;
+    setLinks((prev) => (prev ? prev.map((l) => (l.group === oldName ? { ...l, group: newName } : l)) : prev));
+    renameLinkGroup(oldName, newName).catch(() => {
+      setLinks(previous);
+      showToast("Couldn't rename the group. Try again.");
+    });
+  }
+
+  function handleGroupRenameKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") commitGroupRename();
+    if (e.key === "Escape") setRenamingGroup(null);
   }
 
   return (
@@ -133,7 +234,14 @@ export default function LinksView() {
           </button>
           <button
             type="button"
-            onClick={() => setShowForm((prev) => !prev)}
+            onClick={() => {
+              if (showForm) {
+                resetForm();
+              } else {
+                setEditingId(null);
+                setShowForm(true);
+              }
+            }}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
             <PlusIcon className="size-4" />
@@ -146,13 +254,14 @@ export default function LinksView() {
         {showForm && (
           <motion.form
             key="link-form"
-            onSubmit={handleAdd}
+            onSubmit={handleSubmit}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
           >
+            <h2 className="text-sm font-medium">{editingId ? "Edit Link" : "New Link"}</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="link-label" className={labelClass}>
@@ -218,14 +327,11 @@ export default function LinksView() {
                 disabled={saving}
                 className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
               >
-                {saving ? "Saving…" : "Save Link"}
+                {saving ? "Saving…" : editingId ? "Save Changes" : "Save Link"}
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setFormError(null);
-                }}
+                onClick={resetForm}
                 className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
               >
                 Cancel
@@ -249,8 +355,40 @@ export default function LinksView() {
       ) : (
         <div className="flex flex-col gap-6">
           {orderedGroupNames.map((groupName) => (
-            <div key={groupName} className="flex flex-col gap-3">
-              <h2 className="text-sm font-medium text-muted-foreground">{groupName}</h2>
+            <div
+              key={groupName}
+              onDragOver={(e) => handleDragOverGroup(e, groupName)}
+              onDragLeave={() => setDragOverGroup((prev) => (prev === groupName ? null : prev))}
+              onDrop={(e) => handleDropOnGroup(e, groupName)}
+              className={`flex flex-col gap-3 rounded-xl border border-dashed p-2 transition-colors ${
+                dragOverGroup === groupName ? "border-accent bg-accent/5" : "border-transparent"
+              }`}
+            >
+              {renamingGroup === groupName ? (
+                <input
+                  ref={groupRenameInputRef}
+                  value={groupRenameValue}
+                  onChange={(e) => setGroupRenameValue(e.target.value)}
+                  onBlur={commitGroupRename}
+                  onKeyDown={handleGroupRenameKeyDown}
+                  autoFocus
+                  className="w-fit max-w-xs rounded-md border border-accent bg-background px-2 py-0.5 text-sm font-medium outline-none"
+                />
+              ) : (
+                <h2 className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  {groupName}
+                  {editMode && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartRenameGroup(groupName)}
+                      aria-label={`Rename ${groupName}`}
+                      className="flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
+                    >
+                      <PencilIcon className="size-3" />
+                    </button>
+                  )}
+                </h2>
+              )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <AnimatePresence initial={false} mode="popLayout">
                   {links
@@ -264,24 +402,46 @@ export default function LinksView() {
                         exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
                         transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                         whileHover={{ y: -2 }}
-                        className="relative rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent/50"
+                        draggable={editMode}
+                        // Capture-phase native handlers — framer-motion's own `onDragStart`/`onDragEnd`
+                        // props are reserved for its pointer-based drag gesture (only active when the
+                        // `drag` prop is set), so they'd silently swallow these native HTML5 DnD events.
+                        onDragStartCapture={(e) => handleDragStart(e, link)}
+                        onDragEndCapture={handleDragEnd}
+                        className={`relative rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent/50 ${
+                          editMode ? "cursor-grab active:cursor-grabbing" : ""
+                        } ${draggedId === link.id ? "opacity-40" : ""}`}
                       >
                         {editMode && (
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(link)}
-                            aria-label={`Delete ${link.label}`}
-                            className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
-                          >
-                            <XIcon className="size-3.5" />
-                          </button>
+                          <div className="absolute right-2 top-2 flex items-center gap-1">
+                            <GripVerticalIcon className="size-3.5 text-muted-foreground/40" />
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(link)}
+                              aria-label={`Edit ${link.label}`}
+                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
+                            >
+                              <PencilIcon className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(link)}
+                              aria-label={`Delete ${link.label}`}
+                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
+                            >
+                              <XIcon className="size-3.5" />
+                            </button>
+                          </div>
                         )}
                         <a
                           href={link.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={() => logEvent(`Opened link: ${link.label}`)}
-                          className={`flex flex-col gap-1 ${editMode ? "pr-6" : ""}`}
+                          onClick={(e) => {
+                            if (editMode) e.preventDefault();
+                            else logEvent(`Opened link: ${link.label}`);
+                          }}
+                          className={`flex flex-col gap-1 ${editMode ? "pr-16" : ""}`}
                         >
                           <span className="flex items-center gap-1.5 font-medium">
                             {link.label}

@@ -72,10 +72,41 @@ export async function addLink(input: AddLinkInput): Promise<LinkItem> {
   return fromRow(data);
 }
 
+export async function updateLink(id: string, input: AddLinkInput): Promise<LinkItem> {
+  const { data, error } = await supabase
+    .from("links")
+    .update({
+      label: input.label,
+      url: input.url,
+      description: input.description ?? null,
+      group_name: input.group,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  logEvent(`Edited link: ${input.label}`);
+  return fromRow(data);
+}
+
 export async function deleteLink(id: string): Promise<void> {
   const { data: link, error } = await supabase.from("links").delete().eq("id", id).select().maybeSingle();
   if (error) throw error;
   if (link) logEvent(`Deleted link: ${link.label}`);
+}
+
+/** Moves a single link into a different group — used by drag-and-drop regrouping. */
+export async function moveLink(id: string, group: string): Promise<void> {
+  const { error } = await supabase.from("links").update({ group_name: group }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Renames a whole group — every link in `oldName` moves to `newName` in one statement, built-in groups included. */
+export async function renameLinkGroup(oldName: string, newName: string): Promise<void> {
+  const { error } = await supabase.from("links").update({ group_name: newName }).eq("group_name", oldName);
+  if (error) throw error;
+  logEvent(`Renamed link group "${oldName}" to "${newName}"`);
 }
 
 /** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
