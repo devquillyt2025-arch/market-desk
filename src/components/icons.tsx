@@ -247,6 +247,15 @@ export function UploadIcon({ className }: IconProps) {
   );
 }
 
+export function WalletIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+      <path d="M16 13h2" />
+    </svg>
+  );
+}
+
 export function GripVerticalIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

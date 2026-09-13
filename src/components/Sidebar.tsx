@@ -10,11 +10,11 @@ import {
   ActivityIcon,
   BarChartIcon,
   CalendarIcon,
-  ClockIcon,
   LinkIcon,
   MenuIcon,
   NoteIcon,
   ReceiptIcon,
+  WalletIcon,
   XIcon,
 } from "@/components/icons";
 
@@ -23,7 +23,7 @@ const LINKS = [
   { href: "/notes", label: "Notes", icon: NoteIcon },
   { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: BarChartIcon },
-  { href: "/history", label: "History", icon: ClockIcon },
+  { href: "/payment", label: "Payment", icon: WalletIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
 ] as const;

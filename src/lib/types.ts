@@ -17,31 +17,6 @@ export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   SENSEX: 20,
 };
 
-export type TradeLeg = {
-  id: string;
-  trade_id: string;
-  sell_price: number;
-  buy_price: number;
-  net: number;
-  leg_order: number;
-  created_at: string;
-};
-
-export type Trade = {
-  id: string;
-  user_id: string | null;
-  instrument: Instrument;
-  trade_date: string;
-  lots: number;
-  lot_size: number;
-  qty: number;
-  total_net: number;
-  total_pnl: number;
-  created_at: string;
-};
-
-export type TradeWithLegs = Trade & { legs: TradeLeg[] };
-
 export const NOTE_COLORS = [
   "default",
   "red",
@@ -131,12 +106,26 @@ export type ActivityLogRow = {
   created_at: string;
 };
 
-/** jsonb payload shape the `save_trade` RPC expects per leg. */
-export type SaveTradeLegInput = {
-  sell_price: number;
-  buy_price: number;
-  net: number;
-  leg_order: number;
+export const PAYMENT_STATUSES = ["pending", "partial", "paid"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+/**
+ * Fund payout ledger — backs the Payment tab. Each row is a standalone
+ * record (no running balance across rows, unlike the old balance-sheet
+ * columns Trade Entries used to have): its own initial fund, profit, and
+ * payout amount, with a status tracking whether that payout has gone out.
+ */
+export type Payment = {
+  id: string;
+  user_id: string | null;
+  entry_date: string;
+  details: string;
+  initial_fund: number;
+  profit: number;
+  payout_amount: number;
+  status: PaymentStatus;
+  created_at: string;
+  updated_at: string;
 };
 
 /**
@@ -154,22 +143,15 @@ type Insert<T, Optional extends keyof T> = {
  * Hand-written rather than generated, so it stays readable and lives next to
  * the app-level types above. `Relationships: []` is required by postgrest-js
  * for the schema to typecheck — it only affects embedded-select (foreign
- * table join) inference, which this app doesn't use: history reads trades
- * and trade_legs as two separate queries and merges them in application code.
+ * table join) inference, which this app doesn't use.
  */
 export type Database = {
   public: {
     Tables: {
-      trades: {
-        Row: Trade;
-        Insert: Insert<Trade, "id" | "user_id" | "trade_date" | "created_at">;
-        Update: Partial<Trade>;
-        Relationships: [];
-      };
-      trade_legs: {
-        Row: TradeLeg;
-        Insert: Insert<TradeLeg, "id" | "created_at">;
-        Update: Partial<TradeLeg>;
+      payments: {
+        Row: Payment;
+        Insert: Insert<Payment, "id" | "user_id" | "entry_date" | "created_at" | "updated_at">;
+        Update: Partial<Payment>;
         Relationships: [];
       };
       notes: {
@@ -201,21 +183,7 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: {
-      save_trade: {
-        Args: {
-          p_instrument: string;
-          p_lots: number;
-          p_lot_size: number;
-          p_qty: number;
-          p_total_net: number;
-          p_total_pnl: number;
-          p_legs: SaveTradeLegInput[];
-          p_user_id?: string | null;
-        };
-        Returns: string;
-      };
-    };
+    Functions: Record<string, never>;
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

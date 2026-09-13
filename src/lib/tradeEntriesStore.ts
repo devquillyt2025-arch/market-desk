@@ -1,7 +1,6 @@
 /**
  * Supabase-backed persistence for the daily trade journal — one entry per
- * trading day with its own P&L and Squared Off/Hold status. Independent of
- * tradeStore.ts (the Brokerage Calculator's saved multi-leg trades).
+ * trading day with its own P&L and Squared Off/Hold status.
  */
 
 import { logEvent } from "@/lib/activityLog";

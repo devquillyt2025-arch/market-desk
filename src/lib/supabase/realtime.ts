@@ -7,7 +7,7 @@ const DEBOUNCE_MS = 250;
 
 /**
  * Subscribes to every change on a table via Supabase Realtime and invokes
- * `callback`. Shared by tradeStore/linksStore/activityLog/tradeEntriesStore,
+ * `callback`. Shared by linksStore/activityLog/tradeEntriesStore/paymentStore,
  * which all just want "something changed, refetch" rather than the changed
  * row itself. Returns an unsubscribe function.
  *
