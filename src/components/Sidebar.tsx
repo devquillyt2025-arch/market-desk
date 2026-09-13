@@ -28,17 +28,69 @@ const LINKS = [
   { href: "/logs", label: "Logs", icon: ActivityIcon },
 ] as const;
 
+/** Everything from this index on renders as a visually separate "secondary" group when collapsed. */
+const SECONDARY_GROUP_START = 4;
+
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 
+/**
+ * Shared timing for every piece of the collapse animation, so nothing drifts
+ * out of sync. A plain deceleration curve (no overshoot) — an earlier
+ * "back ease" version bounced past the target on both ends, which read as
+ * more motion than the interaction warranted and made expand/collapse feel
+ * asymmetric (bulging outward vs. dipping inward before settling). This
+ * settles directly, the same way in both directions. Deliberately past the
+ * usual "150-300ms micro-interaction" guidance: this toggle is a
+ * once-in-a-while layout change, not a frequent hover/press response.
+ */
+const COLLAPSE_TRANSITION = "duration-[500ms] ease-[cubic-bezier(0.22,1,0.36,1)]";
+
+/**
+ * Fades and shrinks its content to zero width instead of the old `hidden`
+ * (an instant `display:none` swap while the sidebar was still visibly
+ * animating its width — the actual source of the "not smooth" feel).
+ *
+ * Uses `max-width` rather than a grid-template-columns `fr` trick: animating
+ * `fr` tracks is only reliably reversible in some browsers — collapsing back
+ * down from an already-resolved `1fr` didn't re-run the same interpolation
+ * opening did, which is why closing looked instant while opening looked
+ * fine. `max-width` has no such asymmetry. 180px comfortably fits the
+ * longest label ("Important Links") without ever clipping it mid-transition.
+ */
+function CollapsibleLabel({
+  collapsed,
+  className,
+  children,
+}: {
+  collapsed: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={`inline-block overflow-hidden whitespace-nowrap align-middle transition-[max-width,opacity] ${COLLAPSE_TRANSITION} ${
+        collapsed ? "lg:max-w-0 lg:opacity-0" : "max-w-[180px] opacity-100"
+      } ${className ?? ""}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Hidden at lg+ once collapsed (never on mobile, where the drawer always
+ * shows the full brand regardless of the desktop-only collapsed flag) —
+ * the collapse toggle button below takes over the same visual spot.
+ */
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-2">
+    <Link href="/" className={`flex items-center gap-2 ${collapsed ? "lg:hidden" : ""}`}>
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground">
         M
       </span>
-      <span className={collapsed ? "font-semibold tracking-tight lg:hidden" : "font-semibold tracking-tight"}>
+      <CollapsibleLabel collapsed={collapsed} className="font-semibold tracking-tight">
         MarketDesk
-      </span>
+      </CollapsibleLabel>
     </Link>
   );
 }
@@ -100,71 +152,120 @@ export default function Sidebar() {
       </AnimatePresence>
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-muted transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-[width] lg:duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-muted transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-[width] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
           open ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-[76px]" : "lg:w-64"}`}
       >
         <div
-          className={`flex items-center justify-between px-4 py-4 ${
-            collapsed ? "lg:flex-col lg:justify-center lg:gap-3 lg:px-2" : ""
+          className={`flex shrink-0 items-center justify-between gap-2 px-4 py-4 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            collapsed ? "lg:justify-center lg:px-2" : ""
           }`}
         >
           <Brand collapsed={collapsed} />
+          {/* Collapsed-desktop only: the logo itself becomes the expand toggle, replacing the hamburger. */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            className={`hidden size-7 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 active:scale-90 ${
+              collapsed ? "lg:flex" : ""
+            }`}
+          >
+            M
+          </button>
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close menu"
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden active:scale-90"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden active:scale-90"
           >
             <XIcon className="size-4" />
           </button>
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="hidden size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-card hover:text-foreground active:scale-90 lg:flex"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            className={`hidden size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-card hover:text-foreground active:scale-90 ${
+              collapsed ? "" : "lg:flex"
+            }`}
           >
             <MenuIcon className="size-4" />
           </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
-          {LINKS.map((link) => {
+        {/*
+          No overflow-y-auto here (unlike before this redesign): the hover
+          tooltips below are absolutely positioned to escape the rail to the
+          right, and any ancestor overflow clipping — including overflow-y
+          alone, since an unset overflow-x computes to auto rather than
+          visible once overflow-y isn't visible — would cut them off. Safe
+          today because 7 items comfortably fit any realistic viewport
+          height; revisit (portal the tooltip, or scroll only when needed)
+          if the nav list grows enough to risk overflowing vertically.
+        */}
+        <nav
+          className={`flex flex-1 flex-col gap-1 px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            collapsed ? "lg:gap-1.5 lg:px-2" : ""
+          }`}
+        >
+          {LINKS.flatMap((link, index) => {
             const active = pathname === link.href;
             const Icon = link.icon;
-            return (
+
+            const item = (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                title={link.label}
-                className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                title={collapsed ? undefined : link.label}
+                className={`group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-sm font-medium transition-colors ${
                   active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
-                } ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
+                } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0 lg:py-3" : ""}`}
               >
                 {active && (
                   <motion.span
                     layoutId="active-nav-pill"
-                    className="absolute inset-0 rounded-lg bg-card shadow-sm"
+                    className={`absolute inset-0 rounded-lg bg-card shadow-sm ${collapsed ? "lg:bg-accent/10 lg:shadow-none" : ""}`}
                     transition={{ type: "spring", stiffness: 500, damping: 35 }}
                   />
                 )}
-                <Icon className="relative z-10 size-4 shrink-0" />
-                <span className={collapsed ? "relative z-10 lg:hidden" : "relative z-10"}>{link.label}</span>
+                <Icon className={`relative z-10 size-5 shrink-0 ${collapsed ? "lg:size-6" : ""}`} />
+                <CollapsibleLabel collapsed={collapsed} className="relative z-10">
+                  {link.label}
+                </CollapsibleLabel>
+
+                {/* Hover tooltip — only meaningful once the inline label is gone (collapsed, desktop only). */}
+                {collapsed && (
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-x-1 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground opacity-0 shadow-md transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 lg:block"
+                  >
+                    {link.label}
+                  </span>
+                )}
               </Link>
             );
+
+            if (collapsed && index === SECONDARY_GROUP_START) {
+              return [
+                <div key={`divider-${link.href}`} className="mx-1 my-1.5 hidden border-t border-border/70 lg:block" />,
+                item,
+              ];
+            }
+            return [item];
           })}
         </nav>
 
         <div
-          className={`flex items-center justify-between border-t border-border px-4 py-3 ${
-            collapsed ? "lg:flex-col lg:justify-center lg:gap-2" : ""
+          className={`flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-3 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            collapsed ? "lg:justify-center lg:px-2" : ""
           }`}
         >
-          <span className={collapsed ? "text-xs text-muted-foreground lg:hidden" : "text-xs text-muted-foreground"}>
+          <CollapsibleLabel collapsed={collapsed} className="text-xs text-muted-foreground">
             Appearance
-          </span>
+          </CollapsibleLabel>
           <ThemeToggle />
         </div>
       </aside>

@@ -114,14 +114,28 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
-body,
-.bg-card,
-.bg-muted,
-.border-border {
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
+/*
+ * Layered (unlike the rules above) so it plays by normal cascade rules
+ * against Tailwind utilities instead of always winning outright: an
+ * unlayered rule beats every `@layer utilities` declaration regardless of
+ * specificity or source order, per the CSS cascade-layers spec. Unlayered,
+ * this `transition` shorthand silently reset transition-property/duration/
+ * timing-function to *only* these three color properties on every
+ * .bg-muted/.border-border element — including the collapsible sidebar,
+ * whose own width/padding transition utilities were being clobbered
+ * entirely, so the collapse/expand always snapped instantly no matter what
+ * duration was set on it.
+ */
+@layer base {
+  body,
+  .bg-card,
+  .bg-muted,
+  .border-border {
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease;
+  }
 }
 
 ::selection {
