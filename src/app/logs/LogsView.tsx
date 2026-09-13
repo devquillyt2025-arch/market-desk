@@ -1,11 +1,19 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ActivityIcon, TrashIcon } from "@/components/icons";
+import { ActivityIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import Select from "@/components/Select";
 import { clearLogs, getCachedLogs, getLogs, subscribeToLogChanges, type LogEntry } from "@/lib/activityLog";
 import { showToast } from "@/lib/toast";
+
+type SortOrder = "newest" | "oldest";
+
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+];
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
@@ -19,6 +27,8 @@ function formatTimestamp(iso: string): string {
 
 export default function LogsView() {
   const [logs, setLogs] = useState<LogEntry[] | null>(getCachedLogs);
+  const [query, setQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   useEffect(() => {
     async function load() {
@@ -31,6 +41,14 @@ export default function LogsView() {
     load();
     return subscribeToLogChanges(load);
   }, []);
+
+  const displayedLogs = useMemo(() => {
+    if (!logs) return null;
+    const q = query.trim().toLowerCase();
+    const filtered = q ? logs.filter((entry) => entry.message.toLowerCase().includes(q)) : logs;
+    // `logs` already arrives newest-first from the query — reverse only for "oldest".
+    return sortOrder === "oldest" ? [...filtered].reverse() : filtered;
+  }, [logs, query, sortOrder]);
 
   function handleClear() {
     if (!window.confirm("Clear the activity log? This can't be undone.")) return;
@@ -68,6 +86,23 @@ export default function LogsView() {
         )}
       </div>
 
+      {logs !== null && logs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search logs…"
+              className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+            />
+          </div>
+          <div className="w-40 shrink-0">
+            <Select value={sortOrder} onChange={setSortOrder} options={SORT_OPTIONS} align="right" />
+          </div>
+        </div>
+      )}
+
       {logs === null ? (
         <div className="flex flex-col gap-2">
           {[0, 1, 2, 3].map((i) => (
@@ -81,11 +116,16 @@ export default function LogsView() {
             Nothing logged yet. Actions across the app will show up here.
           </p>
         </div>
+      ) : displayedLogs && displayedLogs.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+          <SearchIcon className="size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No log entries match &quot;{query}&quot;.</p>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <ul>
             <AnimatePresence initial={false}>
-              {logs.map((entry, index) => (
+              {(displayedLogs ?? []).map((entry, index) => (
                 <motion.li
                   key={entry.id}
                   layout
