@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-import PageViewLogger from "@/components/PageViewLogger";
 import Sidebar from "@/components/Sidebar";
 import ToastHost from "@/components/ToastHost";
 import { getSiteUrl } from "@/lib/siteUrl";
@@ -74,7 +73,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Script id="theme-init" strategy="beforeInteractive">
           {THEME_INIT_SCRIPT}
         </Script>
-        <PageViewLogger />
         <ToastHost />
         <div className="flex min-h-screen flex-col lg:flex-row">
           <Sidebar />
