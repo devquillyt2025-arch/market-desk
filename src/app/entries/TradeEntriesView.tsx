@@ -13,6 +13,7 @@ import {
   TrashIcon,
   UploadIcon,
 } from "@/components/icons";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Select from "@/components/Select";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { summarizeEntries } from "@/lib/calculateReports";
@@ -125,6 +126,7 @@ type ModalState = { mode: "add" } | { mode: "edit"; entry: TradeEntry } | null;
 export default function TradeEntriesView() {
   const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
   const [modalState, setModalState] = useState<ModalState>(null);
+  const [pendingDelete, setPendingDelete] = useState<TradeEntry | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -146,10 +148,8 @@ export default function TradeEntriesView() {
   const summary = useMemo(() => (entries ? summarizeEntries(entries) : null), [entries]);
 
   // Search/filter/sort operate on top of the already-computed rows — SL
-  // numbering and Closing Bal stay tied to the true chronological ledger
-  // (computed above) no matter how the table is currently displayed, the
-  // same way a bank statement's balance column doesn't change when you sort
-  // by amount instead of date.
+  // numbering stays tied to the true chronological order (computed above)
+  // no matter how the table is currently displayed.
   const displayedRows = useMemo(() => {
     if (!rows) return null;
     let result = rows;
@@ -260,8 +260,7 @@ export default function TradeEntriesView() {
 
   function handleModalDelete() {
     if (modalState?.mode !== "edit") return;
-    handleDelete(modalState.entry);
-    setModalState(null);
+    requestDelete(modalState.entry);
   }
 
   function handleToggleStatus(entry: TradeEntry) {
@@ -274,7 +273,16 @@ export default function TradeEntriesView() {
     });
   }
 
-  function handleDelete(entry: TradeEntry) {
+  function requestDelete(entry: TradeEntry) {
+    setPendingDelete(entry);
+  }
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const entry = pendingDelete;
+    setPendingDelete(null);
+    setModalState(null);
+
     const previous = entries;
     setEntries((prev) => (prev ? prev.filter((e) => e.id !== entry.id) : prev));
     deleteTradeEntry(entry.id).catch(() => {
@@ -337,8 +345,8 @@ export default function TradeEntriesView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Trade Entries</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            A daily ledger — instrument, lots, buy/sell price, status, and the running balance
-            sheet, all in one place.
+            A daily ledger — instrument, lots, buy/sell price, P&amp;L, and status, all in one
+            place.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -463,7 +471,7 @@ export default function TradeEntriesView() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] border-collapse text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50 text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
@@ -474,8 +482,6 @@ export default function TradeEntriesView() {
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Buy Price</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Closing Bal</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>PNL(K)</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
                   <th className="w-20 py-3 pr-4" />
@@ -513,16 +519,6 @@ export default function TradeEntriesView() {
                       >
                         {rupees(row.pnl)}
                       </td>
-                      <td
-                        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.closingBalance)}`}
-                      >
-                        {rupees(row.closingBalance)}
-                      </td>
-                      <td
-                        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${pnlColorClass(row.pnlK)}`}
-                      >
-                        {row.pnlK.toFixed(2)}
-                      </td>
                       <td className="px-2 py-2.5">
                         <button
                           type="button"
@@ -547,7 +543,7 @@ export default function TradeEntriesView() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(row)}
+                            onClick={() => requestDelete(row)}
                             aria-label={`Delete entry ${row.slNo}`}
                             className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
                           >
@@ -572,6 +568,17 @@ export default function TradeEntriesView() {
             onSave={handleModalSave}
             onClose={() => setModalState(null)}
             onDelete={handleModalDelete}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <ConfirmDialog
+            title="Delete this trade entry?"
+            message={`${describeRowContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — this can't be undone.`}
+            onConfirm={confirmDelete}
+            onCancel={() => setPendingDelete(null)}
           />
         )}
       </AnimatePresence>

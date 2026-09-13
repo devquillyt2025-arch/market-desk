@@ -90,12 +90,9 @@ export const TRADE_ENTRY_OPTION_TYPES = ["CE", "PE"] as const;
 export type TradeEntryOptionType = (typeof TRADE_ENTRY_OPTION_TYPES)[number];
 
 /**
- * Daily trading journal — one row per day, independent of `trades`. Doubles
- * as the running balance-sheet ledger (see calculateBalanceSheet.ts): each
- * entry's own `pnl` is that day's debit (if negative) or credit (if
- * positive), so Closing Balance/PNL(K) are derived from these rows rather
- * than tracked separately. `strike_price`/`option_type` are nullable —
- * older entries and any non-options entries don't carry them.
+ * Daily trading journal — one row per day, independent of `trades`.
+ * `strike_price`/`option_type` are nullable — older entries and any
+ * non-options entries don't carry them.
  */
 export type TradeEntry = {
   id: string;
