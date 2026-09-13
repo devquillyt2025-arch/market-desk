@@ -247,6 +247,27 @@ export function UploadIcon({ className }: IconProps) {
   );
 }
 
+export function GripVerticalIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function ArrowUpDownIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="m7 15 5 5 5-5M7 9l5-5 5 5" />
+    </svg>
+  );
+}
+
 export function NoteIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">
