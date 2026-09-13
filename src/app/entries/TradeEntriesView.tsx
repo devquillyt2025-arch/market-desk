@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { DownloadIcon, InboxIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
@@ -11,6 +11,7 @@ import { showToast } from "@/lib/toast";
 import { INSTRUMENT_LABELS } from "@/lib/types";
 import {
   addTradeEntry,
+  calculateEntryPnl,
   deleteTradeEntry,
   getCachedTradeEntries,
   getTradeEntries,
@@ -82,8 +83,15 @@ export default function TradeEntriesView() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const rows: BalanceSheetRow[] | null = entries ? computeBalanceSheetRows(entries) : null;
-  const summary = entries ? summarizeEntries(entries) : null;
+  // Re-sorting/re-accumulating the whole ledger is wasted work on renders
+  // that don't touch `entries` (opening the modal, an import spinner
+  // toggling) — memoized so it only re-runs when the entries themselves
+  // change, not on every render of this component.
+  const rows: BalanceSheetRow[] | null = useMemo(
+    () => (entries ? computeBalanceSheetRows(entries) : null),
+    [entries],
+  );
+  const summary = useMemo(() => (entries ? summarizeEntries(entries) : null), [entries]);
 
   useEffect(() => {
     async function load() {
@@ -99,7 +107,44 @@ export default function TradeEntriesView() {
 
   async function handleModalSave(input: AddTradeEntryInput) {
     if (modalState?.mode === "edit") {
-      await updateTradeEntry(modalState.entry.id, input);
+      const { entry } = modalState;
+      const previous = entries;
+      const pnl = calculateEntryPnl(input);
+
+      // Update in place immediately so the row's position never visibly
+      // shifts — waiting for the debounced Realtime refetch meant every edit
+      // briefly showed the old data, then swapped in a freshly-sorted array
+      // all at once, which read as the table reordering even when the sort
+      // key (date) hadn't actually changed.
+      setEntries((prev) =>
+        prev
+          ? prev.map((e) =>
+              e.id === entry.id
+                ? {
+                    ...e,
+                    entry_date: input.entryDate,
+                    instrument: input.instrument,
+                    strike_price: input.strikePrice ?? null,
+                    option_type: input.optionType ?? null,
+                    lots: input.lots,
+                    side: input.side,
+                    buy_price: input.buyPrice,
+                    sell_price: input.sellPrice,
+                    pnl,
+                    status: input.status,
+                    remarks: input.remarks ?? null,
+                  }
+                : e,
+            )
+          : prev,
+      );
+
+      try {
+        await updateTradeEntry(entry.id, input);
+      } catch (err) {
+        setEntries(previous);
+        throw err;
+      }
     } else {
       await addTradeEntry(input);
     }
@@ -161,14 +206,18 @@ export default function TradeEntriesView() {
     }
   }
 
-  const statTiles = summary
-    ? [
-        { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
-        { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
-        { label: "Total Trades", value: String(summary.totalTrades), color: "" },
-        { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
-      ]
-    : null;
+  const statTiles = useMemo(
+    () =>
+      summary
+        ? [
+            { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
+            { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
+            { label: "Total Trades", value: String(summary.totalTrades), color: "" },
+            { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
+          ]
+        : null,
+    [summary],
+  );
 
   return (
     <motion.div
