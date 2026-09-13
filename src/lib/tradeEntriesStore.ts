@@ -12,21 +12,34 @@ import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import {
   DEFAULT_LOT_SIZES,
   INSTRUMENT_LABELS,
+  INSTRUMENTS,
+  TRADE_ENTRY_OPTION_TYPES,
   TRADE_ENTRY_SIDES,
   TRADE_ENTRY_STATUSES,
   type Instrument,
   type TradeEntry,
+  type TradeEntryOptionType,
   type TradeEntrySide,
   type TradeEntryStatus,
 } from "@/lib/types";
 
-export { TRADE_ENTRY_SIDES, TRADE_ENTRY_STATUSES, type TradeEntry, type TradeEntrySide, type TradeEntryStatus };
+export {
+  TRADE_ENTRY_OPTION_TYPES,
+  TRADE_ENTRY_SIDES,
+  TRADE_ENTRY_STATUSES,
+  type TradeEntry,
+  type TradeEntryOptionType,
+  type TradeEntrySide,
+  type TradeEntryStatus,
+};
 
 const supabase = createClient();
 
 export type AddTradeEntryInput = {
   entryDate: string;
   instrument: Instrument;
+  strikePrice?: number;
+  optionType?: TradeEntryOptionType;
   lots: number;
   side: TradeEntrySide;
   buyPrice: number;
@@ -65,11 +78,19 @@ export async function getTradeEntries(): Promise<TradeEntry[]> {
   return cachedEntries;
 }
 
+/** e.g. "NIFTY 23500 CE" when a strike/option type is set, else just the instrument label. */
+function describeContract(input: Pick<AddTradeEntryInput, "instrument" | "strikePrice" | "optionType">): string {
+  const label = INSTRUMENT_LABELS[input.instrument];
+  return input.strikePrice && input.optionType ? `${label} ${input.strikePrice} ${input.optionType}` : label;
+}
+
 export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
   const pnl = calculateEntryPnl(input);
   const { error } = await supabase.from("trade_entries").insert({
     entry_date: input.entryDate,
     instrument: input.instrument,
+    strike_price: input.strikePrice ?? null,
+    option_type: input.optionType ?? null,
     lots: input.lots,
     side: input.side,
     buy_price: input.buyPrice,
@@ -80,7 +101,7 @@ export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
   });
   if (error) throw error;
   logEvent(
-    `Added trade entry: ${INSTRUMENT_LABELS[input.instrument]} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
+    `Added trade entry: ${describeContract(input)} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
   );
 }
 
@@ -91,6 +112,8 @@ export async function updateTradeEntry(id: string, input: AddTradeEntryInput): P
     .update({
       entry_date: input.entryDate,
       instrument: input.instrument,
+      strike_price: input.strikePrice ?? null,
+      option_type: input.optionType ?? null,
       lots: input.lots,
       side: input.side,
       buy_price: input.buyPrice,
@@ -103,7 +126,7 @@ export async function updateTradeEntry(id: string, input: AddTradeEntryInput): P
     .eq("id", id);
   if (error) throw error;
   logEvent(
-    `Edited trade entry: ${INSTRUMENT_LABELS[input.instrument]} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
+    `Edited trade entry: ${describeContract(input)} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}, P&L ${formatINR(pnl)}`,
   );
 }
 
@@ -126,40 +149,102 @@ export async function deleteTradeEntry(id: string): Promise<void> {
   if (entry) logEvent(`Deleted trade entry: ${entry.entry_date}`);
 }
 
-/** Kept warm for the same reason as cachedEntries above. */
-let cachedStartingFund: number | null = null;
+/** Shape accepted on import — a loosened TradeEntry: `id` optional (new row if absent/unmatched), server-only fields ignored. */
+type ImportedTradeEntry = {
+  id?: string;
+  entry_date: string;
+  instrument: Instrument;
+  strike_price?: number | null;
+  option_type?: TradeEntryOptionType | null;
+  lots: number;
+  side: TradeEntrySide;
+  buy_price: number;
+  sell_price: number;
+  status: TradeEntryStatus;
+  remarks?: string | null;
+};
 
-export function getCachedStartingFund(): number | null {
-  return cachedStartingFund;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidImportedEntry(value: unknown): value is ImportedTradeEntry {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.id === undefined || (typeof v.id === "string" && UUID_PATTERN.test(v.id))) &&
+    typeof v.entry_date === "string" &&
+    !Number.isNaN(Date.parse(v.entry_date)) &&
+    typeof v.instrument === "string" &&
+    (INSTRUMENTS as readonly string[]).includes(v.instrument) &&
+    typeof v.lots === "number" &&
+    v.lots > 0 &&
+    (v.side === "buy" || v.side === "sell") &&
+    typeof v.buy_price === "number" &&
+    typeof v.sell_price === "number" &&
+    (v.status === "squared_off" || v.status === "hold") &&
+    (v.strike_price === undefined || v.strike_price === null || typeof v.strike_price === "number") &&
+    (v.option_type === undefined || v.option_type === null || TRADE_ENTRY_OPTION_TYPES.includes(v.option_type as TradeEntryOptionType))
+  );
 }
 
-/** The balance sheet's starting capital — used to derive Fund and Overall % Ret alongside each entry's own pnl. */
-export async function getStartingFund(): Promise<number> {
-  const { data, error } = await supabase
-    .from("balance_sheet_settings")
-    .select("starting_fund")
-    .limit(1)
-    .single();
+export type ImportTradeEntriesResult = {
+  inserted: number;
+  updated: number;
+};
+
+/**
+ * Bulk upsert from an exported (or hand-edited) JSON array. Recomputes pnl
+ * from each row's own prices rather than trusting an embedded value — an
+ * edited file could carry a pnl that no longer matches its buy/sell price.
+ */
+export async function importTradeEntries(data: unknown): Promise<ImportTradeEntriesResult> {
+  if (!Array.isArray(data)) throw new Error("Expected a JSON array of trade entries.");
+  if (data.length === 0) return { inserted: 0, updated: 0 };
+
+  const invalidIndex = data.findIndex((item) => !isValidImportedEntry(item));
+  if (invalidIndex !== -1) {
+    throw new Error(`Entry ${invalidIndex + 1} is missing a required field or has the wrong type.`);
+  }
+  const entries = data as ImportedTradeEntry[];
+
+  const existingIds = new Set((cachedEntries ?? (await getTradeEntries())).map((e) => e.id));
+  const now = new Date().toISOString();
+
+  const rows = entries.map((entry) => {
+    const pnl = calculateEntryPnl({
+      instrument: entry.instrument,
+      lots: entry.lots,
+      buyPrice: entry.buy_price,
+      sellPrice: entry.sell_price,
+    });
+    return {
+      // Every row needs the same keys for a single bulk upsert statement —
+      // generate an id here rather than omitting it for new entries.
+      id: entry.id ?? crypto.randomUUID(),
+      entry_date: entry.entry_date,
+      instrument: entry.instrument,
+      strike_price: entry.strike_price ?? null,
+      option_type: entry.option_type ?? null,
+      lots: entry.lots,
+      side: entry.side,
+      buy_price: entry.buy_price,
+      sell_price: entry.sell_price,
+      pnl,
+      status: entry.status,
+      remarks: entry.remarks ?? null,
+      updated_at: now,
+    };
+  });
+
+  const { error } = await supabase.from("trade_entries").upsert(rows, { onConflict: "id" });
   if (error) throw error;
-  cachedStartingFund = data.starting_fund;
-  return cachedStartingFund;
+
+  const updated = entries.filter((e) => e.id && existingIds.has(e.id)).length;
+  const inserted = entries.length - updated;
+  logEvent(`Imported trade entries: ${inserted} added, ${updated} updated`);
+  return { inserted, updated };
 }
 
-export async function updateStartingFund(value: number): Promise<void> {
-  const { error } = await supabase
-    .from("balance_sheet_settings")
-    .update({ starting_fund: value, updated_at: new Date().toISOString() })
-    .eq("id", true);
-  if (error) throw error;
-  logEvent(`Updated starting fund to ${value}`);
-}
-
-/** Keeps every open session in sync via Supabase Realtime — covers both the entries and the starting fund. */
+/** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
 export function subscribeToTradeEntryChanges(callback: () => void): () => void {
-  const unsubscribeEntries = subscribeToTableChanges("trade_entries", callback);
-  const unsubscribeSettings = subscribeToTableChanges("balance_sheet_settings", callback);
-  return () => {
-    unsubscribeEntries();
-    unsubscribeSettings();
-  };
+  return subscribeToTableChanges("trade_entries", callback);
 }
