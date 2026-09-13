@@ -123,14 +123,18 @@ export default function ReportsView() {
   const byInstrument = useMemo(() => (filtered ? computePnlByInstrument(filtered) : null), [filtered]);
   const byDayOfWeek = useMemo(() => (filtered ? computePnlByDayOfWeek(filtered) : null), [filtered]);
 
-  const statTiles = summary
-    ? [
-        { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
-        { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
-        { label: "Total Trades", value: String(summary.totalTrades), color: "" },
-        { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
-      ]
-    : null;
+  const statTiles = useMemo(
+    () =>
+      summary
+        ? [
+            { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
+            { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
+            { label: "Total Trades", value: String(summary.totalTrades), color: "" },
+            { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
+          ]
+        : null,
+    [summary],
+  );
 
   return (
     <motion.div

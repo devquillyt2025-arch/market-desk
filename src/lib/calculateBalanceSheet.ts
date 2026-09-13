@@ -5,6 +5,7 @@
  * entry can never leave a stale running total in the database.
  */
 
+import { round2 } from "@/lib/calculateTrade";
 import type { TradeEntry } from "@/lib/types";
 
 export type BalanceSheetRow = TradeEntry & {
@@ -26,14 +27,18 @@ export function computeBalanceSheetRows(entries: TradeEntry[]): BalanceSheetRow[
   let closingBalance = 0;
 
   return sorted.map((entry, index) => {
-    closingBalance += entry.pnl;
+    // Rounded on every step, not just on display — an unrounded running sum
+    // accumulates binary floating-point drift (e.g. repeated 0.1 + 0.2
+    // additions) that can surface as an off-by-a-paisa balance a few hundred
+    // rows down the ledger.
+    closingBalance = round2(closingBalance + entry.pnl);
 
     return {
       ...entry,
       slNo: index + 1,
       day: DAY_NAMES[new Date(`${entry.entry_date}T00:00:00`).getDay()],
       closingBalance,
-      pnlK: closingBalance / 1000,
+      pnlK: round2(closingBalance / 1000),
     };
   });
 }
