@@ -27,7 +27,6 @@ import {
   getCachedTradeEntries,
   getTradeEntries,
   importTradeEntries,
-  setTradeEntryStatus,
   subscribeToTradeEntryChanges,
   updateTradeEntry,
   type AddTradeEntryInput,
@@ -261,16 +260,6 @@ export default function TradeEntriesView() {
   function handleModalDelete() {
     if (modalState?.mode !== "edit") return;
     requestDelete(modalState.entry);
-  }
-
-  function handleToggleStatus(entry: TradeEntry) {
-    const previous = entries;
-    const next: TradeEntryStatus = entry.status === "squared_off" ? "hold" : "squared_off";
-    setEntries((prev) => (prev ? prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)) : prev));
-    setTradeEntryStatus(entry.id, next).catch(() => {
-      setEntries(previous);
-      showToast("Couldn't update the status. Try again.");
-    });
   }
 
   function requestDelete(entry: TradeEntry) {
@@ -520,13 +509,11 @@ export default function TradeEntriesView() {
                         {rupees(row.pnl)}
                       </td>
                       <td className="px-2 py-2.5">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleStatus(row)}
-                          className={`rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 active:scale-95 ${STATUS_CLASSES[row.status]}`}
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_CLASSES[row.status]}`}
                         >
                           {STATUS_LABELS[row.status]}
-                        </button>
+                        </span>
                       </td>
                       <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">
                         {row.remarks || "—"}
