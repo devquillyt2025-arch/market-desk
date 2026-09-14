@@ -107,7 +107,34 @@ export default function PaymentView() {
         throw err;
       }
     } else {
-      await addPayment(input);
+      const previous = payments;
+      const now = new Date().toISOString();
+
+      // Same optimistic treatment as the edit branch above — without it, a
+      // new row only appeared once the Realtime refetch came back, which
+      // reads as a multi-second lag between clicking Save and seeing it.
+      // The temporary id gets replaced wholesale once that refetch lands
+      // with the server-assigned row, same as it does for every other row.
+      const optimisticPayment: Payment = {
+        id: `temp-${Date.now()}`,
+        user_id: null,
+        entry_date: input.entryDate,
+        details: input.details,
+        initial_fund: input.initialFund,
+        profit: input.profit,
+        payout_amount: input.payoutAmount,
+        status: input.status,
+        created_at: now,
+        updated_at: now,
+      };
+      setPayments((prev) => (prev ? [...prev, optimisticPayment] : [optimisticPayment]));
+
+      try {
+        await addPayment(input);
+      } catch (err) {
+        setPayments(previous);
+        throw err;
+      }
     }
     setModalState(null);
   }
