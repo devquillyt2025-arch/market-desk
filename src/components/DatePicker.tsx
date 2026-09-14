@@ -20,6 +20,8 @@ type DatePickerProps = {
   onChange: (value: string) => void;
   id?: string;
   triggerClassName?: string;
+  /** Adds a "Clear" button alongside "Today" — only for fields where an empty date is a valid, meaningful state. */
+  clearable?: boolean;
 };
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -62,7 +64,7 @@ function isSameDay(a: Date, b: Date): boolean {
 
 type Coords = { top: number; left: number };
 
-export default function DatePicker({ value, onChange, id, triggerClassName }: DatePickerProps) {
+export default function DatePicker({ value, onChange, id, triggerClassName, clearable }: DatePickerProps) {
   const selected = parseISODate(value);
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => selected ?? new Date());
@@ -258,13 +260,27 @@ export default function DatePicker({ value, onChange, id, triggerClassName }: Da
                 })}
               </div>
 
-              <button
-                type="button"
-                onClick={() => selectDate(new Date())}
-                className="mt-2 w-full rounded-md py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-accent/10"
-              >
-                Today
-              </button>
+              <div className="mt-2 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => selectDate(new Date())}
+                  className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+                >
+                  Today
+                </button>
+                {clearable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange("");
+                      setOpen(false);
+                    }}
+                    className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
               </motion.div>
             )}
           </AnimatePresence>,

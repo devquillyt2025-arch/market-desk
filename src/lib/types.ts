@@ -76,6 +76,8 @@ export type TradeEntry = {
   instrument: Instrument;
   strike_price: number | null;
   option_type: TradeEntryOptionType | null;
+  /** Nullable — only entries with strike_price + option_type + expiry_date all set are tracked by Live Portfolio. */
+  expiry_date: string | null;
   lots: number;
   side: TradeEntrySide;
   buy_price: number;
@@ -104,6 +106,13 @@ export type ActivityLogRow = {
   user_id: string | null;
   message: string;
   created_at: string;
+};
+
+/** `upstox_config` row shape — a single settings row (id is always 1) holding the daily Upstox access token. */
+export type UpstoxConfigRow = {
+  id: number;
+  access_token: string | null;
+  updated_at: string;
 };
 
 export const PAYMENT_STATUSES = ["pending", "partial", "paid"] as const;
@@ -164,9 +173,23 @@ export type Database = {
         Row: TradeEntry;
         Insert: Insert<
           TradeEntry,
-          "id" | "user_id" | "entry_date" | "strike_price" | "option_type" | "remarks" | "created_at" | "updated_at"
+          | "id"
+          | "user_id"
+          | "entry_date"
+          | "strike_price"
+          | "option_type"
+          | "expiry_date"
+          | "remarks"
+          | "created_at"
+          | "updated_at"
         >;
         Update: Partial<TradeEntry>;
+        Relationships: [];
+      };
+      upstox_config: {
+        Row: UpstoxConfigRow;
+        Insert: Insert<UpstoxConfigRow, "id" | "updated_at">;
+        Update: Partial<UpstoxConfigRow>;
         Relationships: [];
       };
       links: {

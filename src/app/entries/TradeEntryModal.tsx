@@ -64,6 +64,7 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
   const [strikePrice, setStrikePrice] = useState(entry?.strike_price != null ? String(entry.strike_price) : "");
   const [optionType, setOptionType] = useState<TradeEntryOptionType | "">(entry?.option_type ?? "");
+  const [expiryDate, setExpiryDate] = useState(entry?.expiry_date ?? "");
   const [lots, setLots] = useState(entry?.lots ?? 1);
   const [side, setSide] = useState<TradeEntrySide>(entry?.side ?? "sell");
   const [buyPrice, setBuyPrice] = useState(entry ? String(entry.buy_price) : "");
@@ -81,8 +82,11 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
     Number.isFinite(parsedBuyPrice) &&
     Number.isFinite(parsedSellPrice);
   const parsedStrikePrice = Number(strikePrice);
-  const hasStrikeMismatch =
-    (strikePrice.trim() !== "" && optionType === "") || (strikePrice.trim() === "" && optionType !== "");
+  // Strike/CE-PE/Expiry travel together — either all three are set (an
+  // options contract Live Portfolio can track) or none are (a non-options
+  // entry), never a partial combination.
+  const contractFieldsFilled = [strikePrice.trim() !== "", optionType !== "", expiryDate.trim() !== ""];
+  const hasStrikeMismatch = contractFieldsFilled.some(Boolean) && !contractFieldsFilled.every(Boolean);
   const previewPnl = hasValidPrices
     ? calculateEntryPnl({ instrument, lots, buyPrice: parsedBuyPrice, sellPrice: parsedSellPrice })
     : null;
@@ -97,7 +101,7 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
       return;
     }
     if (hasStrikeMismatch) {
-      setFormError("Enter both Strike Price and CE/PE, or leave both blank.");
+      setFormError("Enter Strike Price, CE/PE, and Expiry Date together, or leave all three blank.");
       return;
     }
     if (strikePrice.trim() !== "" && !Number.isFinite(parsedStrikePrice)) {
@@ -112,6 +116,7 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
         instrument,
         strikePrice: strikePrice.trim() !== "" ? parsedStrikePrice : undefined,
         optionType: optionType || undefined,
+        expiryDate: expiryDate.trim() || undefined,
         lots,
         side,
         buyPrice: parsedBuyPrice,
@@ -193,6 +198,12 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
                 options={OPTION_TYPE_OPTIONS}
                 triggerClassName={selectTriggerClass}
               />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="entry-expiry" className={labelClass}>
+                Expiry Date
+              </label>
+              <DatePicker id="entry-expiry" value={expiryDate} onChange={setExpiryDate} clearable />
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor="entry-side" className={labelClass}>

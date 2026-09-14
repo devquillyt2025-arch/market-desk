@@ -24,6 +24,7 @@ import {
   addTradeEntry,
   calculateEntryPnl,
   deleteTradeEntry,
+  describeEntryContract,
   getCachedTradeEntries,
   getTradeEntries,
   importTradeEntries,
@@ -71,13 +72,6 @@ function formatCellDate(iso: string): string {
     month: "short",
     year: "numeric",
   });
-}
-
-/** e.g. "NIFTY 23500 CE" when a strike/option type is set, else just the instrument label. */
-function describeRowContract(row: Pick<TradeEntry, "instrument" | "strike_price" | "option_type">): string {
-  return row.strike_price != null && row.option_type
-    ? `${row.instrument} ${row.strike_price.toFixed(0)} ${row.option_type}`
-    : INSTRUMENT_LABELS[row.instrument];
 }
 
 type SortField = "date" | "pnl" | "buyPrice" | "sellPrice" | "lots";
@@ -161,7 +155,7 @@ export default function TradeEntriesView() {
     if (q) {
       result = result.filter((r) => {
         return (
-          describeRowContract(r).toLowerCase().includes(q) ||
+          describeEntryContract(r).toLowerCase().includes(q) ||
           SIDE_LABELS[r.side].toLowerCase().includes(q) ||
           STATUS_LABELS[r.status].toLowerCase().includes(q) ||
           (r.remarks ?? "").toLowerCase().includes(q)
@@ -492,7 +486,7 @@ export default function TradeEntriesView() {
                         {formatCellDate(row.entry_date)}
                         <span className="ml-1.5 text-xs text-muted-foreground">{row.day.slice(0, 3)}</span>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeRowContract(row)}</td>
+                      <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(row)}</td>
                       <td className="px-2 py-2.5">
                         <span className={badgeClass}>{SIDE_LABELS[row.side]}</span>
                       </td>
@@ -563,7 +557,7 @@ export default function TradeEntriesView() {
         {pendingDelete && (
           <ConfirmDialog
             title="Delete this trade entry?"
-            message={`${describeRowContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — this can't be undone.`}
+            message={`${describeEntryContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — this can't be undone.`}
             onConfirm={confirmDelete}
             onCancel={() => setPendingDelete(null)}
           />

@@ -39,6 +39,7 @@ export type AddTradeEntryInput = {
   instrument: Instrument;
   strikePrice?: number;
   optionType?: TradeEntryOptionType;
+  expiryDate?: string;
   lots: number;
   side: TradeEntrySide;
   buyPrice: number;
@@ -83,6 +84,17 @@ function describeContract(input: Pick<AddTradeEntryInput, "instrument" | "strike
   return input.strikePrice && input.optionType ? `${label} ${input.strikePrice} ${input.optionType}` : label;
 }
 
+/**
+ * Same idea as describeContract above, for an already-saved row (snake_case
+ * DB columns) rather than form input — shared by any view displaying a
+ * TradeEntry, so Trade Entries' table and Live Portfolio read identically.
+ */
+export function describeEntryContract(entry: Pick<TradeEntry, "instrument" | "strike_price" | "option_type">): string {
+  return entry.strike_price != null && entry.option_type
+    ? `${entry.instrument} ${entry.strike_price.toFixed(0)} ${entry.option_type}`
+    : INSTRUMENT_LABELS[entry.instrument];
+}
+
 export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
   const pnl = calculateEntryPnl(input);
   const { error } = await supabase.from("trade_entries").insert({
@@ -90,6 +102,7 @@ export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
     instrument: input.instrument,
     strike_price: input.strikePrice ?? null,
     option_type: input.optionType ?? null,
+    expiry_date: input.expiryDate ?? null,
     lots: input.lots,
     side: input.side,
     buy_price: input.buyPrice,
@@ -113,6 +126,7 @@ export async function updateTradeEntry(id: string, input: AddTradeEntryInput): P
       instrument: input.instrument,
       strike_price: input.strikePrice ?? null,
       option_type: input.optionType ?? null,
+      expiry_date: input.expiryDate ?? null,
       lots: input.lots,
       side: input.side,
       buy_price: input.buyPrice,
@@ -137,6 +151,24 @@ export async function setTradeEntryStatus(id: string, status: TradeEntryStatus):
   if (error) throw error;
 }
 
+/**
+ * Narrow, single-field update — for Live Portfolio's inline "set expiry"
+ * picker, used on rows that already have strike_price + option_type but
+ * were saved before expiry_date existed (or had it skipped). Bypasses
+ * TradeEntryModal's "all three or none" form rule on purpose: that's a
+ * form-level UX guardrail for the create/edit flow, not a database
+ * constraint, and completing a partial row here is exactly the case it
+ * doesn't apply to.
+ */
+export async function setTradeEntryExpiry(id: string, expiryDate: string): Promise<void> {
+  const { error } = await supabase
+    .from("trade_entries")
+    .update({ expiry_date: expiryDate, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+  logEvent(`Set expiry date for trade entry to ${expiryDate}`);
+}
+
 export async function deleteTradeEntry(id: string): Promise<void> {
   const { data: entry, error } = await supabase
     .from("trade_entries")
@@ -155,6 +187,7 @@ type ImportedTradeEntry = {
   instrument: Instrument;
   strike_price?: number | null;
   option_type?: TradeEntryOptionType | null;
+  expiry_date?: string | null;
   lots: number;
   side: TradeEntrySide;
   buy_price: number;
@@ -181,7 +214,8 @@ function isValidImportedEntry(value: unknown): value is ImportedTradeEntry {
     typeof v.sell_price === "number" &&
     (v.status === "squared_off" || v.status === "hold") &&
     (v.strike_price === undefined || v.strike_price === null || typeof v.strike_price === "number") &&
-    (v.option_type === undefined || v.option_type === null || TRADE_ENTRY_OPTION_TYPES.includes(v.option_type as TradeEntryOptionType))
+    (v.option_type === undefined || v.option_type === null || TRADE_ENTRY_OPTION_TYPES.includes(v.option_type as TradeEntryOptionType)) &&
+    (v.expiry_date === undefined || v.expiry_date === null || (typeof v.expiry_date === "string" && !Number.isNaN(Date.parse(v.expiry_date))))
   );
 }
 
@@ -223,6 +257,7 @@ export async function importTradeEntries(data: unknown): Promise<ImportTradeEntr
       instrument: entry.instrument,
       strike_price: entry.strike_price ?? null,
       option_type: entry.option_type ?? null,
+      expiry_date: entry.expiry_date ?? null,
       lots: entry.lots,
       side: entry.side,
       buy_price: entry.buy_price,
