@@ -10,8 +10,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: siteUrl, lastModified, changeFrequency: "weekly", priority: 1 },
     { url: `${siteUrl}/notes`, lastModified, changeFrequency: "weekly", priority: 0.7 },
     { url: `${siteUrl}/entries`, lastModified, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${siteUrl}/portfolio`, lastModified, changeFrequency: "weekly", priority: 0.7 },
     { url: `${siteUrl}/payment`, lastModified, changeFrequency: "weekly", priority: 0.6 },
     { url: `${siteUrl}/links`, lastModified, changeFrequency: "monthly", priority: 0.5 },
     { url: `${siteUrl}/logs`, lastModified, changeFrequency: "weekly", priority: 0.3 },
+    { url: `${siteUrl}/settings`, lastModified, changeFrequency: "monthly", priority: 0.3 },
   ];
 }

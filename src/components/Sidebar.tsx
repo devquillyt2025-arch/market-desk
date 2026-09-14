@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import ThemeToggle from "@/components/ThemeToggle";
 import {
   ActivityIcon,
   BarChartIcon,
@@ -14,6 +13,8 @@ import {
   MenuIcon,
   NoteIcon,
   ReceiptIcon,
+  SettingsIcon,
+  TrendingUpIcon,
   WalletIcon,
   XIcon,
 } from "@/components/icons";
@@ -23,13 +24,17 @@ const LINKS = [
   { href: "/notes", label: "Notes", icon: NoteIcon },
   { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: BarChartIcon },
+  { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
   { href: "/payment", label: "Payment", icon: WalletIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
 ] as const;
 
+/** Pinned below the scrolling list, not part of it — settings isn't a workflow tab. */
+const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
+
 /** Everything from this index on renders as a visually separate "secondary" group when collapsed. */
-const SECONDARY_GROUP_START = 4;
+const SECONDARY_GROUP_START = 5;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 
@@ -74,6 +79,51 @@ function CollapsibleLabel({
     >
       {children}
     </span>
+  );
+}
+
+type NavItemProps = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  active: boolean;
+  collapsed: boolean;
+  onClick: () => void;
+};
+
+/** Shared by both the scrolling nav list and the pinned Settings item below it, so they stay visually identical. */
+function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavItemProps) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      title={collapsed ? undefined : label}
+      className={`group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-sm font-medium transition-colors ${
+        active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
+      } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0 lg:py-3" : ""}`}
+    >
+      {active && (
+        <motion.span
+          layoutId="active-nav-pill"
+          className={`absolute inset-0 rounded-lg bg-card shadow-sm ${collapsed ? "lg:bg-accent/10 lg:shadow-none" : ""}`}
+          transition={{ type: "spring", stiffness: 500, damping: 35 }}
+        />
+      )}
+      <Icon className={`relative z-10 size-5 shrink-0 ${collapsed ? "lg:size-6" : ""}`} />
+      <CollapsibleLabel collapsed={collapsed} className="relative z-10">
+        {label}
+      </CollapsibleLabel>
+
+      {/* Hover tooltip — only meaningful once the inline label is gone (collapsed, desktop only). */}
+      {collapsed && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-x-1 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground opacity-0 shadow-md transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 lg:block"
+        >
+          {label}
+        </span>
+      )}
+    </Link>
   );
 }
 
@@ -201,7 +251,7 @@ export default function Sidebar() {
           right, and any ancestor overflow clipping — including overflow-y
           alone, since an unset overflow-x computes to auto rather than
           visible once overflow-y isn't visible — would cut them off. Safe
-          today because 7 items comfortably fit any realistic viewport
+          today because 8 items comfortably fit any realistic viewport
           height; revisit (portal the tooltip, or scroll only when needed)
           if the nav list grows enough to risk overflowing vertically.
         */}
@@ -211,41 +261,16 @@ export default function Sidebar() {
           }`}
         >
           {LINKS.flatMap((link, index) => {
-            const active = pathname === link.href;
-            const Icon = link.icon;
-
             const item = (
-              <Link
+              <NavItem
                 key={link.href}
                 href={link.href}
+                label={link.label}
+                icon={link.icon}
+                active={pathname === link.href}
+                collapsed={collapsed}
                 onClick={() => setOpen(false)}
-                title={collapsed ? undefined : link.label}
-                className={`group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-sm font-medium transition-colors ${
-                  active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
-                } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0 lg:py-3" : ""}`}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="active-nav-pill"
-                    className={`absolute inset-0 rounded-lg bg-card shadow-sm ${collapsed ? "lg:bg-accent/10 lg:shadow-none" : ""}`}
-                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                  />
-                )}
-                <Icon className={`relative z-10 size-5 shrink-0 ${collapsed ? "lg:size-6" : ""}`} />
-                <CollapsibleLabel collapsed={collapsed} className="relative z-10">
-                  {link.label}
-                </CollapsibleLabel>
-
-                {/* Hover tooltip — only meaningful once the inline label is gone (collapsed, desktop only). */}
-                {collapsed && (
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-x-1 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground opacity-0 shadow-md transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 lg:block"
-                  >
-                    {link.label}
-                  </span>
-                )}
-              </Link>
+              />
             );
 
             if (collapsed && index === SECONDARY_GROUP_START) {
@@ -258,15 +283,20 @@ export default function Sidebar() {
           })}
         </nav>
 
+        {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. */}
         <div
-          className={`flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-3 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:justify-center lg:px-2" : ""
+          className={`shrink-0 border-t border-border px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            collapsed ? "lg:px-2" : ""
           }`}
         >
-          <CollapsibleLabel collapsed={collapsed} className="text-xs text-muted-foreground">
-            Appearance
-          </CollapsibleLabel>
-          <ThemeToggle />
+          <NavItem
+            href={SETTINGS_LINK.href}
+            label={SETTINGS_LINK.label}
+            icon={SETTINGS_LINK.icon}
+            active={pathname === SETTINGS_LINK.href}
+            collapsed={collapsed}
+            onClick={() => setOpen(false)}
+          />
         </div>
       </aside>
     </>
