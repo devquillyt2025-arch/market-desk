@@ -4,32 +4,40 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { ActivityIcon, ChevronDownIcon } from "@/components/icons";
+import InstrumentSearch, { type CalcOption } from "@/components/InstrumentSearch";
 import { logEvent } from "@/lib/activityLog";
 import { calculateTrade } from "@/lib/calculateTrade";
-import {
-  brokerageRuleText,
-  calculateBrokerage,
-  SEGMENT_RATES,
-  type BrokerageBreakdown,
-  type BrokerageSegment,
-} from "@/lib/calculateBrokerage";
-import LegsTable, { newLeg, toNumber, type LegRow } from "@/components/LegsTable";
+import { brokerageRuleText, calculateBrokerage, type BrokerageBreakdown } from "@/lib/calculateBrokerage";
 import { pnlColorClass } from "@/lib/format";
-import TradeInputsPanel from "@/components/TradeInputsPanel";
-import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES } from "@/lib/types";
 
 /** Coalesces rapid keystrokes into one log entry instead of one per character. */
 const LOG_DEBOUNCE_MS = 600;
 
-const SEGMENTS: BrokerageSegment[] = ["DELIVERY", "INTRADAY", "FUTURES", "OPTIONS"];
-
-/** Delivery/Intraday are plain equity — no index instrument or lot concept applies. */
-function usesInstrumentPanel(segment: BrokerageSegment): boolean {
-  return segment === "FUTURES" || segment === "OPTIONS";
-}
+/**
+ * One combined "what am I trading" choice, matching Upstox's own calculator
+ * (upstox.com/calculator/brokerage-calculator): a single search box instead
+ * of separate Segment + Instrument controls. Equity has no lot concept, so
+ * it carries `instrument: null`.
+ */
+const CALC_OPTIONS: CalcOption[] = [
+  { id: "NIFTY_OPTIONS", label: "Nifty — Options", segment: "OPTIONS", instrument: "NIFTY" },
+  { id: "NIFTY_FUTURES", label: "Nifty — Futures", segment: "FUTURES", instrument: "NIFTY" },
+  { id: "BANKNIFTY_OPTIONS", label: "Bank Nifty — Options", segment: "OPTIONS", instrument: "BANKNIFTY" },
+  { id: "BANKNIFTY_FUTURES", label: "Bank Nifty — Futures", segment: "FUTURES", instrument: "BANKNIFTY" },
+  { id: "SENSEX_OPTIONS", label: "Sensex — Options", segment: "OPTIONS", instrument: "SENSEX" },
+  { id: "SENSEX_FUTURES", label: "Sensex — Futures", segment: "FUTURES", instrument: "SENSEX" },
+  { id: "EQUITY_DELIVERY", label: "Equity — Delivery", segment: "DELIVERY", instrument: null },
+  { id: "EQUITY_INTRADAY", label: "Equity — Intraday", segment: "INTRADAY", instrument: null },
+];
 
 function rupees(value: number): string {
   return `₹${value.toFixed(2)}`;
+}
+
+function toNumber(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 const BREAKUP_ROWS: { key: keyof BrokerageBreakdown; label: string }[] = [
@@ -48,15 +56,15 @@ const inputClass =
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 export default function BrokerageCalculator() {
-  const [segment, setSegment] = useState<BrokerageSegment>("OPTIONS");
-  const [instrument, setInstrument] = useState<Instrument>("NIFTY");
-  const [lotSize, setLotSize] = useState(DEFAULT_LOT_SIZES.NIFTY);
-  const [lots, setLots] = useState(1);
+  const [option, setOption] = useState<CalcOption>(CALC_OPTIONS[0]);
+  const [buyPrice, setBuyPrice] = useState("");
+  const [sellPrice, setSellPrice] = useState("");
   const [qty, setQty] = useState(DEFAULT_LOT_SIZES.NIFTY);
-  const [legs, setLegs] = useState<LegRow[]>([newLeg(), newLeg()]);
   const [showBreakup, setShowBreakup] = useState(true);
 
-  const quantityId = useId();
+  const qtyId = useId();
+  const buyId = useId();
+  const sellId = useId();
   const pendingLogs = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -80,33 +88,11 @@ export default function BrokerageCalculator() {
     );
   }
 
-  function handleSegmentChange(next: BrokerageSegment) {
-    if (next === segment) return;
-    setSegment(next);
-    setQty(usesInstrumentPanel(next) ? lots * lotSize : 1);
-    logEvent(`Brokerage calculator segment changed to ${SEGMENT_RATES[next].label}`);
-  }
-
-  function handleInstrumentChange(next: Instrument) {
-    if (next === instrument) return;
-    const nextLotSize = DEFAULT_LOT_SIZES[next];
-    setInstrument(next);
-    setLotSize(nextLotSize);
-    setQty(lots * nextLotSize);
-    logEvent(`Brokerage calculator instrument changed to ${INSTRUMENT_LABELS[next]}`);
-  }
-
-  function handleLotSizeChange(nextLotSize: number) {
-    setLotSize(nextLotSize);
-    setQty(lots * nextLotSize);
-    if (nextLotSize !== lotSize)
-      logDebounced("brokerage-lotSize", `Brokerage calculator lot size changed to ${nextLotSize}`);
-  }
-
-  function handleLotsChange(nextLots: number) {
-    setLots(nextLots);
-    setQty(nextLots * lotSize);
-    if (nextLots !== lots) logDebounced("brokerage-lots", `Brokerage calculator lots changed to ${nextLots}`);
+  function handleOptionChange(next: CalcOption) {
+    if (next.id === option.id) return;
+    setOption(next);
+    setQty(next.instrument ? DEFAULT_LOT_SIZES[next.instrument] : 1);
+    logEvent(`Brokerage calculator instrument changed to ${next.label}`);
   }
 
   function handleQtyChange(nextQty: number) {
@@ -114,37 +100,22 @@ export default function BrokerageCalculator() {
     if (nextQty !== qty) logDebounced("brokerage-qty", `Brokerage calculator qty changed to ${nextQty}`);
   }
 
-  function updateLeg(key: number, field: "sellPrice" | "buyPrice", value: string) {
-    setLegs((prev) => prev.map((leg) => (leg.key === key ? { ...leg, [field]: value } : leg)));
-    const legNumber = legs.findIndex((leg) => leg.key === key) + 1;
-    const fieldLabel = field === "sellPrice" ? "Sell price" : "Buy price";
+  function handlePriceChange(field: "buy" | "sell", value: string) {
+    if (field === "buy") setBuyPrice(value);
+    else setSellPrice(value);
     logDebounced(
-      `brokerage-leg-${key}-${field}`,
-      `Brokerage calculator: ${fieldLabel.toLowerCase()} for leg ${legNumber} changed to ${value || "0"}`,
+      `brokerage-${field}`,
+      `Brokerage calculator: ${field === "buy" ? "Buy" : "Sell"} price changed to ${value || "0"}`,
     );
   }
 
-  function addLeg() {
-    setLegs((prev) => [...prev, newLeg()]);
-    logEvent(`Brokerage calculator: added leg ${legs.length + 1}`);
-  }
-
-  function removeLeg(key: number) {
-    const legNumber = legs.findIndex((leg) => leg.key === key) + 1;
-    setLegs((prev) => (prev.length > 1 ? prev.filter((leg) => leg.key !== key) : prev));
-    if (legs.length > 1) logEvent(`Brokerage calculator: removed leg ${legNumber}`);
-  }
-
-  const numericLegs = legs.map((leg) => ({
-    sellPrice: toNumber(leg.sellPrice),
-    buyPrice: toNumber(leg.buyPrice),
-  }));
-
-  const trade = calculateTrade(numericLegs, qty);
-  const charges = calculateBrokerage(segment, numericLegs, qty);
+  const leg = { buyPrice: toNumber(buyPrice), sellPrice: toNumber(sellPrice) };
+  const trade = calculateTrade([leg], qty);
+  const charges = calculateBrokerage(option.segment, [leg], qty);
   const otherCharges = charges.totalCharges - charges.brokerage;
   const netPnl = trade.totalPnl - charges.totalCharges;
   const netColor = pnlColorClass(netPnl);
+  const lotSize = option.instrument ? DEFAULT_LOT_SIZES[option.instrument] : null;
 
   const topStats = [
     { label: "Brokerage", value: rupees(charges.brokerage), color: "" },
@@ -175,50 +146,49 @@ export default function BrokerageCalculator() {
         <div className="flex flex-col gap-6 lg:col-span-2">
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-1.5">
-              <span className={labelClass}>Segment</span>
-              <div className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
-                {SEGMENTS.map((seg) => (
-                  <button
-                    key={seg}
-                    type="button"
-                    onClick={() => handleSegmentChange(seg)}
-                    className={`relative rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                      seg === segment ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {seg === segment && (
-                      <motion.span
-                        layoutId="active-segment-pill"
-                        className="absolute inset-0 rounded-md bg-card shadow-sm"
-                        transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <span className="relative z-10">{SEGMENT_RATES[seg].label}</span>
-                  </button>
-                ))}
-              </div>
+              <span className={labelClass}>Instrument</span>
+              <InstrumentSearch options={CALC_OPTIONS} value={option} onChange={handleOptionChange} />
             </div>
           </section>
 
-          {usesInstrumentPanel(segment) ? (
-            <TradeInputsPanel
-              instrument={instrument}
-              lotSize={lotSize}
-              lots={lots}
-              qty={qty}
-              onInstrumentChange={handleInstrumentChange}
-              onLotSizeChange={handleLotSizeChange}
-              onLotsChange={handleLotsChange}
-              onQtyChange={handleQtyChange}
-            />
-          ) : (
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-              <div className="flex flex-col gap-1.5 sm:max-w-[160px]">
-                <label htmlFor={quantityId} className={labelClass}>
-                  Quantity
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor={buyId} className={labelClass}>
+                  Buy Price
                 </label>
                 <input
-                  id={quantityId}
+                  id={buyId}
+                  type="number"
+                  step="0.05"
+                  inputMode="decimal"
+                  value={buyPrice}
+                  onChange={(e) => handlePriceChange("buy", e.target.value)}
+                  placeholder="0.00"
+                  className={`${inputClass} font-mono tabular-nums`}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor={sellId} className={labelClass}>
+                  Sell Price
+                </label>
+                <input
+                  id={sellId}
+                  type="number"
+                  step="0.05"
+                  inputMode="decimal"
+                  value={sellPrice}
+                  onChange={(e) => handlePriceChange("sell", e.target.value)}
+                  placeholder="0.00"
+                  className={`${inputClass} font-mono tabular-nums`}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor={qtyId} className={labelClass}>
+                  Qty
+                </label>
+                <input
+                  id={qtyId}
                   type="number"
                   min={1}
                   step={1}
@@ -226,22 +196,32 @@ export default function BrokerageCalculator() {
                   onChange={(e) => handleQtyChange(Math.max(1, Math.trunc(toNumber(e.target.value))))}
                   className={`${inputClass} font-mono tabular-nums`}
                 />
+                {lotSize && (
+                  <span className="text-xs text-muted-foreground">
+                    1 lot = {lotSize} qty
+                    {qty % lotSize !== 0 && " — not a multiple of the lot size"}
+                  </span>
+                )}
               </div>
-            </section>
-          )}
-
-          <LegsTable legs={legs} onLegChange={updateLeg} onAddLeg={addLeg} onRemoveLeg={removeLeg} />
+            </div>
+          </section>
 
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <ActivityIcon className="mt-0.5 size-3.5 shrink-0" />
-            {SEGMENT_RATES[segment].label} charges: brokerage is {brokerageRuleText(segment)} (Upstox&apos;s
-            rate). STT, transaction charges, SEBI fees, stamp duty, and GST are
-            exchange/government-mandated and change periodically — treat this as indicative, not a
-            substitute for your broker&apos;s contract note. DP charges (₹20/scrip/sell-day + GST,
-            delivery only) are shown GST-inclusive and aren&apos;t added into the GST line above.
-            Clearing charges are listed for parity with Upstox&apos;s own breakdown but aren&apos;t
-            separately levied. A leg with only a sell or only a buy price is costed as one order, not a
-            round trip.
+            {option.segment === "DELIVERY"
+              ? "Delivery"
+              : option.segment === "INTRADAY"
+                ? "Intraday"
+                : option.segment === "FUTURES"
+                  ? "Futures"
+                  : "Options"}{" "}
+            charges: brokerage is {brokerageRuleText(option.segment)} (Upstox&apos;s rate). STT, transaction
+            charges, SEBI fees, stamp duty, and GST are exchange/government-mandated and change
+            periodically — treat this as indicative, not a substitute for your broker&apos;s contract
+            note. DP charges (₹20/scrip/sell-day + GST, delivery only) are shown GST-inclusive and
+            aren&apos;t added into the GST line above. Clearing charges are listed for parity with
+            Upstox&apos;s own breakdown but aren&apos;t separately levied. A trade with only a buy or
+            only a sell price is costed as one order, not a round trip.
           </p>
         </div>
 
