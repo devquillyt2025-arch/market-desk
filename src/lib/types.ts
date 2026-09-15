@@ -118,17 +118,25 @@ export type UpstoxConfigRow = {
 export const PAYMENT_STATUSES = ["pending", "partial", "paid"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
+/** Pay In = funding added to the trading account. Payout = profit-sharing paid out. */
+export const PAYMENT_TYPES = ["payin", "payout"] as const;
+export type PaymentType = (typeof PAYMENT_TYPES)[number];
+
 /**
- * Fund payout ledger — backs the Payment tab. Each row is a standalone
- * record (no running balance across rows, unlike the old balance-sheet
- * columns Trade Entries used to have): its own initial fund, profit, and
- * payout amount, with a status tracking whether that payout has gone out.
+ * Fund ledger — backs the Payment tab. Each row is a standalone record (no
+ * running balance across rows, unlike the old balance-sheet columns Trade
+ * Entries used to have). `type` decides which fields are meaningful: a
+ * payout row uses its own initial fund, profit, and payout amount; a payin
+ * row only uses payout_amount (as the deposited amount) and leaves
+ * initial_fund/profit at 0. `status` tracks whether the money has actually
+ * moved yet, for either direction.
  */
 export type Payment = {
   id: string;
   user_id: string | null;
   entry_date: string;
   details: string;
+  type: PaymentType;
   initial_fund: number;
   profit: number;
   payout_amount: number;

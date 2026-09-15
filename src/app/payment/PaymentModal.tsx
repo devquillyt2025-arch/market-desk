@@ -6,7 +6,14 @@ import { useState } from "react";
 import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
 import Select from "@/components/Select";
-import { type AddPaymentInput, PAYMENT_STATUSES, type Payment, type PaymentStatus } from "@/lib/paymentStore";
+import {
+  type AddPaymentInput,
+  PAYMENT_STATUSES,
+  PAYMENT_TYPES,
+  type Payment,
+  type PaymentStatus,
+  type PaymentType,
+} from "@/lib/paymentStore";
 
 const inputClass =
   "w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
@@ -21,6 +28,16 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
 };
 
 const STATUS_OPTIONS = PAYMENT_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }));
+
+const TYPE_LABELS: Record<PaymentType, string> = {
+  payin: "Pay In",
+  payout: "Payout",
+};
+
+const TYPE_DESCRIPTIONS: Record<PaymentType, string> = {
+  payin: "Funding added to the trading account.",
+  payout: "Profit-sharing paid out from the account.",
+};
 
 function todayISODate(): string {
   const now = new Date();
@@ -37,6 +54,7 @@ type PaymentModalProps = {
 };
 
 export default function PaymentModal({ payment, onSave, onClose, onDelete }: PaymentModalProps) {
+  const [type, setType] = useState<PaymentType>(payment?.type ?? "payout");
   const [entryDate, setEntryDate] = useState(payment?.entry_date ?? todayISODate());
   const [details, setDetails] = useState(payment?.details ?? "");
   const [initialFund, setInitialFund] = useState(payment ? String(payment.initial_fund) : "");
@@ -46,16 +64,20 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const isPayIn = type === "payin";
   const parsedInitialFund = Number(initialFund);
   const parsedProfit = Number(profit);
   const parsedPayoutAmount = Number(payoutAmount);
-  const hasValidAmounts =
-    initialFund.trim() !== "" &&
-    profit.trim() !== "" &&
-    payoutAmount.trim() !== "" &&
-    Number.isFinite(parsedInitialFund) &&
-    Number.isFinite(parsedProfit) &&
-    Number.isFinite(parsedPayoutAmount);
+  // A payin only needs one amount (money going in); a payout still needs
+  // the full initial fund / profit / payout breakdown for profit-sharing.
+  const hasValidAmounts = isPayIn
+    ? payoutAmount.trim() !== "" && Number.isFinite(parsedPayoutAmount)
+    : initialFund.trim() !== "" &&
+      profit.trim() !== "" &&
+      payoutAmount.trim() !== "" &&
+      Number.isFinite(parsedInitialFund) &&
+      Number.isFinite(parsedProfit) &&
+      Number.isFinite(parsedPayoutAmount);
 
   async function handleSave() {
     if (!entryDate) {
@@ -67,7 +89,7 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
       return;
     }
     if (!hasValidAmounts) {
-      setFormError("Enter valid Initial Fund, Profit, and Payout Amount values.");
+      setFormError(isPayIn ? "Enter a valid amount." : "Enter valid Initial Fund, Profit, and Payout Amount values.");
       return;
     }
 
@@ -76,8 +98,9 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
       await onSave({
         entryDate,
         details: details.trim(),
-        initialFund: parsedInitialFund,
-        profit: parsedProfit,
+        type,
+        initialFund: isPayIn ? 0 : parsedInitialFund,
+        profit: isPayIn ? 0 : parsedProfit,
         payoutAmount: parsedPayoutAmount,
         status,
       });
@@ -117,6 +140,27 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
         </div>
 
         <div className="flex flex-col gap-4 p-6">
+          <div className="flex flex-col gap-1.5">
+            <span className={labelClass}>Type</span>
+            <div className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
+              {PAYMENT_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setType(t)}
+                  className={
+                    t === type
+                      ? "rounded-md bg-card px-3.5 py-1.5 text-sm font-medium text-foreground shadow-sm"
+                      : "rounded-md px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  }
+                >
+                  {TYPE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">{TYPE_DESCRIPTIONS[type]}</p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1 col-span-2">
               <label htmlFor="payment-details" className={labelClass}>
@@ -126,7 +170,7 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
                 id="payment-details"
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
-                placeholder="e.g. March payout"
+                placeholder={isPayIn ? "e.g. March funding" : "e.g. March payout"}
                 className={inputClass}
               />
             </div>
@@ -148,37 +192,41 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
                 triggerClassName={selectTriggerClass}
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="payment-initial-fund" className={labelClass}>
-                Initial Fund
-              </label>
-              <input
-                id="payment-initial-fund"
-                type="number"
-                step="0.01"
-                value={initialFund}
-                onChange={(e) => setInitialFund(e.target.value)}
-                placeholder="e.g. 100000"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="payment-profit" className={labelClass}>
-                Profit
-              </label>
-              <input
-                id="payment-profit"
-                type="number"
-                step="0.01"
-                value={profit}
-                onChange={(e) => setProfit(e.target.value)}
-                placeholder="e.g. 15000"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
+            {!isPayIn && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="payment-initial-fund" className={labelClass}>
+                    Initial Fund
+                  </label>
+                  <input
+                    id="payment-initial-fund"
+                    type="number"
+                    step="0.01"
+                    value={initialFund}
+                    onChange={(e) => setInitialFund(e.target.value)}
+                    placeholder="e.g. 100000"
+                    className={`${inputClass} font-mono tabular-nums`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="payment-profit" className={labelClass}>
+                    Profit
+                  </label>
+                  <input
+                    id="payment-profit"
+                    type="number"
+                    step="0.01"
+                    value={profit}
+                    onChange={(e) => setProfit(e.target.value)}
+                    placeholder="e.g. 15000"
+                    className={`${inputClass} font-mono tabular-nums`}
+                  />
+                </div>
+              </>
+            )}
             <div className="flex flex-col gap-1 col-span-2">
               <label htmlFor="payment-payout" className={labelClass}>
-                Payout Amount
+                {isPayIn ? "Amount" : "Payout Amount"}
               </label>
               <input
                 id="payment-payout"

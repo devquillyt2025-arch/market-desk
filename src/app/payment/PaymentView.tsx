@@ -16,6 +16,7 @@ import {
   type AddPaymentInput,
   type Payment,
   type PaymentStatus,
+  type PaymentType,
 } from "@/lib/paymentStore";
 import { showToast } from "@/lib/toast";
 import PaymentModal from "./PaymentModal";
@@ -32,6 +33,16 @@ const STATUS_CLASSES: Record<PaymentStatus, string> = {
   pending: "bg-muted text-muted-foreground",
   partial: "bg-accent/10 text-accent",
   paid: "bg-profit/10 text-profit",
+};
+
+const TYPE_LABELS: Record<PaymentType, string> = {
+  payin: "Pay In",
+  payout: "Payout",
+};
+
+const TYPE_CLASSES: Record<PaymentType, string> = {
+  payin: "bg-profit/10 text-profit",
+  payout: "bg-accent/10 text-accent",
 };
 
 function formatCellDate(iso: string): string {
@@ -90,6 +101,7 @@ export default function PaymentView() {
                     ...p,
                     entry_date: input.entryDate,
                     details: input.details,
+                    type: input.type,
                     initial_fund: input.initialFund,
                     profit: input.profit,
                     payout_amount: input.payoutAmount,
@@ -120,6 +132,7 @@ export default function PaymentView() {
         user_id: null,
         entry_date: input.entryDate,
         details: input.details,
+        type: input.type,
         initial_fund: input.initialFund,
         profit: input.profit,
         payout_amount: input.payoutAmount,
@@ -169,7 +182,7 @@ export default function PaymentView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Payment</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Fund payouts — initial fund, profit, and payout status, all in one place.
+            Money moving in and out of the trading account — funding, profit-sharing payouts, and status, all in one place.
           </p>
         </div>
         <button
@@ -196,15 +209,16 @@ export default function PaymentView() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] border-collapse text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50 text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Details</th>
+                  <th className={`${tableHeadClass} px-2 py-3`}>Type</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Initial Fund</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Profit</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Payout Amount</th>
+                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Amount</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
                   <th className="w-20 py-3 pr-4" />
                 </tr>
@@ -223,11 +237,18 @@ export default function PaymentView() {
                       <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
                       <td className="whitespace-nowrap px-2 py-2.5">{formatCellDate(row.entry_date)}</td>
                       <td className="max-w-56 truncate px-2 py-2.5 font-medium">{row.details}</td>
-                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                        {formatINR(row.initial_fund)}
+                      <td className="px-2 py-2.5">
+                        <span
+                          className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${TYPE_CLASSES[row.type]}`}
+                        >
+                          {TYPE_LABELS[row.type]}
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                        {formatINR(row.profit)}
+                        {row.type === "payin" ? "—" : formatINR(row.initial_fund)}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {row.type === "payin" ? "—" : formatINR(row.profit)}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums">
                         {formatINR(row.payout_amount)}

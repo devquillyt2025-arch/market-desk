@@ -9,15 +9,16 @@ import { round2 } from "@/lib/calculateTrade";
 import { formatINR } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
-import { PAYMENT_STATUSES, type Payment, type PaymentStatus } from "@/lib/types";
+import { PAYMENT_STATUSES, PAYMENT_TYPES, type Payment, type PaymentStatus, type PaymentType } from "@/lib/types";
 
-export { PAYMENT_STATUSES, type Payment, type PaymentStatus };
+export { PAYMENT_STATUSES, PAYMENT_TYPES, type Payment, type PaymentStatus, type PaymentType };
 
 const supabase = createClient();
 
 export type AddPaymentInput = {
   entryDate: string;
   details: string;
+  type: PaymentType;
   initialFund: number;
   profit: number;
   payoutAmount: number;
@@ -43,14 +44,16 @@ export async function getPayments(): Promise<Payment[]> {
   return cachedPayments;
 }
 
-function describePayment(input: Pick<AddPaymentInput, "details" | "payoutAmount">): string {
-  return `${input.details} (payout ${formatINR(round2(input.payoutAmount))})`;
+function describePayment(input: Pick<AddPaymentInput, "details" | "type" | "payoutAmount">): string {
+  const verb = input.type === "payin" ? "pay in" : "payout";
+  return `${input.details} (${verb} ${formatINR(round2(input.payoutAmount))})`;
 }
 
 export async function addPayment(input: AddPaymentInput): Promise<void> {
   const { error } = await supabase.from("payments").insert({
     entry_date: input.entryDate,
     details: input.details,
+    type: input.type,
     initial_fund: round2(input.initialFund),
     profit: round2(input.profit),
     payout_amount: round2(input.payoutAmount),
@@ -66,6 +69,7 @@ export async function updatePayment(id: string, input: AddPaymentInput): Promise
     .update({
       entry_date: input.entryDate,
       details: input.details,
+      type: input.type,
       initial_fund: round2(input.initialFund),
       profit: round2(input.profit),
       payout_amount: round2(input.payoutAmount),
