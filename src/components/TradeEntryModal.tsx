@@ -57,9 +57,17 @@ type TradeEntryModalProps = {
   onSave: (input: AddTradeEntryInput) => Promise<void>;
   onClose: () => void;
   onDelete: () => void;
+  /** Shared with Paper Trade, which passes "Paper Trade" so the heading doesn't say "Trade Entry" on that page. */
+  entityLabel?: string;
 };
 
-export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: TradeEntryModalProps) {
+export default function TradeEntryModal({
+  entry,
+  onSave,
+  onClose,
+  onDelete,
+  entityLabel = "Trade Entry",
+}: TradeEntryModalProps) {
   const [entryDate, setEntryDate] = useState(entry?.entry_date ?? todayISODate());
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
   const [strikePrice, setStrikePrice] = useState(entry?.strike_price != null ? String(entry.strike_price) : "");
@@ -148,7 +156,9 @@ export default function TradeEntryModal({ entry, onSave, onClose, onDelete }: Tr
         className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-semibold tracking-tight">{entry ? "Edit Trade Entry" : "Add Trade Entry"}</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {entry ? `Edit ${entityLabel}` : `Add ${entityLabel}`}
+          </h2>
           <button
             type="button"
             onClick={onClose}

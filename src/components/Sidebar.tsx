@@ -9,6 +9,7 @@ import {
   ActivityIcon,
   BarChartIcon,
   CalendarIcon,
+  FlaskIcon,
   LinkIcon,
   MenuIcon,
   NoteIcon,
@@ -25,6 +26,7 @@ const LINKS = [
   { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: BarChartIcon },
   { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
+  { href: "/paper-trade", label: "Paper Trade", icon: FlaskIcon },
   { href: "/payment", label: "Payment", icon: WalletIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
@@ -34,7 +36,7 @@ const LINKS = [
 const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
 
 /** Everything from this index on renders as a visually separate "secondary" group when collapsed. */
-const SECONDARY_GROUP_START = 5;
+const SECONDARY_GROUP_START = 6;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 

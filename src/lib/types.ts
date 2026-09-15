@@ -89,6 +89,13 @@ export type TradeEntry = {
   updated_at: string;
 };
 
+/**
+ * Paper Trade's row shape — identical fields to TradeEntry (same trade
+ * details, same hold/squared_off lifecycle), just persisted to its own
+ * table so a sandbox position never touches real P&L, Reports, or Payment.
+ */
+export type PaperTradeEntry = TradeEntry;
+
 /** `links` row shape — snake_case; app-facing `LinkItem` (in linksStore.ts) maps `group_name` to `group`. */
 export type LinkRow = {
   id: string;
@@ -192,6 +199,25 @@ export type Database = {
           | "updated_at"
         >;
         Update: Partial<TradeEntry>;
+        Relationships: [];
+      };
+      // Same row shape as trade_entries (see PaperTradeEntry) — a separate
+      // table so sandbox positions never mix into real P&L/Reports/Payment.
+      paper_trade_entries: {
+        Row: PaperTradeEntry;
+        Insert: Insert<
+          PaperTradeEntry,
+          | "id"
+          | "user_id"
+          | "entry_date"
+          | "strike_price"
+          | "option_type"
+          | "expiry_date"
+          | "remarks"
+          | "created_at"
+          | "updated_at"
+        >;
+        Update: Partial<PaperTradeEntry>;
         Relationships: [];
       };
       upstox_config: {

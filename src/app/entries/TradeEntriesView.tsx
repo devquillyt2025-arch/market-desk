@@ -35,7 +35,7 @@ import {
   type TradeEntrySide,
   type TradeEntryStatus,
 } from "@/lib/tradeEntriesStore";
-import TradeEntryModal from "./TradeEntryModal";
+import TradeEntryModal from "@/components/TradeEntryModal";
 
 const badgeClass = "rounded-full bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground";
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";

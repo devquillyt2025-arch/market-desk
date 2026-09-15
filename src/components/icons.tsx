@@ -304,6 +304,15 @@ export function NoteIcon({ className }: IconProps) {
   );
 }
 
+export function FlaskIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M9 2h6M10 2v6.5L4.5 18a2 2 0 0 0 1.72 3h11.56a2 2 0 0 0 1.72-3L14 8.5V2" />
+      <path d="M6.5 15h11" />
+    </svg>
+  );
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">
