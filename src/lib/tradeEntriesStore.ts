@@ -40,6 +40,7 @@ export type AddTradeEntryInput = {
   strikePrice?: number;
   optionType?: TradeEntryOptionType;
   expiryDate?: string;
+  closingDate?: string;
   lots: number;
   side: TradeEntrySide;
   buyPrice: number;
@@ -103,6 +104,7 @@ export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {
     strike_price: input.strikePrice ?? null,
     option_type: input.optionType ?? null,
     expiry_date: input.expiryDate ?? null,
+    closing_date: input.closingDate ?? null,
     lots: input.lots,
     side: input.side,
     buy_price: input.buyPrice,
@@ -127,6 +129,7 @@ export async function updateTradeEntry(id: string, input: AddTradeEntryInput): P
       strike_price: input.strikePrice ?? null,
       option_type: input.optionType ?? null,
       expiry_date: input.expiryDate ?? null,
+      closing_date: input.closingDate ?? null,
       lots: input.lots,
       side: input.side,
       buy_price: input.buyPrice,
@@ -188,6 +191,7 @@ type ImportedTradeEntry = {
   strike_price?: number | null;
   option_type?: TradeEntryOptionType | null;
   expiry_date?: string | null;
+  closing_date?: string | null;
   lots: number;
   side: TradeEntrySide;
   buy_price: number;
@@ -215,7 +219,8 @@ function isValidImportedEntry(value: unknown): value is ImportedTradeEntry {
     (v.status === "squared_off" || v.status === "hold") &&
     (v.strike_price === undefined || v.strike_price === null || typeof v.strike_price === "number") &&
     (v.option_type === undefined || v.option_type === null || TRADE_ENTRY_OPTION_TYPES.includes(v.option_type as TradeEntryOptionType)) &&
-    (v.expiry_date === undefined || v.expiry_date === null || (typeof v.expiry_date === "string" && !Number.isNaN(Date.parse(v.expiry_date))))
+    (v.expiry_date === undefined || v.expiry_date === null || (typeof v.expiry_date === "string" && !Number.isNaN(Date.parse(v.expiry_date)))) &&
+    (v.closing_date === undefined || v.closing_date === null || (typeof v.closing_date === "string" && !Number.isNaN(Date.parse(v.closing_date))))
   );
 }
 
@@ -258,6 +263,7 @@ export async function importTradeEntries(data: unknown): Promise<ImportTradeEntr
       strike_price: entry.strike_price ?? null,
       option_type: entry.option_type ?? null,
       expiry_date: entry.expiry_date ?? null,
+      closing_date: entry.closing_date ?? null,
       lots: entry.lots,
       side: entry.side,
       buy_price: entry.buy_price,

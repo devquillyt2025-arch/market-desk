@@ -73,6 +73,7 @@ export default function TradeEntryModal({
   const [strikePrice, setStrikePrice] = useState(entry?.strike_price != null ? String(entry.strike_price) : "");
   const [optionType, setOptionType] = useState<TradeEntryOptionType | "">(entry?.option_type ?? "");
   const [expiryDate, setExpiryDate] = useState(entry?.expiry_date ?? "");
+  const [closingDate, setClosingDate] = useState(entry?.closing_date ?? "");
   const [lots, setLots] = useState(entry?.lots ?? 1);
   const [side, setSide] = useState<TradeEntrySide>(entry?.side ?? "sell");
   const [buyPrice, setBuyPrice] = useState(entry ? String(entry.buy_price) : "");
@@ -125,6 +126,7 @@ export default function TradeEntryModal({
         strikePrice: strikePrice.trim() !== "" ? parsedStrikePrice : undefined,
         optionType: optionType || undefined,
         expiryDate: expiryDate.trim() || undefined,
+        closingDate: closingDate.trim() || undefined,
         lots,
         side,
         buyPrice: parsedBuyPrice,
@@ -246,6 +248,12 @@ export default function TradeEntryModal({
                 Date
               </label>
               <DatePicker id="entry-date" value={entryDate} onChange={setEntryDate} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="entry-closing-date" className={labelClass}>
+                Closing Date
+              </label>
+              <DatePicker id="entry-closing-date" value={closingDate} onChange={setClosingDate} clearable />
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor="entry-buy-price" className={labelClass}>

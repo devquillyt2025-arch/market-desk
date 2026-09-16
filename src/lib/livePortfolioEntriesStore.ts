@@ -1,17 +1,17 @@
 /**
- * Supabase-backed persistence for Paper Trade — a sandbox mirror of
- * tradeEntriesStore.ts pointed at its own table (paper_trade_entries) so
- * experimenting with a position never touches real P&L, Reports, or the
- * Payment ledger. Reuses tradeEntriesStore's pure helpers (calculateEntryPnl,
- * describeEntryContract) rather than reimplementing them — same formula,
- * same contract-label convention, just a different table underneath.
+ * Supabase-backed persistence for Live Portfolio — its own table
+ * (live_portfolio_entries) so tracking a real position's live LTP/Greeks
+ * never depends on (or writes back to) trade_entries. Same shape and
+ * lifecycle as tradeEntriesStore.ts/paperTradeEntriesStore.ts, just a
+ * different table underneath — reuses their pure helpers (calculateEntryPnl,
+ * describeEntryContract) rather than reimplementing either.
  */
 
 import { logEvent } from "@/lib/activityLog";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import { calculateEntryPnl, type AddTradeEntryInput } from "@/lib/tradeEntriesStore";
-import type { PaperTradeEntry } from "@/lib/types";
+import type { LivePortfolioEntry } from "@/lib/types";
 
 export { calculateEntryPnl, describeEntryContract } from "@/lib/tradeEntriesStore";
 export type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
@@ -19,16 +19,16 @@ export type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
 const supabase = createClient();
 
 /** Last-known result, kept warm so revisiting the tab paints instantly instead of flashing a skeleton. */
-let cachedEntries: PaperTradeEntry[] | null = null;
+let cachedEntries: LivePortfolioEntry[] | null = null;
 
 /** Synchronous — for a view's initial state, so it can skip the skeleton on a repeat visit. */
-export function getCachedPaperTradeEntries(): PaperTradeEntry[] | null {
+export function getCachedLivePortfolioEntries(): LivePortfolioEntry[] | null {
   return cachedEntries;
 }
 
-export async function getPaperTradeEntries(): Promise<PaperTradeEntry[]> {
+export async function getLivePortfolioEntries(): Promise<LivePortfolioEntry[]> {
   const { data, error } = await supabase
-    .from("paper_trade_entries")
+    .from("live_portfolio_entries")
     .select("*")
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -37,9 +37,9 @@ export async function getPaperTradeEntries(): Promise<PaperTradeEntry[]> {
   return cachedEntries;
 }
 
-export async function addPaperTradeEntry(input: AddTradeEntryInput): Promise<void> {
+export async function addLivePortfolioEntry(input: AddTradeEntryInput): Promise<void> {
   const pnl = calculateEntryPnl(input);
-  const { error } = await supabase.from("paper_trade_entries").insert({
+  const { error } = await supabase.from("live_portfolio_entries").insert({
     entry_date: input.entryDate,
     instrument: input.instrument,
     strike_price: input.strikePrice ?? null,
@@ -55,13 +55,15 @@ export async function addPaperTradeEntry(input: AddTradeEntryInput): Promise<voi
     remarks: input.remarks?.trim() || null,
   });
   if (error) throw error;
-  logEvent(`Added paper trade: ${input.instrument} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}`);
+  logEvent(
+    `Added live portfolio position: ${input.instrument} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}`,
+  );
 }
 
-export async function updatePaperTradeEntry(id: string, input: AddTradeEntryInput): Promise<void> {
+export async function updateLivePortfolioEntry(id: string, input: AddTradeEntryInput): Promise<void> {
   const pnl = calculateEntryPnl(input);
   const { error } = await supabase
-    .from("paper_trade_entries")
+    .from("live_portfolio_entries")
     .update({
       entry_date: input.entryDate,
       instrument: input.instrument,
@@ -80,31 +82,33 @@ export async function updatePaperTradeEntry(id: string, input: AddTradeEntryInpu
     })
     .eq("id", id);
   if (error) throw error;
-  logEvent(`Edited paper trade: ${input.instrument} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}`);
+  logEvent(
+    `Edited live portfolio position: ${input.instrument} ${input.side}, ${input.lots} lot${input.lots === 1 ? "" : "s"}`,
+  );
 }
 
 /** Same "single-field, bypasses the form's all-or-nothing rule" case as tradeEntriesStore's setTradeEntryExpiry. */
-export async function setPaperTradeExpiry(id: string, expiryDate: string): Promise<void> {
+export async function setLivePortfolioExpiry(id: string, expiryDate: string): Promise<void> {
   const { error } = await supabase
-    .from("paper_trade_entries")
+    .from("live_portfolio_entries")
     .update({ expiry_date: expiryDate, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
-  logEvent(`Set expiry date for paper trade to ${expiryDate}`);
+  logEvent(`Set expiry date for live portfolio position to ${expiryDate}`);
 }
 
-export async function deletePaperTradeEntry(id: string): Promise<void> {
+export async function deleteLivePortfolioEntry(id: string): Promise<void> {
   const { data: entry, error } = await supabase
-    .from("paper_trade_entries")
+    .from("live_portfolio_entries")
     .delete()
     .eq("id", id)
     .select()
     .maybeSingle();
   if (error) throw error;
-  if (entry) logEvent(`Deleted paper trade: ${entry.entry_date}`);
+  if (entry) logEvent(`Deleted live portfolio position: ${entry.entry_date}`);
 }
 
 /** Keeps every open session in sync via Supabase Realtime, same as tradeEntriesStore.ts. */
-export function subscribeToPaperTradeChanges(callback: () => void): () => void {
-  return subscribeToTableChanges("paper_trade_entries", callback);
+export function subscribeToLivePortfolioChanges(callback: () => void): () => void {
+  return subscribeToTableChanges("live_portfolio_entries", callback);
 }

@@ -226,6 +226,8 @@ export default function TradeEntriesView() {
                     instrument: input.instrument,
                     strike_price: input.strikePrice ?? null,
                     option_type: input.optionType ?? null,
+                    expiry_date: input.expiryDate ?? null,
+                    closing_date: input.closingDate ?? null,
                     lots: input.lots,
                     side: input.side,
                     buy_price: input.buyPrice,
@@ -454,11 +456,12 @@ export default function TradeEntriesView() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+            <table className="w-full min-w-[1020px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50 text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
+                  <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Side</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Lots</th>
@@ -485,6 +488,9 @@ export default function TradeEntriesView() {
                       <td className="whitespace-nowrap px-2 py-2.5">
                         {formatCellDate(row.entry_date)}
                         <span className="ml-1.5 text-xs text-muted-foreground">{row.day.slice(0, 3)}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2.5 text-muted-foreground">
+                        {row.closing_date ? formatCellDate(row.closing_date) : "—"}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(row)}</td>
                       <td className="px-2 py-2.5">

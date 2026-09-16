@@ -78,6 +78,8 @@ export type TradeEntry = {
   option_type: TradeEntryOptionType | null;
   /** Nullable — only entries with strike_price + option_type + expiry_date all set are tracked by Live Portfolio. */
   expiry_date: string | null;
+  /** Nullable — the date the position was actually squared off, set once status leaves "hold". */
+  closing_date: string | null;
   lots: number;
   side: TradeEntrySide;
   buy_price: number;
@@ -95,6 +97,14 @@ export type TradeEntry = {
  * table so a sandbox position never touches real P&L, Reports, or Payment.
  */
 export type PaperTradeEntry = TradeEntry;
+
+/**
+ * Live Portfolio's row shape — identical fields to TradeEntry, own table.
+ * Independent of trade_entries: adding/editing/deleting here never touches
+ * real P&L, Reports, or Payment, and vice versa — it's for tracking a real
+ * position's live LTP/Greeks, not the source of truth for what was traded.
+ */
+export type LivePortfolioEntry = TradeEntry;
 
 /** `links` row shape — snake_case; app-facing `LinkItem` (in linksStore.ts) maps `group_name` to `group`. */
 export type LinkRow = {
@@ -194,6 +204,7 @@ export type Database = {
           | "strike_price"
           | "option_type"
           | "expiry_date"
+          | "closing_date"
           | "remarks"
           | "created_at"
           | "updated_at"
@@ -213,11 +224,33 @@ export type Database = {
           | "strike_price"
           | "option_type"
           | "expiry_date"
+          | "closing_date"
           | "remarks"
           | "created_at"
           | "updated_at"
         >;
         Update: Partial<PaperTradeEntry>;
+        Relationships: [];
+      };
+      // Same row shape as trade_entries (see LivePortfolioEntry) — a separate
+      // table so Live Portfolio's own add/edit/delete never touches real
+      // P&L/Reports/Payment, and isn't derived from trade_entries anymore.
+      live_portfolio_entries: {
+        Row: LivePortfolioEntry;
+        Insert: Insert<
+          LivePortfolioEntry,
+          | "id"
+          | "user_id"
+          | "entry_date"
+          | "strike_price"
+          | "option_type"
+          | "expiry_date"
+          | "closing_date"
+          | "remarks"
+          | "created_at"
+          | "updated_at"
+        >;
+        Update: Partial<LivePortfolioEntry>;
         Relationships: [];
       };
       upstox_config: {
