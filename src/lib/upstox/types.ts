@@ -56,3 +56,45 @@ export function isUpstoxOptionChainError(
 ): result is UpstoxOptionChainError {
   return "error" in result;
 }
+
+/**
+ * Shape of Upstox's `POST /v2/charges/margin` request/response — the actual
+ * SPAN + exposure margin blocked for a position, not just the premium value.
+ * A sold option's margin is many times its premium; a bought option's is
+ * roughly just the premium (`net_buy_premium`) — this is why Live
+ * Portfolio's "Total Invested" tile calls this instead of `price * qty`.
+ */
+export type UpstoxMarginInstrumentRequest = {
+  instrument_key: string;
+  quantity: number;
+  transaction_type: "BUY" | "SELL";
+  /** "D" (carry-forward/NRML) — Live Portfolio positions are held, not intraday-squared. */
+  product: "D" | "I" | "CO" | "MTF";
+  price?: number;
+};
+
+export type UpstoxMarginLine = {
+  span_margin?: number;
+  exposure_margin?: number;
+  equity_margin?: number;
+  net_buy_premium?: number;
+  additional_margin?: number;
+  total_margin?: number;
+  tender_margin?: number;
+};
+
+export type UpstoxMarginSuccess = {
+  status: "success";
+  data: {
+    margins: UpstoxMarginLine[];
+    required_margin: number;
+    final_margin: number;
+  };
+};
+
+export type UpstoxMarginError = { error: string; detail?: string };
+export type UpstoxMarginResult = UpstoxMarginSuccess | UpstoxMarginError;
+
+export function isUpstoxMarginError(result: UpstoxMarginResult): result is UpstoxMarginError {
+  return "error" in result;
+}

@@ -25,8 +25,9 @@ import {
   type AddTradeEntryInput,
 } from "@/lib/livePortfolioEntriesStore";
 import { showToast } from "@/lib/toast";
-import type { LivePortfolioEntry, TradeEntrySide } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
 import { useLivePricing } from "@/lib/useLivePricing";
+import { useMargin } from "@/lib/useMargin";
 
 const POLL_MS = 10000;
 
@@ -105,6 +106,23 @@ export default function PortfolioView() {
 
   const { rows, tokenExpired, offline, lastPolledAt, manualRefreshing, groupCount, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
+  const { totalMargin } = useMargin(rows);
+
+  // Current mark value of open positions (premium terms) and their
+  // unrealized P&L — livePnl is already sign-correct for both buy and sell
+  // sides, so it's summed directly rather than derived from value math that
+  // would get the sign backwards for a short position.
+  const portfolioStats = useMemo(() => {
+    if (!rows) return null;
+    let value = 0;
+    let unrealizedPnl = 0;
+    for (const row of rows) {
+      const qty = row.entry.lots * DEFAULT_LOT_SIZES[row.entry.instrument];
+      value += (row.liveLtp ?? row.entryPrice) * qty;
+      unrealizedPnl += row.livePnl ?? 0;
+    }
+    return { value, unrealizedPnl };
+  }, [rows]);
 
   function handleSetExpiry(entryId: string, expiryDate: string) {
     const previous = entries;
@@ -257,6 +275,29 @@ export default function PortfolioView() {
           </button>
         </div>
       </div>
+
+      {portfolioStats && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <section className="rounded-xl border border-border bg-background p-4">
+            <dt className="text-xs text-muted-foreground">Total Invested (Margin)</dt>
+            <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">
+              {totalMargin === null ? "—" : formatINR(totalMargin)}
+            </dd>
+          </section>
+          <section className="rounded-xl border border-border bg-background p-4">
+            <dt className="text-xs text-muted-foreground">Total Value</dt>
+            <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatINR(portfolioStats.value)}</dd>
+          </section>
+          <section className="rounded-xl border border-border bg-background p-4">
+            <dt className="text-xs text-muted-foreground">Unrealized P&amp;L</dt>
+            <dd
+              className={`mt-1 font-mono text-xl font-semibold tabular-nums ${pnlColorClass(portfolioStats.unrealizedPnl)}`}
+            >
+              {formatINR(portfolioStats.unrealizedPnl)}
+            </dd>
+          </section>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

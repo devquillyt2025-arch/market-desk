@@ -55,6 +55,8 @@ export type PortfolioRow = {
   entryPrice: number;
   status: PortfolioRowStatus;
   errorMessage?: string;
+  /** This exact contract's Upstox instrument_key — only known once its leg is found in a loaded chain (status "ok"). Needed to look up real margin. */
+  instrumentKey: string | null;
   liveLtp: number | null;
   livePnl: number | null;
   delta: number | null;
@@ -89,6 +91,7 @@ function syntheticPrices(entry: TradeEntry, liveLtp: number): { buyPrice: number
 }
 
 const EMPTY_LIVE_FIELDS = {
+  instrumentKey: null,
   liveLtp: null,
   livePnl: null,
   delta: null,
@@ -128,7 +131,16 @@ export function computePortfolioRow(
   };
 
   if (liveLtp == null) {
-    return { entry, entryPrice, status: "no_match", liveLtp: null, livePnl: null, brokerageIfClosed: null, ...greeksAndOi };
+    return {
+      entry,
+      entryPrice,
+      status: "no_match",
+      instrumentKey: null,
+      liveLtp: null,
+      livePnl: null,
+      brokerageIfClosed: null,
+      ...greeksAndOi,
+    };
   }
 
   const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
@@ -136,5 +148,14 @@ export function computePortfolioRow(
   const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
   const brokerageIfClosed = calculateBrokerage("OPTIONS", [{ buyPrice, sellPrice }], qty).totalCharges;
 
-  return { entry, entryPrice, status: "ok", liveLtp, livePnl, brokerageIfClosed, ...greeksAndOi };
+  return {
+    entry,
+    entryPrice,
+    status: "ok",
+    instrumentKey: leg?.instrument_key ?? null,
+    liveLtp,
+    livePnl,
+    brokerageIfClosed,
+    ...greeksAndOi,
+  };
 }
