@@ -18,12 +18,19 @@ import {
   type TooltipContentProps,
 } from "recharts";
 
-import { InboxIcon } from "@/components/icons";
+import DatePicker from "@/components/DatePicker";
+import { DownloadIcon, InboxIcon, PrinterIcon } from "@/components/icons";
+import PnlCalendarHeatmap from "@/components/PnlCalendarHeatmap";
 import Select from "@/components/Select";
 import {
+  buildReportCsv,
   computeCumulativeSeries,
+  computeDailyPnlMap,
   computePnlByDayOfWeek,
   computePnlByInstrument,
+  computePnlByMonth,
+  computePnlByOptionType,
+  computePnlBySide,
   DATE_RANGE_LABELS,
   DATE_RANGES,
   filterEntriesByRange,
@@ -45,6 +52,25 @@ const RANGE_OPTIONS = DATE_RANGES.map((r) => ({ value: r, label: DATE_RANGE_LABE
 
 function formatAxisDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+function todayISODate(): string {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function downloadCsv(filename: string, csv: string) {
+  // A leading BOM so Excel (which otherwise guesses the system codepage) reads the ₹ symbol and non-ASCII text correctly.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function CumulativeTooltip({ active, payload }: TooltipContentProps) {
@@ -101,9 +127,19 @@ function CategoryPnlChart({ data }: { data: CategoryPnl[] }) {
   );
 }
 
+function EmptyCategoryNote({ text }: { text: string }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center text-center text-sm text-muted-foreground">{text}</div>
+  );
+}
+
+const STREAK_LABELS = { win: "win streak", loss: "loss streak", none: "no streak yet" } as const;
+
 export default function ReportsView() {
   const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
   const [range, setRange] = useState<DateRange>("30d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState(todayISODate());
 
   useEffect(() => {
     async function load() {
@@ -117,11 +153,28 @@ export default function ReportsView() {
     return subscribeToTradeEntryChanges(load);
   }, []);
 
-  const filtered = useMemo(() => (entries ? filterEntriesByRange(entries, range) : null), [entries, range]);
+  const filtered = useMemo(
+    () =>
+      entries ? filterEntriesByRange(entries, range, range === "custom" ? { from: customFrom, to: customTo } : undefined) : null,
+    [entries, range, customFrom, customTo],
+  );
   const summary = useMemo(() => (filtered ? summarizeEntries(filtered) : null), [filtered]);
   const cumulative = useMemo(() => (filtered ? computeCumulativeSeries(filtered) : null), [filtered]);
   const byInstrument = useMemo(() => (filtered ? computePnlByInstrument(filtered) : null), [filtered]);
+  const bySide = useMemo(() => (filtered ? computePnlBySide(filtered) : null), [filtered]);
+  const byOptionType = useMemo(() => (filtered ? computePnlByOptionType(filtered) : null), [filtered]);
+  const byMonth = useMemo(() => (filtered ? computePnlByMonth(filtered) : null), [filtered]);
   const byDayOfWeek = useMemo(() => (filtered ? computePnlByDayOfWeek(filtered) : null), [filtered]);
+
+  // Deliberately over the *full* history, not `filtered` — the calendar has
+  // its own month navigation, independent of the page's date-range filter.
+  const dailyPnl = useMemo(() => computeDailyPnlMap(entries ?? []), [entries]);
+  const heatmapInitialMonth = useMemo(() => {
+    if (!entries || entries.length === 0) return new Date();
+    const latest = entries.reduce((max, e) => (e.entry_date > max ? e.entry_date : max), entries[0].entry_date);
+    const [y, m] = latest.split("-").map(Number);
+    return new Date(y, m - 1, 1);
+  }, [entries]);
 
   const statTiles = useMemo(
     () =>
@@ -136,6 +189,18 @@ export default function ReportsView() {
     [summary],
   );
 
+  function handleExportCsv() {
+    if (!filtered || filtered.length === 0) {
+      showToast("No trade entries in this range to export.");
+      return;
+    }
+    downloadCsv(`reports-${range}-${todayISODate()}.csv`, buildReportCsv(filtered));
+  }
+
+  function handlePrint() {
+    window.print();
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -147,11 +212,40 @@ export default function ReportsView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Full analysis of your Trade Entries — P&amp;L trend, by instrument, and by day.
+            Full analysis of your Trade Entries — P&amp;L trend, breakdowns, streaks, and drawdown.
           </p>
         </div>
-        <div className="w-28">
-          <Select value={range} onChange={setRange} options={RANGE_OPTIONS} align="right" />
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {range === "custom" && (
+            <>
+              <div className="w-32">
+                <DatePicker value={customFrom} onChange={setCustomFrom} clearable />
+              </div>
+              <span className="text-xs text-muted-foreground">to</span>
+              <div className="w-32">
+                <DatePicker value={customTo} onChange={setCustomTo} clearable />
+              </div>
+            </>
+          )}
+          <div className="w-28">
+            <Select value={range} onChange={setRange} options={RANGE_OPTIONS} align="right" />
+          </div>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <DownloadIcon className="size-4" />
+            CSV
+          </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <PrinterIcon className="size-4" />
+            Print
+          </button>
         </div>
       </div>
 
@@ -219,6 +313,84 @@ export default function ReportsView() {
             </div>
           </section>
 
+          {summary && (
+            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+              <h2 className="text-sm font-medium">Performance</h2>
+              <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Best Trade</dt>
+                  <dd
+                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
+                  >
+                    {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                  </dd>
+                  {summary.bestTrade && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Worst Trade</dt>
+                  <dd
+                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
+                  >
+                    {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                  </dd>
+                  {summary.worstTrade && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Max Drawdown</dt>
+                  <dd
+                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
+                  >
+                    {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Current Streak</dt>
+                  <dd
+                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
+                      summary.currentStreak.type === "win"
+                        ? "text-profit"
+                        : summary.currentStreak.type === "loss"
+                          ? "text-loss"
+                          : "text-muted-foreground"
+                    }`}
+                  >
+                    {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                  </dd>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Profit Factor</dt>
+                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                    {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Avg Win</dt>
+                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-profit">
+                    {formatINR(summary.avgWin)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Avg Loss</dt>
+                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-loss">
+                    {formatINR(summary.avgLoss)}
+                  </dd>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <h2 className="text-sm font-medium">Daily P&amp;L Calendar</h2>
+            <div className="mt-2">
+              <PnlCalendarHeatmap dailyPnl={dailyPnl} initialMonth={heatmapInitialMonth} />
+            </div>
+          </section>
+
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <h2 className="text-sm font-medium">P&amp;L by Instrument</h2>
@@ -233,7 +405,36 @@ export default function ReportsView() {
                 <CategoryPnlChart data={byDayOfWeek ?? []} />
               </div>
             </section>
+
+            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+              <h2 className="text-sm font-medium">P&amp;L by Side</h2>
+              <div className="mt-2">
+                <CategoryPnlChart data={bySide ?? []} />
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+              <h2 className="text-sm font-medium">P&amp;L by Option Type</h2>
+              <div className="mt-2">
+                {byOptionType && byOptionType.length > 0 ? (
+                  <CategoryPnlChart data={byOptionType} />
+                ) : (
+                  <EmptyCategoryNote text="No options trades (with a CE/PE set) in this range." />
+                )}
+              </div>
+            </section>
           </div>
+
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <h2 className="text-sm font-medium">P&amp;L by Month</h2>
+            <div className="mt-2">
+              {byMonth && byMonth.length > 0 ? (
+                <CategoryPnlChart data={byMonth} />
+              ) : (
+                <EmptyCategoryNote text="No data in this range." />
+              )}
+            </div>
+          </section>
 
           {summary && (
             <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">

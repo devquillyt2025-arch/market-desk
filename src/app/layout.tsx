@@ -75,9 +75,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </Script>
         <ToastHost />
         <div className="flex min-h-screen flex-col lg:flex-row">
-          <Sidebar />
-          <main className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10">
-            <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <div className="print:hidden">
+            <Sidebar />
+          </div>
+          <main className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10 print:p-0">
+            <div className="mx-auto w-full max-w-6xl print:max-w-none">{children}</div>
           </main>
         </div>
       </body>

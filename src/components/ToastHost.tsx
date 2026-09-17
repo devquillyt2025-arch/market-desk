@@ -12,7 +12,7 @@ export default function ToastHost() {
   useEffect(() => subscribeToasts(setToasts), []);
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[500] flex flex-col items-center gap-2 px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:items-end sm:px-0">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[500] flex flex-col items-center gap-2 px-4 print:hidden sm:bottom-6 sm:right-6 sm:left-auto sm:items-end sm:px-0">
       <AnimatePresence>
         {toasts.map((toast) => (
           <motion.div
