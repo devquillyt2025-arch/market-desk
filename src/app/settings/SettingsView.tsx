@@ -15,9 +15,9 @@ import { showToast } from "@/lib/toast";
 import { getUpstoxConfig, saveUpstoxToken, type UpstoxConfig } from "@/lib/upstoxConfigStore";
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
-const sectionClass = "rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6";
+const sectionClass = "rounded-xl border border-border bg-background p-5 sm:p-6";
 
 function formatUpdatedAt(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
@@ -134,7 +134,7 @@ export default function SettingsView() {
 
         {config?.token && (
           <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 truncate rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+            <code className="flex-1 truncate rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
               {showSavedToken ? config.token : "•".repeat(Math.min(config.token.length, 48))}
             </code>
             <button

@@ -17,7 +17,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-loss/40 bg-card p-12 text-center">
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-loss/40 bg-background p-12 text-center">
       <AlertCircleIcon className="size-8 text-loss" />
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Something went wrong</h1>

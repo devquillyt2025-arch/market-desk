@@ -43,22 +43,22 @@ export default function ConfirmDialog({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
+      transition={{ duration: 0.12 }}
       // Higher than the app's other modals (z-[300]) so this can stack on
       // top when a delete is confirmed from inside an already-open editor.
-      className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 p-4"
+      className="glass-backdrop fixed inset-0 z-[400] flex items-center justify-center p-4"
       onClick={onCancel}
     >
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.98 }}
-        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        initial={{ opacity: 0, scale: 0.97, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl"
+        className="glass-panel w-full max-w-sm p-5"
       >
         <div className="flex items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-loss/10 text-loss">

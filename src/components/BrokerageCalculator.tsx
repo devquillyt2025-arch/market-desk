@@ -55,6 +55,18 @@ function toNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * F&O quantities can only ever be traded in whole lots (e.g. 65, 130, 195 for
+ * Nifty — never 66), so any typed value is snapped to the nearest multiple of
+ * the lot size rather than accepted as-is. Equity (Delivery/Intraday) has no
+ * lot concept — `lotSize` is null there — so it stays free-entry.
+ */
+function normalizeQty(qty: number, lotSize: number | null): number {
+  if (!lotSize) return Math.max(1, Math.trunc(qty) || 1);
+  const lots = Math.max(1, Math.round(qty / lotSize));
+  return lots * lotSize;
+}
+
 const BREAKUP_ROWS: { key: keyof BrokerageBreakdown; label: string }[] = [
   { key: "brokerage", label: "Brokerage" },
   { key: "stt", label: "STT/CTT" },
@@ -67,7 +79,7 @@ const BREAKUP_ROWS: { key: keyof BrokerageBreakdown; label: string }[] = [
 ];
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 type CalcLeg = {
   key: number;
@@ -119,13 +131,18 @@ function loadStoredLegs(): CalcLeg[] | null {
     if (!Array.isArray(parsed)) return null;
     const valid = parsed.filter(isValidStoredLeg);
     if (valid.length === 0) return null;
-    return valid.map((stored) => ({
-      key: nextLegKey++,
-      option: CALC_OPTIONS.find((o) => o.id === stored.optionId)!,
-      buyPrice: stored.buyPrice,
-      sellPrice: stored.sellPrice,
-      qty: stored.qty,
-    }));
+    return valid.map((stored) => {
+      const option = CALC_OPTIONS.find((o) => o.id === stored.optionId)!;
+      const lotSize = option.instrument ? DEFAULT_LOT_SIZES[option.instrument] : null;
+      return {
+        key: nextLegKey++,
+        option,
+        buyPrice: stored.buyPrice,
+        sellPrice: stored.sellPrice,
+        // Re-normalized in case it was saved before lot-size enforcement existed.
+        qty: normalizeQty(stored.qty, lotSize),
+      };
+    });
   } catch {
     // localStorage may be unavailable (private browsing, disabled storage) or hold invalid JSON.
     return null;
@@ -270,10 +287,10 @@ export default function BrokerageCalculator() {
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
       className="flex h-full min-h-0 flex-col gap-3"
     >
-      <section className="grid shrink-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:grid-cols-2">
+      <section className="grid shrink-0 overflow-hidden rounded-xl border border-border sm:grid-cols-2">
         <div className="grid grid-cols-2 gap-px bg-border sm:border-r sm:border-border">
           {topStats.map((stat) => (
-            <div key={stat.label} className="bg-card p-2.5">
+            <div key={stat.label} className="bg-background p-2.5">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
               <dd className={`mt-0.5 font-mono text-lg font-semibold tabular-nums transition-colors ${stat.color}`}>
                 {stat.value}
@@ -282,7 +299,7 @@ export default function BrokerageCalculator() {
           ))}
         </div>
 
-        <div className="flex flex-col justify-center gap-2 p-3 sm:p-4">
+        <div className="flex flex-col justify-center gap-2 bg-background p-3 sm:p-4">
           <div className="flex items-center justify-between">
             <dt className="text-sm text-muted-foreground">Gross P&amp;L</dt>
             <dd className="font-mono text-sm font-medium tabular-nums">{rupees(totalPnl)}</dd>
@@ -303,7 +320,7 @@ export default function BrokerageCalculator() {
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 lg:grid-cols-3">
         <div className="flex min-h-0 flex-col gap-2 lg:col-span-2">
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border">
             {/* flex-1 fills whatever room is actually available (the whole
                 page is height-locked, see page.tsx) — a tall screen shows
                 many more rows before this needs to scroll at all, rather
@@ -313,7 +330,7 @@ export default function BrokerageCalculator() {
             <div className="min-h-[112px] flex-1 overflow-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="border-b border-border bg-muted text-left text-muted-foreground">
+                  <tr className="border-b border-border bg-background text-left text-muted-foreground">
                     <th className="min-w-[220px] px-4 py-2 font-medium">Instrument</th>
                     <th className="min-w-[110px] px-2 py-2 font-medium">Buy Price</th>
                     <th className="min-w-[110px] px-2 py-2 font-medium">Sell Price</th>
@@ -366,12 +383,19 @@ export default function BrokerageCalculator() {
                           <td className="px-2 py-2 align-top">
                             <input
                               type="number"
-                              min={1}
-                              step={1}
+                              min={lotSize ?? 1}
+                              step={lotSize ?? 1}
                               value={leg.qty}
                               onChange={(e) =>
-                                handleLegQtyChange(leg.key, Math.max(1, Math.trunc(toNumber(e.target.value))))
+                                handleLegQtyChange(leg.key, Math.max(1, Math.trunc(toNumber(e.target.value)) || 1))
                               }
+                              // Snapped to the nearest whole lot only once typing is done — not on
+                              // every keystroke, which would fight a user typing a multi-digit
+                              // quantity (each digit would get rounded before the next one lands).
+                              onBlur={() => {
+                                const normalized = normalizeQty(leg.qty, lotSize);
+                                if (normalized !== leg.qty) handleLegQtyChange(leg.key, normalized);
+                              }}
                               className={`${inputClass} font-mono tabular-nums`}
                             />
                             {/* Always rendered (blank when no lot size) so every row is the
@@ -425,7 +449,7 @@ export default function BrokerageCalculator() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+          <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background p-4 sm:p-5">
             <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Charges Breakup
             </h2>

@@ -20,6 +20,7 @@ import {
 
 import DatePicker from "@/components/DatePicker";
 import { DownloadIcon, InboxIcon, PrinterIcon } from "@/components/icons";
+import LoadingState from "@/components/LoadingState";
 import PnlCalendarHeatmap from "@/components/PnlCalendarHeatmap";
 import Select from "@/components/Select";
 import {
@@ -250,13 +251,9 @@ export default function ReportsView() {
       </div>
 
       {entries === null ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-20 animate-pulse rounded-xl border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-40" label="Loading reports…" />
       ) : filtered && filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             No trade entries in this range. Log some in Trade Entries to see reports here.
@@ -266,14 +263,14 @@ export default function ReportsView() {
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {statTiles?.map((stat) => (
-              <section key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
                 <dt className="text-xs text-muted-foreground">{stat.label}</dt>
                 <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums ${stat.color}`}>{stat.value}</dd>
               </section>
             ))}
           </div>
 
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">Cumulative P&amp;L</h2>
             <div className="mt-2">
               <ResponsiveContainer width="100%" height={240}>
@@ -306,7 +303,7 @@ export default function ReportsView() {
                     strokeWidth={2}
                     fill="url(#cumulative-fill)"
                     dot={false}
-                    activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--card)", strokeWidth: 2 }}
+                    activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--background)", strokeWidth: 2 }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -314,7 +311,7 @@ export default function ReportsView() {
           </section>
 
           {summary && (
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">Performance</h2>
               <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 <div>
@@ -384,7 +381,7 @@ export default function ReportsView() {
             </section>
           )}
 
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">Daily P&amp;L Calendar</h2>
             <div className="mt-2">
               <PnlCalendarHeatmap dailyPnl={dailyPnl} initialMonth={heatmapInitialMonth} />
@@ -392,28 +389,28 @@ export default function ReportsView() {
           </section>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">P&amp;L by Instrument</h2>
               <div className="mt-2">
                 <CategoryPnlChart data={byInstrument ?? []} />
               </div>
             </section>
 
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">P&amp;L by Day of Week</h2>
               <div className="mt-2">
                 <CategoryPnlChart data={byDayOfWeek ?? []} />
               </div>
             </section>
 
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">P&amp;L by Side</h2>
               <div className="mt-2">
                 <CategoryPnlChart data={bySide ?? []} />
               </div>
             </section>
 
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">P&amp;L by Option Type</h2>
               <div className="mt-2">
                 {byOptionType && byOptionType.length > 0 ? (
@@ -425,7 +422,7 @@ export default function ReportsView() {
             </section>
           </div>
 
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">P&amp;L by Month</h2>
             <div className="mt-2">
               {byMonth && byMonth.length > 0 ? (
@@ -437,7 +434,7 @@ export default function ReportsView() {
           </section>
 
           {summary && (
-            <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-medium">Win Rate</h2>
                 <span className="font-mono text-sm font-semibold tabular-nums">

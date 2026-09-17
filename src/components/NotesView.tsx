@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { GridIcon, InboxIcon, ListIcon, PlusIcon, SearchIcon } from "@/components/icons";
+import LoadingState from "@/components/LoadingState";
 import NoteCard from "@/components/NoteCard";
 import Select from "@/components/Select";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_LABELS } from "@/lib/noteColors";
@@ -34,7 +35,7 @@ const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
 ];
 
 const toolbarSelectClass =
-  "flex h-9 items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "flex h-9 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 export type NoteEditorContext = {
   note: Note;
@@ -169,7 +170,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search notes..."
-            className="w-full rounded-lg border border-border bg-background py-2 pl-8 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+            className="w-full rounded-lg border border-border bg-card py-2 pl-8 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
           />
         </div>
 
@@ -182,7 +183,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
           New Note
         </button>
 
-        <div className="flex items-center gap-1 rounded-full border border-border bg-muted p-1">
+        <div className="flex items-center gap-1 rounded-full border border-border p-1">
           <button
             type="button"
             onClick={() => setActiveColor(null)}
@@ -253,13 +254,9 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
       </div>
 
       {notes === null ? (
-        <div className={containerClass}>
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-[182px] animate-pulse rounded-xl border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-56" label="Loading notes…" />
       ) : notes.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-12 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <div>
             <p className="font-semibold text-foreground">Capture your first note</p>
@@ -276,7 +273,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
           </button>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-12 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="font-medium text-foreground">No notes match your search</p>
           <button

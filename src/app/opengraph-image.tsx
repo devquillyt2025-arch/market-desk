@@ -15,7 +15,7 @@ export default function OgImage() {
           flexDirection: "column",
           justifyContent: "center",
           padding: "80px",
-          background: "linear-gradient(135deg, #0b1220 0%, #131b2e 100%)",
+          background: "linear-gradient(135deg, #0a0a0a 0%, #141416 100%)",
           fontFamily: "system-ui, sans-serif",
         }}
       >
@@ -28,19 +28,19 @@ export default function OgImage() {
               width: 84,
               height: 84,
               borderRadius: 18,
-              background: "#3b82f6",
-              color: "#ffffff",
+              background: "#7869fc",
+              color: "#f5f5f5",
               fontSize: 44,
               fontWeight: 700,
             }}
           >
             M
           </div>
-          <div style={{ display: "flex", fontSize: 60, fontWeight: 700, color: "#f1f5f9" }}>
+          <div style={{ display: "flex", fontSize: 60, fontWeight: 700, color: "#f5f5f5" }}>
             MarketDesk
           </div>
         </div>
-        <div style={{ display: "flex", marginTop: 36, fontSize: 30, color: "#94a3b8", maxWidth: 900 }}>
+        <div style={{ display: "flex", marginTop: 36, fontSize: 30, color: "#b0b0b0", maxWidth: 900 }}>
           Multi-leg options-selling P&L calculator for Nifty, Bank Nifty, and Sensex.
         </div>
       </div>

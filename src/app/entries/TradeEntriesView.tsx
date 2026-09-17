@@ -7,13 +7,12 @@ import {
   ArrowUpDownIcon,
   DownloadIcon,
   InboxIcon,
-  PencilIcon,
   PlusIcon,
   SearchIcon,
-  TrashIcon,
   UploadIcon,
 } from "@/components/icons";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import LoadingState from "@/components/LoadingState";
 import Select from "@/components/Select";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { summarizeEntries } from "@/lib/calculateReports";
@@ -37,7 +36,7 @@ import {
 } from "@/lib/tradeEntriesStore";
 import TradeEntryModal from "@/components/TradeEntryModal";
 
-const badgeClass = "rounded-full bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground";
+const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 
 const STATUS_LABELS: Record<TradeEntryStatus, string> = {
@@ -102,6 +101,50 @@ const INSTRUMENT_FILTER_OPTIONS: { value: Instrument | "all"; label: string }[] 
   ...INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] })),
 ];
 
+/** Persisted so the sort choice survives a refresh instead of resetting to Date/Ascending every time. */
+const SORT_STORAGE_KEY = "trade-entries-sort";
+
+function loadStoredSort(): { field: SortField; dir: SortDir } | null {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const { field, dir } = parsed as Record<string, unknown>;
+    if (
+      typeof field === "string" &&
+      SORT_FIELD_OPTIONS.some((o) => o.value === field) &&
+      (dir === "asc" || dir === "desc")
+    ) {
+      return { field: field as SortField, dir };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function sortRows(rows: BalanceSheetRow[], field: SortField, dir: SortDir): BalanceSheetRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    switch (field) {
+      case "pnl":
+        return (a.pnl - b.pnl) * sign;
+      case "buyPrice":
+        return (a.buy_price - b.buy_price) * sign;
+      case "sellPrice":
+        return (a.sell_price - b.sell_price) * sign;
+      case "lots":
+        return (a.lots - b.lots) * sign;
+      case "date":
+      default: {
+        if (a.entry_date !== b.entry_date) return (a.entry_date < b.entry_date ? -1 : 1) * sign;
+        return (a.created_at < b.created_at ? -1 : 1) * sign;
+      }
+    }
+  });
+}
+
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -129,6 +172,26 @@ export default function TradeEntriesView() {
   const [instrumentFilter, setInstrumentFilter] = useState<Instrument | "all">("all");
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortHydrated, setSortHydrated] = useState(false);
+
+  useEffect(() => {
+    const stored = loadStoredSort();
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSortField(stored.field);
+      setSortDir(stored.dir);
+    }
+    setSortHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sortHydrated) return;
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ field: sortField, dir: sortDir }));
+    } catch {
+      // localStorage may be unavailable; the choice just won't persist for this load.
+    }
+  }, [sortField, sortDir, sortHydrated]);
 
   // Re-sorting/re-accumulating the whole ledger is wasted work on renders
   // that don't touch `entries` (opening the modal, an import spinner
@@ -140,12 +203,36 @@ export default function TradeEntriesView() {
   );
   const summary = useMemo(() => (entries ? summarizeEntries(entries) : null), [entries]);
 
-  // Search/filter/sort operate on top of the already-computed rows — SL
-  // numbering stays tied to the true chronological order (computed above)
-  // no matter how the table is currently displayed.
+  // The row *order* is frozen independent of the rows' own field values —
+  // recomputed only when the sort control changes or the set of ids itself
+  // changes (an add/delete), never merely because an edit changed some
+  // row's value. Without this, editing (say) the 4th row while sorted by
+  // P&L would immediately jump it to wherever its new P&L now sorts to;
+  // sorting is a one-time action here, not a live constraint re-applied on
+  // every keystroke of an edit.
+  const rowIdsSignature = useMemo(() => (rows ? rows.map((r) => r.id).sort().join(",") : ""), [rows]);
+  const orderedIds = useMemo(() => {
+    if (!rows) return [];
+    return sortRows(rows, sortField, sortDir).map((r) => r.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rowIdsSignature (not `rows`) is the real dependency: it only changes when a row is added/removed, not when an existing row's fields are edited, which is what keeps this memo from recomputing (and reordering the table) on every edit.
+  }, [rowIdsSignature, sortField, sortDir]);
+
+  // Filters stay live (always reflect the latest field values) on top of
+  // that frozen order — only which rows qualify can change on an edit,
+  // never their relative position. SL is renumbered fresh from whatever
+  // ends up on screen, so it always reads 1..N top-to-bottom rather than
+  // the chronological numbering `rows` carries.
   const displayedRows = useMemo(() => {
     if (!rows) return null;
-    let result = rows;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const orderedIdSet = new Set(orderedIds);
+    // orderedIds is recomputed in the same render whenever the id set
+    // changes, so this should never actually find anything — a defensive
+    // fallback rather than something expected to trigger.
+    let result = [
+      ...orderedIds.map((id) => byId.get(id)).filter((r): r is BalanceSheetRow => Boolean(r)),
+      ...rows.filter((r) => !orderedIdSet.has(r.id)),
+    ];
 
     if (statusFilter !== "all") result = result.filter((r) => r.status === statusFilter);
     if (sideFilter !== "all") result = result.filter((r) => r.side === sideFilter);
@@ -163,25 +250,8 @@ export default function TradeEntriesView() {
       });
     }
 
-    const dir = sortDir === "asc" ? 1 : -1;
-    return [...result].sort((a, b) => {
-      switch (sortField) {
-        case "pnl":
-          return (a.pnl - b.pnl) * dir;
-        case "buyPrice":
-          return (a.buy_price - b.buy_price) * dir;
-        case "sellPrice":
-          return (a.sell_price - b.sell_price) * dir;
-        case "lots":
-          return (a.lots - b.lots) * dir;
-        case "date":
-        default: {
-          if (a.entry_date !== b.entry_date) return (a.entry_date < b.entry_date ? -1 : 1) * dir;
-          return (a.created_at < b.created_at ? -1 : 1) * dir;
-        }
-      }
-    });
-  }, [rows, statusFilter, sideFilter, instrumentFilter, searchQuery, sortField, sortDir]);
+    return result.map((row, index) => ({ ...row, slNo: index + 1 }));
+  }, [rows, orderedIds, statusFilter, sideFilter, instrumentFilter, searchQuery]);
 
   const hasActiveFilters =
     searchQuery.trim() !== "" || statusFilter !== "all" || sideFilter !== "all" || instrumentFilter !== "all";
@@ -373,7 +443,7 @@ export default function TradeEntriesView() {
       {statTiles && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {statTiles.map((stat) => (
-            <section key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
               <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums ${stat.color}`}>{stat.value}</dd>
             </section>
@@ -390,7 +460,7 @@ export default function TradeEntriesView() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search instrument, remarks…"
-                className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+                className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
               />
             </div>
             <div className="w-36 shrink-0">
@@ -431,18 +501,14 @@ export default function TradeEntriesView() {
       )}
 
       {rows === null ? (
-        <div className="flex flex-col gap-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-11 animate-pulse rounded-lg border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-40" label="Loading trade entries…" />
       ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No trade entries yet. Add one above to get started.</p>
         </div>
       ) : displayedRows && displayedRows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <SearchIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No entries match the current search and filters.</p>
           <button
@@ -454,11 +520,11 @@ export default function TradeEntriesView() {
           </button>
         </div>
       ) : (
-        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-border bg-background">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1020px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/50 text-left">
+                <tr className="border-b border-border text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
@@ -470,7 +536,6 @@ export default function TradeEntriesView() {
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
-                  <th className="w-20 py-3 pr-4" />
                 </tr>
               </thead>
               <tbody>
@@ -482,7 +547,8 @@ export default function TradeEntriesView() {
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
-                      className="border-b border-border last:border-0 hover:bg-muted/30"
+                      onClick={() => setModalState({ mode: "edit", entry: row })}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
                     >
                       <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
                       <td className="whitespace-nowrap px-2 py-2.5">
@@ -517,26 +583,6 @@ export default function TradeEntriesView() {
                       </td>
                       <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">
                         {row.remarks || "—"}
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setModalState({ mode: "edit", entry: row })}
-                            aria-label={`Edit entry ${row.slNo}`}
-                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                          >
-                            <PencilIcon className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => requestDelete(row)}
-                            aria-label={`Delete entry ${row.slNo}`}
-                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
-                          >
-                            <TrashIcon className="size-4" />
-                          </button>
-                        </div>
                       </td>
                     </motion.tr>
                   ))}

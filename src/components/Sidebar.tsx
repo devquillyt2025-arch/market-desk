@@ -20,14 +20,22 @@ import {
   XIcon,
 } from "@/components/icons";
 
+/**
+ * Ordered to follow an actual trading day: price a trade (Brokerage), log
+ * and track it (Trade Entries -> Live Portfolio -> Paper Trade), review how
+ * it went (Reports), then the money side (Payment). Notes/Links/Logs are
+ * reference utilities, not workflow steps, so they sit in their own group
+ * after a divider (see SECONDARY_GROUP_START) rather than interrupting the
+ * trading flow above.
+ */
 const LINKS = [
   { href: "/", label: "Brokerage", icon: ReceiptIcon },
-  { href: "/notes", label: "Notes", icon: NoteIcon },
   { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
-  { href: "/reports", label: "Reports", icon: BarChartIcon },
   { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
   { href: "/paper-trade", label: "Paper Trade", icon: FlaskIcon },
+  { href: "/reports", label: "Reports", icon: BarChartIcon },
   { href: "/payment", label: "Payment", icon: WalletIcon },
+  { href: "/notes", label: "Notes", icon: NoteIcon },
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
 ] as const;
@@ -35,7 +43,7 @@ const LINKS = [
 /** Pinned below the scrolling list, not part of it — settings isn't a workflow tab. */
 const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
 
-/** Everything from this index on renders as a visually separate "secondary" group when collapsed. */
+/** Everything from this index on (Notes/Important Links/Logs) renders as a visually separate "secondary" group when collapsed. */
 const SECONDARY_GROUP_START = 6;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
@@ -204,7 +212,7 @@ export default function Sidebar() {
       </AnimatePresence>
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-muted transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-[width] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-background transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-[width] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
           open ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-[76px]" : "lg:w-64"}`}
       >

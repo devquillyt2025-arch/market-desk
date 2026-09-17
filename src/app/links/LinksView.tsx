@@ -13,6 +13,7 @@ import {
   XIcon,
 } from "@/components/icons";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import LoadingState from "@/components/LoadingState";
 import { logEvent } from "@/lib/activityLog";
 import {
   addLink,
@@ -29,7 +30,7 @@ import {
 import { showToast } from "@/lib/toast";
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
@@ -270,7 +271,7 @@ export default function LinksView() {
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
+            className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-background p-5 sm:p-6"
           >
             <h2 className="text-sm font-medium">{editingId ? "Edit Link" : "New Link"}</h2>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -353,13 +354,9 @@ export default function LinksView() {
       </AnimatePresence>
 
       {links === null ? (
-        <div className="flex flex-col gap-3">
-          {[0, 1].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-48" label="Loading links…" />
       ) : links.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No links yet. Add one above to get started.</p>
         </div>
@@ -383,7 +380,7 @@ export default function LinksView() {
                   onBlur={commitGroupRename}
                   onKeyDown={handleGroupRenameKeyDown}
                   autoFocus
-                  className="w-fit max-w-xs rounded-md border border-accent bg-background px-2 py-0.5 text-sm font-medium outline-none"
+                  className="w-fit max-w-xs rounded-md border border-accent bg-card px-2 py-0.5 text-sm font-medium outline-none"
                 />
               ) : (
                 <h2 className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
@@ -419,7 +416,7 @@ export default function LinksView() {
                         // `drag` prop is set), so they'd silently swallow these native HTML5 DnD events.
                         onDragStartCapture={(e) => handleDragStart(e, link)}
                         onDragEndCapture={handleDragEnd}
-                        className={`relative rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent/50 ${
+                        className={`relative rounded-xl border border-border bg-background p-4 transition-colors hover:border-accent/50 ${
                           editMode ? "cursor-grab active:cursor-grabbing" : ""
                         } ${draggedId === link.id ? "opacity-40" : ""}`}
                       >

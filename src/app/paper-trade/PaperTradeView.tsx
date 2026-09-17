@@ -4,9 +4,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { InboxIcon, PencilIcon, PlusIcon, RefreshIcon, TrashIcon } from "@/components/icons";
+import { InboxIcon, PlusIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
+import LoadingState from "@/components/LoadingState";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { formatINR, pnlColorClass } from "@/lib/format";
@@ -29,7 +30,7 @@ import { useLivePricing } from "@/lib/useLivePricing";
 const POLL_MS = 10000;
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
-const badgeClass = "rounded-full bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground";
+const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
 
 const SIDE_LABELS: Record<TradeEntrySide, string> = {
   buy: "Buy",
@@ -202,20 +203,20 @@ export default function PaperTradeView() {
         <LivePricingBanners tokenExpired={tokenExpired} offline={offline} />
 
         {rows === null ? (
-          <div className="flex flex-col gap-3">
-            {[0, 1].map((i) => (
-              <div key={i} className="h-11 animate-pulse rounded-lg border border-border bg-card" />
-            ))}
-          </div>
+          <LoadingState className="h-32" label="Loading open positions…" />
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-8 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-8 text-center">
             <InboxIcon className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               No open paper trades. Add one above with status &quot;Hold&quot; to track it live.
             </p>
           </div>
         ) : (
-          <LiveEntriesTable rows={rows} onSetExpiry={handleSetExpiry} />
+          <LiveEntriesTable
+            rows={rows}
+            onSetExpiry={handleSetExpiry}
+            onRowClick={(entry) => setModalState({ mode: "edit", entry })}
+          />
         )}
       </div>
 
@@ -223,22 +224,18 @@ export default function PaperTradeView() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Closed Trades</h2>
 
         {closedRows === null ? (
-          <div className="flex flex-col gap-3">
-            {[0, 1].map((i) => (
-              <div key={i} className="h-11 animate-pulse rounded-lg border border-border bg-card" />
-            ))}
-          </div>
+          <LoadingState className="h-32" label="Loading closed trades…" />
         ) : closedRows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-8 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-8 text-center">
             <InboxIcon className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No closed paper trades yet.</p>
           </div>
         ) : (
-          <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <section className="overflow-hidden rounded-xl border border-border bg-background">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px] border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/50 text-left">
+                  <tr className="border-b border-border text-left">
                     <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
@@ -249,7 +246,6 @@ export default function PaperTradeView() {
                     <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
                     <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
-                    <th className="w-20 py-3 pr-4" />
                   </tr>
                 </thead>
                 <tbody>
@@ -261,7 +257,8 @@ export default function PaperTradeView() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.15 }}
-                        className="border-b border-border last:border-0 hover:bg-muted/30"
+                        onClick={() => setModalState({ mode: "edit", entry: row })}
+                        className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
                       >
                         <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
                         <td className="whitespace-nowrap px-2 py-2.5">{formatCellDate(row.entry_date)}</td>
@@ -285,26 +282,6 @@ export default function PaperTradeView() {
                           {formatINR(row.pnl)}
                         </td>
                         <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">{row.remarks || "—"}</td>
-                        <td className="py-2.5 pr-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setModalState({ mode: "edit", entry: row })}
-                              aria-label={`Edit paper trade ${row.slNo}`}
-                              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                            >
-                              <PencilIcon className="size-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPendingDelete(row)}
-                              aria-label={`Delete paper trade ${row.slNo}`}
-                              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
-                            >
-                              <TrashIcon className="size-4" />
-                            </button>
-                          </div>
-                        </td>
                       </motion.tr>
                     ))}
                   </AnimatePresence>

@@ -45,8 +45,8 @@ export default function NoteCard({ note, viewMode, onOpen, onPin, onDelete, onCo
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => onOpen(note)}
-      className={`group relative cursor-pointer overflow-hidden rounded-xl border p-3.5 shadow-sm transition-shadow hover:shadow-md ${
-        colorClasses ? `${colorClasses.bg} ${colorClasses.border}` : "border-border bg-card"
+      className={`group relative cursor-pointer overflow-hidden rounded-xl border p-3.5 transition-shadow hover:shadow-md ${
+        colorClasses ? `${colorClasses.bg} ${colorClasses.border}` : "border-border bg-background"
       } ${isList ? "flex flex-row items-center gap-4" : `flex h-[182px] flex-col`}`}
     >
       <span
@@ -114,7 +114,7 @@ export default function NoteCard({ note, viewMode, onOpen, onPin, onDelete, onCo
               >
                 <span
                   className={`block size-3.5 rounded-full border ${
-                    colorClasses ? `${colorClasses.swatch} border-black/10` : "border-muted-foreground/40 bg-card"
+                    colorClasses ? `${colorClasses.swatch} border-black/10` : "border-muted-foreground/40 bg-background"
                   }`}
                 />
               </button>
@@ -139,7 +139,7 @@ export default function NoteCard({ note, viewMode, onOpen, onPin, onDelete, onCo
                   setShowColors(false);
                 }}
                 title={NOTE_COLOR_LABELS.default}
-                className={`size-3.5 rounded-full border bg-card ${
+                className={`size-3.5 rounded-full border bg-background ${
                   !colored ? "ring-2 ring-accent" : "border-muted-foreground/40"
                 }`}
               />

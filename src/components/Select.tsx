@@ -28,7 +28,7 @@ type SelectProps<T extends string> = {
 };
 
 const DEFAULT_TRIGGER_CLASS =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 export default function Select<T extends string>({
   value,

@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Multi-leg options-selling P&L calculator for Nifty, Bank Nifty, and Sensex.",
     start_url: "/",
     display: "standalone",
-    background_color: "#f8fafc",
-    theme_color: "#2563eb",
+    background_color: "#0a0a0a",
+    theme_color: "#7869fc",
     icons: [
       { src: "/icon", sizes: "32x32", type: "image/png" },
       { src: "/apple-icon", sizes: "180x180", type: "image/png" },

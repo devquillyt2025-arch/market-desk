@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { InboxIcon, PencilIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { InboxIcon, PlusIcon } from "@/components/icons";
+import LoadingState from "@/components/LoadingState";
 import { formatINR } from "@/lib/format";
 import {
   addPayment,
@@ -30,7 +31,7 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
 };
 
 const STATUS_CLASSES: Record<PaymentStatus, string> = {
-  pending: "bg-muted text-muted-foreground",
+  pending: "border border-border bg-background text-muted-foreground",
   partial: "bg-accent/10 text-accent",
   paid: "bg-profit/10 text-profit",
 };
@@ -196,22 +197,18 @@ export default function PaymentView() {
       </div>
 
       {rows === null ? (
-        <div className="flex flex-col gap-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-11 animate-pulse rounded-lg border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-40" label="Loading payments…" />
       ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <InboxIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No payments logged yet. Add one above to get started.</p>
         </div>
       ) : (
-        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-border bg-background">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/50 text-left">
+                <tr className="border-b border-border text-left">
                   <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Details</th>
@@ -220,7 +217,6 @@ export default function PaymentView() {
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Profit</th>
                   <th className={`${tableHeadClass} px-2 py-3 text-right`}>Amount</th>
                   <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
-                  <th className="w-20 py-3 pr-4" />
                 </tr>
               </thead>
               <tbody>
@@ -232,7 +228,8 @@ export default function PaymentView() {
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
-                      className="border-b border-border last:border-0 hover:bg-muted/30"
+                      onClick={() => setModalState({ mode: "edit", payment: row })}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
                     >
                       <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
                       <td className="whitespace-nowrap px-2 py-2.5">{formatCellDate(row.entry_date)}</td>
@@ -259,26 +256,6 @@ export default function PaymentView() {
                         >
                           {STATUS_LABELS[row.status]}
                         </span>
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setModalState({ mode: "edit", payment: row })}
-                            aria-label={`Edit payment ${row.slNo}`}
-                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                          >
-                            <PencilIcon className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setPendingDelete(row)}
-                            aria-label={`Delete payment ${row.slNo}`}
-                            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
-                          >
-                            <TrashIcon className="size-4" />
-                          </button>
-                        </div>
                       </td>
                     </motion.tr>
                   ))}

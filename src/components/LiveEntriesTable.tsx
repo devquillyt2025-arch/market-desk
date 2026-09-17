@@ -3,14 +3,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 
 import DatePicker from "@/components/DatePicker";
-import { PencilIcon, TrashIcon } from "@/components/icons";
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract, type TradeEntrySide } from "@/lib/tradeEntriesStore";
 import type { TradeEntry } from "@/lib/types";
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
-const badgeClass = "rounded-full bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground";
+const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
 
 const SIDE_LABELS: Record<TradeEntrySide, string> = {
   buy: "Buy",
@@ -33,9 +32,8 @@ type LiveEntriesTableProps = {
   /** Non-empty — caller handles the loading/empty states before rendering this. */
   rows: PortfolioRow[];
   onSetExpiry: (entryId: string, expiryDate: string) => void;
-  /** Omit to hide the Edit/Delete column entirely — Paper Trade's open positions don't offer it (only its Closed table does). */
-  onEdit?: (entry: TradeEntry) => void;
-  onDelete?: (entry: TradeEntry) => void;
+  /** Clicking anywhere on a row opens the same edit form as before's dedicated Edit button — its own Delete button covers what the old trash-icon column did. */
+  onRowClick: (entry: TradeEntry) => void;
 };
 
 /**
@@ -44,8 +42,7 @@ type LiveEntriesTableProps = {
  * whichever of loading/error/no-match/live-data applies), plus a Cumulative
  * and Average footer row across every row with live data.
  */
-export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }: LiveEntriesTableProps) {
-  const showActions = Boolean(onEdit || onDelete);
+export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: LiveEntriesTableProps) {
   const liveRows = rows.filter((row) => row.status === "ok");
   const totals =
     liveRows.length === 0
@@ -81,11 +78,11 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
         };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <section className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="overflow-x-auto">
-        <table className={`w-full border-collapse text-sm ${showActions ? "min-w-[1180px]" : "min-w-[1080px]"}`}>
+        <table className="w-full min-w-[1080px] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/50 text-left">
+            <tr className="border-b border-border text-left">
               <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>Date</th>
               <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
               <th className={`${tableHeadClass} px-2 py-3`}>Expiry</th>
@@ -100,7 +97,6 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Vega</th>
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>OI</th>
               <th className={`${tableHeadClass} px-2 py-3 pr-5 text-right`}>Brokerage if Closed</th>
-              {showActions && <th className="w-20 py-3 pr-4" />}
             </tr>
           </thead>
           <tbody>
@@ -114,19 +110,20 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
-                    className="border-b border-border last:border-0 hover:bg-muted/30"
+                    onClick={() => onRowClick(entry)}
+                    className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
                   >
                     <td className="whitespace-nowrap py-2.5 pl-5 pr-2 text-muted-foreground">
                       {formatCellDate(entry.entry_date)}
                     </td>
                     <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(entry)}</td>
-                    <td className="px-2 py-2.5">
+                    <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <DatePicker
                         value={entry.expiry_date ?? ""}
                         onChange={(date) => onSetExpiry(entry.id, date)}
                         triggerClassName={
                           entry.expiry_date
-                            ? "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                            ? "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-2.5 py-1 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                             : "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-dashed border-accent/40 bg-accent/5 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
                         }
                       />
@@ -141,7 +138,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
 
                     {row.status === "untracked" ? (
                       <td colSpan={8} className="px-2 py-2.5 text-center">
-                        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                        <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
                           {needsExpiryOnly(entry)
                             ? "Set the expiry to start tracking"
                             : "Add strike/CE-PE in Trade Entries"}
@@ -208,32 +205,6 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
                         </td>
                       </>
                     )}
-                    {showActions && (
-                      <td className="py-2.5 pr-4">
-                        <div className="flex items-center justify-end gap-1">
-                          {onEdit && (
-                            <button
-                              type="button"
-                              onClick={() => onEdit(entry)}
-                              aria-label="Edit position"
-                              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                            >
-                              <PencilIcon className="size-4" />
-                            </button>
-                          )}
-                          {onDelete && (
-                            <button
-                              type="button"
-                              onClick={() => onDelete(entry)}
-                              aria-label="Delete position"
-                              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
-                            >
-                              <TrashIcon className="size-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
                   </motion.tr>
                 );
               })}
@@ -241,7 +212,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
           </tbody>
           {totals && averages && (
             <tfoot>
-              <tr className="border-t border-border bg-muted/50 font-semibold">
+              <tr className="border-t border-border font-semibold">
                 <td colSpan={4} className="whitespace-nowrap py-2.5 pl-5 pr-2">
                   Cumulative
                 </td>
@@ -269,9 +240,8 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
                 <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums">
                   {formatINR(totals.brokerage)}
                 </td>
-                {showActions && <td className="px-2 py-2.5" />}
               </tr>
-              <tr className="border-t border-border bg-muted/30 text-muted-foreground">
+              <tr className="border-t border-border text-muted-foreground">
                 <td colSpan={5} className="whitespace-nowrap py-2.5 pl-5 pr-2 italic">
                   Average
                 </td>
@@ -296,7 +266,6 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onEdit, onDelete }
                 <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums">
                   {formatINR(averages.brokerage)}
                 </td>
-                {showActions && <td className="px-2 py-2.5" />}
               </tr>
             </tfoot>
           )}

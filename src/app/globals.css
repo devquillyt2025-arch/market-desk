@@ -1,18 +1,47 @@
 @import "tailwindcss";
 
+/*
+ * "Nook" dark-violet palette — the app's one and only visual identity now.
+ * Both the light `:root` block and the two dark-mode blocks below resolve
+ * to the exact same values on purpose: only one palette was supplied (every
+ * token here is dark), so ThemeToggle/the OS light-scheme preference no
+ * longer changes anything visually — flipping it is a no-op rather than a
+ * removed feature, since the toggle component itself wasn't touched.
+ *
+ * `--profit`/`--loss` are this app's own domain tokens (P&L figures have no
+ * equivalent in the source palette) — mapped to the closest given semantic
+ * (`--success`/`--danger`). `--danger` (#9A0A0A) is a muted badge-fill red
+ * per the palette's own intent ("keep it muted/dark, not bright saturated"),
+ * which reads fine as a pill background under light text but is quite low
+ * contrast used bare as body text on these backgrounds — see the contrast
+ * note further down.
+ */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #475569;
-  --border: #e2e8f0;
-  --accent: #2563eb;
-  --accent-foreground: #ffffff;
-  --profit: #059669;
-  --loss: #dc2626;
-  color-scheme: light;
+  --bg-base: #0a0a0a;
+  --bg-surface: #141416;
+  --bg-surface-alt: #1c1c1f;
+  --border-subtle: #242426;
+  --border-strong: #2e2e30;
+  --accent: #7869fc;
+  --accent-tint-bg: #24223b;
+  --accent-soft: #c084fc;
+  --text-primary: #f5f5f5;
+  --text-secondary: #b0b0b0;
+  --success: #2eb584;
+  --danger: #9a0a0a;
+  --info: #417aa1;
+
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --muted: var(--bg-surface-alt);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-subtle);
+  --accent-foreground: var(--text-primary);
+  --profit: var(--success);
+  --loss: var(--danger);
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -27,44 +56,57 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-profit: var(--profit);
   --color-loss: var(--loss);
+
+  /* Palette tokens not yet consumed by any component, exposed as utilities (bg-accent-tint-bg, border-border-strong, text-info, ...) for future use. */
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-surface-alt: var(--bg-surface-alt);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-accent-tint-bg: var(--accent-tint-bg);
+  --color-accent-soft: var(--accent-soft);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #020617;
-    --foreground: #f8fafc;
-    --card: #0e1223;
-    --card-foreground: #f8fafc;
-    --muted: #1a1e2f;
-    --muted-foreground: #aab6cc;
-    --border: #64748b;
-    --accent: #3b82f6;
-    --accent-foreground: #020617;
-    --profit: #34d399;
-    --loss: #f87171;
+    --background: var(--bg-base);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --muted: var(--bg-surface-alt);
+    --muted-foreground: var(--text-secondary);
+    --border: var(--border-subtle);
+    --accent-foreground: var(--text-primary);
+    --profit: var(--success);
+    --loss: var(--danger);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --background: #020617;
-  --foreground: #f8fafc;
-  --card: #0e1223;
-  --card-foreground: #f8fafc;
-  --muted: #1a1e2f;
-  --muted-foreground: #aab6cc;
-  --border: #64748b;
-  --accent: #3b82f6;
-  --accent-foreground: #020617;
-  --profit: #34d399;
-  --loss: #f87171;
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --muted: var(--bg-surface-alt);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-subtle);
+  --accent-foreground: var(--text-primary);
+  --profit: var(--success);
+  --loss: var(--danger);
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 .theme-toggle-sun,
@@ -140,4 +182,44 @@ body {
 
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/*
+ * Popup treatment for true overlay popups (modals, full dropdown menus) —
+ * not inline dropdowns anchored to a form field inside a card (Select,
+ * DatePicker), which have no "real content behind them" worth blurring.
+ * The blur/transparency lives ONLY on the backdrop; the panel itself is a
+ * flat, fully opaque card sitting sharply in focus on top of it — not glass
+ * in itself. (An earlier version blurred the panel too; this corrected one
+ * keeps panel content crisp and readable regardless of what's behind it.)
+ * In `@layer components` on purpose: Tailwind's utility layer always wins
+ * over it regardless of source order, so a caller can still override one
+ * property (e.g. NoteModal's per-color `border-{color}` utility overriding
+ * just border-color) without fighting these declarations' specificity.
+ */
+@layer components {
+  .glass-backdrop {
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass-backdrop {
+      background: rgba(0, 0, 0, 0.9);
+    }
+  }
+
+  .glass-panel {
+    position: relative;
+    background: #18181a;
+    border-width: 1px;
+    border-style: solid;
+    /* top / right / bottom / left — a soft hairline, lightest at the top edge as if lit from above, not a colored border. */
+    border-color: #313133 #292929 #252527 #292929;
+    border-radius: 12px;
+    box-shadow:
+      0 20px 50px rgba(0, 0, 0, 0.6),
+      0 0 60px rgba(120, 105, 252, 0.1);
+  }
 }

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ActivityIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import LoadingState from "@/components/LoadingState";
 import Select from "@/components/Select";
 import { clearLogs, getCachedLogs, getLogs, subscribeToLogChanges, type LogEntry } from "@/lib/activityLog";
 import { showToast } from "@/lib/toast";
@@ -96,7 +97,7 @@ export default function LogsView() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search logs…"
-              className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+              className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
             />
           </div>
           <div className="w-40 shrink-0">
@@ -106,25 +107,21 @@ export default function LogsView() {
       )}
 
       {logs === null ? (
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-11 animate-pulse rounded-lg border border-border bg-card" />
-          ))}
-        </div>
+        <LoadingState className="h-48" label="Loading logs…" />
       ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <ActivityIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Nothing logged yet. Actions across the app will show up here.
           </p>
         </div>
       ) : displayedLogs && displayedLogs.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
           <SearchIcon className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No log entries match &quot;{query}&quot;.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-background">
           <ul>
             <AnimatePresence initial={false}>
               {(displayedLogs ?? []).map((entry, index) => (

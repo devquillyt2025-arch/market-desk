@@ -41,7 +41,7 @@ const MONTH_LABELS = [
 ];
 
 const DEFAULT_TRIGGER_CLASS =
-  "flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 /** Parsed as local midnight, not UTC — so the day-of-month never shifts by timezone. */
 function parseISODate(iso: string): Date | null {

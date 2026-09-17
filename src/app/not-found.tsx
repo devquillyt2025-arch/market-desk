@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border bg-card p-12 text-center">
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border bg-background p-12 text-center">
       <InboxIcon className="size-8 text-muted-foreground" />
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Page not found</h1>

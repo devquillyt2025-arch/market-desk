@@ -21,9 +21,9 @@ import {
 } from "@/lib/tradeEntriesStore";
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
 const selectTriggerClass =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 const STATUS_LABELS: Record<TradeEntryStatus, string> = {
@@ -145,17 +145,17 @@ export default function TradeEntryModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4"
+      transition={{ duration: 0.12 }}
+      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 20 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        initial={{ opacity: 0, scale: 0.97, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
+        className="glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-lg font-semibold tracking-tight">
@@ -324,7 +324,7 @@ export default function TradeEntryModal({
           {formError && <p className="text-sm text-loss">{formError}</p>}
         </div>
 
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-card p-4">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-black/30 p-4">
           {entry ? (
             <button
               type="button"

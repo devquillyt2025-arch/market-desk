@@ -93,21 +93,19 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-5"
+      transition={{ duration: 0.12 }}
+      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-5"
       onClick={handleSave}
     >
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 20 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        initial={{ opacity: 0, scale: 0.97, y: -4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border bg-card shadow-2xl ${
-          colorClasses ? colorClasses.border : "border-border"
-        }`}
+        className={`glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto ${colorClasses ? colorClasses.border : ""}`}
       >
-        {colorClasses && <div className={`h-1 shrink-0 rounded-t-2xl ${colorClasses.swatch}`} />}
+        {colorClasses && <div className={`h-1 shrink-0 rounded-t-xl ${colorClasses.swatch}`} />}
 
         <div className="shrink-0 px-6 pt-6">
           <input
@@ -160,7 +158,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
           </div>
         </div>
 
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-card p-4">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-black/30 p-4">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -177,7 +175,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
                 onClick={() => setShowColorPicker((prev) => !prev)}
                 title="Change color"
                 className={`flex size-6 items-center justify-center rounded-full border ${
-                  colorClasses ? `${colorClasses.swatch} border-transparent` : "border-muted-foreground/40 bg-card"
+                  colorClasses ? `${colorClasses.swatch} border-transparent` : "border-muted-foreground/40 bg-background"
                 }`}
               />
 
@@ -190,7 +188,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
                       setShowColorPicker(false);
                     }}
                     title={NOTE_COLOR_LABELS.default}
-                    className={`size-6 shrink-0 rounded-full border bg-card ${
+                    className={`size-6 shrink-0 rounded-full border bg-background ${
                       color === "default" ? "ring-2 ring-offset-2 ring-offset-card ring-accent" : "border-muted-foreground/40"
                     }`}
                   />

@@ -29,7 +29,7 @@ export type CalcOption = {
 type Coords = { top: number; left: number; width: number };
 
 const TRIGGER_CLASS =
-  "flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
+  "flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
 type InstrumentSearchProps = {
   options: CalcOption[];
@@ -105,13 +105,13 @@ export default function InstrumentSearch({ options, value, onChange }: Instrumen
     <div ref={triggerRef} className="relative">
       {open ? (
         <div className={TRIGGER_CLASS}>
-          <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+          <SearchIcon className="size-4 shrink-0 text-muted-foreground/55" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search instrument..."
-            className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground/60"
+            className="flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/55"
           />
         </div>
       ) : (
@@ -128,12 +128,12 @@ export default function InstrumentSearch({ options, value, onChange }: Instrumen
             {open && coords && (
               <motion.div
                 ref={popupRef}
-                initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
-                transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+                exit={{ opacity: 0, y: -4, scale: 0.97, transition: { duration: 0.1 } }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
-                className="z-[500] max-h-64 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                className="glass-panel z-[500] max-h-64 overflow-y-auto p-1"
               >
                 {filtered.length === 0 ? (
                   <p className="px-3 py-2 text-sm text-muted-foreground">No matching instrument</p>
