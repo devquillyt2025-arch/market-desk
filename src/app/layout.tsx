@@ -56,11 +56,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   colorScheme: "light dark",
-  // Both entries point at the same dark-violet background — the app only
-  // has one theme now (see globals.css), so light/dark browser chrome
-  // should match regardless of the OS preference.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f5fb" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
 };

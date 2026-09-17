@@ -84,10 +84,10 @@ const SORT_FIELD_OPTIONS: { value: SortField; label: string }[] = [
   { value: "lots", label: "Lots" },
 ];
 
-const STATUS_FILTER_OPTIONS: { value: TradeEntryStatus | "all"; label: string }[] = [
-  { value: "all", label: "All Statuses" },
-  { value: "hold", label: "Hold" },
-  { value: "squared_off", label: "Squared Off" },
+const STATUS_PILLS: { value: TradeEntryStatus | "all"; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "hold", label: "Open" },
+  { value: "squared_off", label: "Closed" },
 ];
 
 const SIDE_FILTER_OPTIONS: { value: TradeEntrySide | "all"; label: string }[] = [
@@ -202,6 +202,17 @@ export default function TradeEntriesView() {
     [entries],
   );
   const summary = useMemo(() => (entries ? summarizeEntries(entries) : null), [entries]);
+
+  const statusCounts = useMemo(() => {
+    if (!rows) return null;
+    let open = 0;
+    let closed = 0;
+    for (const r of rows) {
+      if (r.status === "hold") open += 1;
+      else closed += 1;
+    }
+    return { all: rows.length, hold: open, squared_off: closed };
+  }, [rows]);
 
   // The row *order* is frozen independent of the rows' own field values —
   // recomputed only when the sort control changes or the set of ids itself
@@ -453,6 +464,34 @@ export default function TradeEntriesView() {
 
       {rows !== null && rows.length > 0 && (
         <div className="flex flex-col gap-2">
+          <div className="flex w-fit items-center gap-1 rounded-full border border-border bg-background p-1">
+            {STATUS_PILLS.map((opt) => {
+              const active = statusFilter === opt.value;
+              const count = statusCounts?.[opt.value] ?? 0;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStatusFilter(opt.value)}
+                  aria-pressed={active}
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                    active
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                  <span
+                    className={`font-mono text-xs tabular-nums ${
+                      active ? "text-accent-foreground/80" : "text-muted-foreground/70"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-0 flex-1">
               <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -462,9 +501,6 @@ export default function TradeEntriesView() {
                 placeholder="Search instrument, remarks…"
                 className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
               />
-            </div>
-            <div className="w-36 shrink-0">
-              <Select value={statusFilter} onChange={setStatusFilter} options={STATUS_FILTER_OPTIONS} />
             </div>
             <div className="w-32 shrink-0">
               <Select value={sideFilter} onChange={setSideFilter} options={SIDE_FILTER_OPTIONS} />

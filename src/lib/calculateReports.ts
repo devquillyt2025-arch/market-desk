@@ -10,6 +10,7 @@ import {
   INSTRUMENT_LABELS,
   INSTRUMENTS,
   type Instrument,
+  type Payment,
   type TradeEntry,
   type TradeEntryOptionType,
   type TradeEntrySide,
@@ -168,6 +169,57 @@ export function computeCumulativeSeries(entries: TradeEntry[]): CumulativePoint[
   });
 }
 
+export type AccountGrowthPoint = {
+  date: string;
+  /** Net cash actually put into the account so far — Payment tab's Pay Ins minus Payouts, running total. */
+  capital: number;
+  /** capital + cumulative trade P&L up to this date — the account's real value, not just what was deposited. */
+  equity: number;
+};
+
+/**
+ * How the account has grown from funding + trading, not filtered by the
+ * page's own date-range selector (like the calendar heatmap below) — a
+ * "since 30D ago" view would otherwise start from whatever the balance
+ * happened to be at the edge of that window instead of the real starting
+ * capital, which would misrepresent growth rather than show it.
+ *
+ * Trade P&L lands on its closing_date, same as the calendar heatmap — the
+ * account's equity only actually moves once a position is realized, not
+ * the day it was opened. An entry with no closing_date yet (still "hold")
+ * contributes nothing here until it's squared off.
+ */
+export function computeAccountGrowthSeries(entries: TradeEntry[], payments: Payment[]): AccountGrowthPoint[] {
+  type Event = { date: string; seq: number; capitalDelta: number; pnlDelta: number };
+  const events: Event[] = [];
+  let seq = 0;
+  for (const p of payments) {
+    events.push({
+      date: p.entry_date,
+      seq: seq++,
+      capitalDelta: p.type === "payin" ? p.payout_amount : -p.payout_amount,
+      pnlDelta: 0,
+    });
+  }
+  for (const e of entries) {
+    if (!e.closing_date) continue;
+    events.push({ date: e.closing_date, seq: seq++, capitalDelta: 0, pnlDelta: e.pnl });
+  }
+  // Stable chronological order — `seq` (insertion order, payments before
+  // that day's entries) only breaks ties between a payment and a trade
+  // landing on the exact same date, so the line moves in a fixed order
+  // rather than jittering between renders.
+  events.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.seq - b.seq));
+
+  let capital = 0;
+  let pnl = 0;
+  return events.map((ev) => {
+    capital = round2(capital + ev.capitalDelta);
+    pnl = round2(pnl + ev.pnlDelta);
+    return { date: ev.date, capital, equity: round2(capital + pnl) };
+  });
+}
+
 export type CategoryPnl = {
   label: string;
   pnl: number;
@@ -241,11 +293,20 @@ export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
   }));
 }
 
-/** date (yyyy-mm-dd) -> total P&L that day — the calendar heatmap's data source, always over the full history. */
+/**
+ * date (yyyy-mm-dd) -> total P&L that day — the calendar heatmap's data
+ * source, always over the full history. Keyed by closing_date (when the
+ * position was actually squared off), not entry_date (when it was opened)
+ * — a trade's P&L belongs to the day it was realized, not the day it was
+ * placed. Entries with no closing_date yet (still "hold", or logged before
+ * that field existed) have no day to attribute P&L to, so they're skipped
+ * here rather than falling back to entry_date.
+ */
 export function computeDailyPnlMap(entries: TradeEntry[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const entry of entries) {
-    totals.set(entry.entry_date, round2((totals.get(entry.entry_date) ?? 0) + entry.pnl));
+    if (!entry.closing_date) continue;
+    totals.set(entry.closing_date, round2((totals.get(entry.closing_date) ?? 0) + entry.pnl));
   }
   return totals;
 }

@@ -25,6 +25,7 @@ import PnlCalendarHeatmap from "@/components/PnlCalendarHeatmap";
 import Select from "@/components/Select";
 import {
   buildReportCsv,
+  computeAccountGrowthSeries,
   computeCumulativeSeries,
   computeDailyPnlMap,
   computePnlByDayOfWeek,
@@ -36,11 +37,13 @@ import {
   DATE_RANGES,
   filterEntriesByRange,
   summarizeEntries,
+  type AccountGrowthPoint,
   type CategoryPnl,
   type CumulativePoint,
   type DateRange,
 } from "@/lib/calculateReports";
 import { formatINR, pnlColorClass } from "@/lib/format";
+import { getCachedPayments, getPayments, subscribeToPaymentChanges, type Payment } from "@/lib/paymentStore";
 import { showToast } from "@/lib/toast";
 import {
   getCachedTradeEntries,
@@ -98,6 +101,30 @@ function CategoryTooltip({ active, payload }: TooltipContentProps) {
   );
 }
 
+function AccountGrowthTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0].payload as AccountGrowthPoint;
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+      <div className="text-muted-foreground">{formatAxisDate(point.date)}</div>
+      <div className="mt-1 flex items-center justify-between gap-4">
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <span className="size-2 rounded-full bg-info" /> Capital
+        </span>
+        <span className="font-mono font-semibold">{formatINR(point.capital)}</span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-4">
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <span className="size-2 rounded-full bg-accent" /> Equity
+        </span>
+        <span className={`font-mono font-semibold ${pnlColorClass(point.equity - point.capital)}`}>
+          {formatINR(point.equity)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function CategoryPnlChart({ data }: { data: CategoryPnl[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
@@ -138,6 +165,7 @@ const STREAK_LABELS = { win: "win streak", loss: "loss streak", none: "no streak
 
 export default function ReportsView() {
   const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
+  const [payments, setPayments] = useState<Payment[] | null>(getCachedPayments);
   const [range, setRange] = useState<DateRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState(todayISODate());
@@ -152,6 +180,20 @@ export default function ReportsView() {
     }
     load();
     return subscribeToTradeEntryChanges(load);
+  }, []);
+
+  // Account Growth pulls from the Payment tab too — its own fetch/subscribe,
+  // independent of the trade-entries load above.
+  useEffect(() => {
+    async function load() {
+      try {
+        setPayments(await getPayments());
+      } catch {
+        showToast("Couldn't load payment data for account growth. Check your connection.");
+      }
+    }
+    load();
+    return subscribeToPaymentChanges(load);
   }, []);
 
   const filtered = useMemo(
@@ -170,9 +212,19 @@ export default function ReportsView() {
   // Deliberately over the *full* history, not `filtered` — the calendar has
   // its own month navigation, independent of the page's date-range filter.
   const dailyPnl = useMemo(() => computeDailyPnlMap(entries ?? []), [entries]);
+
+  // Also always the full history — see computeAccountGrowthSeries' own comment.
+  const accountGrowth = useMemo(
+    () => computeAccountGrowthSeries(entries ?? [], payments ?? []),
+    [entries, payments],
+  );
+  // Defaults to the month of the most recent *closing* date, matching the
+  // calendar's own closing_date-based data — opening the calendar on a
+  // month with entries but no closed trades would just show it empty.
   const heatmapInitialMonth = useMemo(() => {
-    if (!entries || entries.length === 0) return new Date();
-    const latest = entries.reduce((max, e) => (e.entry_date > max ? e.entry_date : max), entries[0].entry_date);
+    const closingDates = (entries ?? []).map((e) => e.closing_date).filter((d): d is string => Boolean(d));
+    if (closingDates.length === 0) return new Date();
+    const latest = closingDates.reduce((max, d) => (d > max ? d : max), closingDates[0]);
     const [y, m] = latest.split("-").map(Number);
     return new Date(y, m - 1, 1);
   }, [entries]);
@@ -310,6 +362,74 @@ export default function ReportsView() {
             </div>
           </section>
 
+          <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-medium">Account Growth</h2>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-info" /> Capital (Pay Ins − Payouts)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-accent" /> Equity (Capital + P&amp;L)
+                </span>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Always the full history, from your first Pay In on the Payment tab — not limited by the range above.
+              Trade P&amp;L lands on its closing date; positions still on hold haven&apos;t moved the balance yet.
+            </p>
+            <div className="mt-2">
+              {accountGrowth.length === 0 ? (
+                <EmptyCategoryNote text="Add a Pay In on the Payment tab to start tracking account growth here." />
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={accountGrowth} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="equity-fill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
+                        <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={formatAxisDate}
+                      axisLine={{ stroke: "var(--border)" }}
+                      tickLine={false}
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+                      minTickGap={24}
+                    />
+                    <YAxis hide />
+                    <ReferenceLine y={0} stroke="var(--border)" />
+                    <Tooltip
+                      cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
+                      content={AccountGrowthTooltip}
+                    />
+                    <Area
+                      type="stepAfter"
+                      dataKey="capital"
+                      stroke="var(--info)"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                      fill="none"
+                      dot={false}
+                      activeDot={{ r: 3, fill: "var(--info)", stroke: "var(--background)", strokeWidth: 2 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="equity"
+                      stroke="var(--accent)"
+                      strokeWidth={2}
+                      fill="url(#equity-fill)"
+                      dot={false}
+                      activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--background)", strokeWidth: 2 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </section>
+
           {summary && (
             <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
               <h2 className="text-sm font-medium">Performance</h2>
@@ -383,6 +503,10 @@ export default function ReportsView() {
 
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">Daily P&amp;L Calendar</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              By closing date — P&amp;L lands on the day a position was squared off, not the day it was opened.
+              Entries still on hold don&apos;t show here yet.
+            </p>
             <div className="mt-2">
               <PnlCalendarHeatmap dailyPnl={dailyPnl} initialMonth={heatmapInitialMonth} />
             </div>

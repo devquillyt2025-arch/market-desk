@@ -1,20 +1,13 @@
 @import "tailwindcss";
 
 /*
- * "Nook" dark-violet palette — the app's one and only visual identity now.
- * Both the light `:root` block and the two dark-mode blocks below resolve
- * to the exact same values on purpose: only one palette was supplied (every
- * token here is dark), so ThemeToggle/the OS light-scheme preference no
- * longer changes anything visually — flipping it is a no-op rather than a
- * removed feature, since the toggle component itself wasn't touched.
+ * "Nook" palette — dark-violet is the primary identity; the light variant
+ * below is a same-hue counterpart (same accent/branding, light surfaces)
+ * so ThemeToggle/the OS light-scheme preference actually changes the UI.
  *
  * `--profit`/`--loss` are this app's own domain tokens (P&L figures have no
  * equivalent in the source palette) — mapped to the closest given semantic
- * (`--success`/`--danger`). `--danger` (#9A0A0A) is a muted badge-fill red
- * per the palette's own intent ("keep it muted/dark, not bright saturated"),
- * which reads fine as a pill background under light text but is quite low
- * contrast used bare as body text on these backgrounds — see the contrast
- * note further down.
+ * (`--success`/`--danger`) in both palettes.
  */
 :root {
   --bg-base: #0a0a0a;
@@ -30,6 +23,8 @@
   --success: #2eb584;
   --danger: #9a0a0a;
   --info: #417aa1;
+  /* .glass-panel's hairline bevel — top / right / bottom / left, lightest at the top edge as if lit from above. */
+  --glass-border: #313133 #292929 #252527 #292929;
 
   --background: var(--bg-base);
   --foreground: var(--text-primary);
@@ -87,6 +82,7 @@
     --accent-foreground: var(--text-primary);
     --profit: var(--success);
     --loss: var(--danger);
+    --glass-border: #313133 #292929 #252527 #292929;
     color-scheme: dark;
   }
 }
@@ -102,11 +98,75 @@
   --accent-foreground: var(--text-primary);
   --profit: var(--success);
   --loss: var(--danger);
+  --glass-border: #313133 #292929 #252527 #292929;
   color-scheme: dark;
 }
 
+/*
+ * Light counterpart — same violet accent hue, inverted-brightness surfaces.
+ * `--accent`, `--accent-soft`, `--success`, `--danger` and `--info` are all
+ * deepened a notch from their dark-mode values so they clear ~4.5:1 contrast
+ * on the light surfaces below (the dark-mode values were tuned to pop on
+ * near-black instead).
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-base: #f7f5fb;
+    --bg-surface: #ffffff;
+    --bg-surface-alt: #eee9f8;
+    --border-subtle: #e2dcef;
+    --border-strong: #cec3e6;
+    --accent: #6a5cf0;
+    --accent-tint-bg: #ece4ff;
+    --accent-soft: #9333ea;
+    --text-primary: #18141f;
+    --text-secondary: #5c5668;
+    --success: #178a5f;
+    --danger: #c22323;
+    --info: #2f6690;
+
+    --background: var(--bg-base);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --muted: var(--bg-surface-alt);
+    --muted-foreground: var(--text-secondary);
+    --border: var(--border-subtle);
+    --accent-foreground: #ffffff;
+    --profit: var(--success);
+    --loss: var(--danger);
+    --glass-border: #ffffff #e4dcf5 #cec3e6 #e4dcf5;
+    color-scheme: light;
+  }
+}
+
 :root[data-theme="light"] {
-  color-scheme: dark;
+  --bg-base: #f7f5fb;
+  --bg-surface: #ffffff;
+  --bg-surface-alt: #eee9f8;
+  --border-subtle: #e2dcef;
+  --border-strong: #cec3e6;
+  --accent: #6a5cf0;
+  --accent-tint-bg: #ece4ff;
+  --accent-soft: #9333ea;
+  --text-primary: #18141f;
+  --text-secondary: #5c5668;
+  --success: #178a5f;
+  --danger: #c22323;
+  --info: #2f6690;
+
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --muted: var(--bg-surface-alt);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-subtle);
+  --accent-foreground: #ffffff;
+  --profit: var(--success);
+  --loss: var(--danger);
+  --glass-border: #ffffff #e4dcf5 #cec3e6 #e4dcf5;
+  color-scheme: light;
 }
 
 .theme-toggle-sun,
@@ -292,7 +352,7 @@ body {
     border-width: 1px;
     border-style: solid;
     /* top / right / bottom / left — a soft hairline, lightest at the top edge as if lit from above, not a colored border. */
-    border-color: #313133 #292929 #252527 #292929;
+    border-color: var(--glass-border);
     border-radius: 12px;
     box-shadow:
       0 20px 50px rgba(0, 0, 0, 0.6),
