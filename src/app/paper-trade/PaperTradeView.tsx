@@ -8,7 +8,7 @@ import { InboxIcon, PlusIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import LoadingState from "@/components/LoadingState";
-import TradeEntryModal from "@/components/TradeEntryModal";
+import TradeEntryModal, { type LiveGreeksInfo } from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import {
@@ -49,7 +49,10 @@ function sortEntries(entries: PaperTradeEntry[]): PaperTradeEntry[] {
   });
 }
 
-type ModalState = { mode: "add" } | { mode: "edit"; entry: PaperTradeEntry } | null;
+type ModalState =
+  | { mode: "add" }
+  | { mode: "edit"; entry: PaperTradeEntry; liveGreeks?: LiveGreeksInfo }
+  | null;
 
 export default function PaperTradeView() {
   const [entries, setEntries] = useState<PaperTradeEntry[] | null>(getCachedPaperTradeEntries);
@@ -215,7 +218,16 @@ export default function PaperTradeView() {
           <LiveEntriesTable
             rows={rows}
             onSetExpiry={handleSetExpiry}
-            onRowClick={(entry) => setModalState({ mode: "edit", entry })}
+            onRowClick={(row) =>
+              setModalState({
+                mode: "edit",
+                entry: row.entry,
+                liveGreeks:
+                  row.status === "ok"
+                    ? { delta: row.delta, gamma: row.gamma, theta: row.theta, vega: row.vega, oi: row.oi }
+                    : undefined,
+              })
+            }
           />
         )}
       </div>
@@ -297,6 +309,7 @@ export default function PaperTradeView() {
           <TradeEntryModal
             key={modalState.mode === "edit" ? modalState.entry.id : "new"}
             entry={modalState.mode === "edit" ? modalState.entry : null}
+            liveGreeks={modalState.mode === "edit" ? modalState.liveGreeks : undefined}
             onSave={handleModalSave}
             onClose={() => setModalState(null)}
             onDelete={handleModalDelete}

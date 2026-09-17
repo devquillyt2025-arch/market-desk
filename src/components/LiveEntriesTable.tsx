@@ -6,7 +6,6 @@ import DatePicker from "@/components/DatePicker";
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract, type TradeEntrySide } from "@/lib/tradeEntriesStore";
-import type { TradeEntry } from "@/lib/types";
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
@@ -20,27 +19,24 @@ function formatCellDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
 
-function formatGreek(value: number | null, decimals: number): string {
-  return value == null ? "—" : value.toFixed(decimals);
-}
-
-function formatOi(value: number | null): string {
-  return value == null ? "—" : value.toLocaleString("en-IN");
-}
-
 type LiveEntriesTableProps = {
   /** Non-empty — caller handles the loading/empty states before rendering this. */
   rows: PortfolioRow[];
   onSetExpiry: (entryId: string, expiryDate: string) => void;
-  /** Clicking anywhere on a row opens the same edit form as before's dedicated Edit button — its own Delete button covers what the old trash-icon column did. */
-  onRowClick: (entry: TradeEntry) => void;
+  /**
+   * Clicking anywhere on a row opens the edit form — the whole row (not just
+   * its entry) so the caller can forward Greeks/OI into the modal, since
+   * this table no longer shows them itself.
+   */
+  onRowClick: (row: PortfolioRow) => void;
 };
 
 /**
  * The live-priced positions table shared by Live Portfolio and Paper Trade:
- * one row per open entry (Date/Instrument/Expiry/Side/Lots/Entry Price, then
- * whichever of loading/error/no-match/live-data applies), plus a Cumulative
- * and Average footer row across every row with live data.
+ * one row per open entry (Date/Instrument/Expiry/Side/Lots/Entry Price/Live
+ * LTP/Live P&L/Brokerage if Closed), plus a Cumulative footer row across
+ * every row with live data. Delta/Gamma/Theta/Vega/OI aren't shown here —
+ * they're still computed per row and available in the edit popup.
  */
 export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: LiveEntriesTableProps) {
   const liveRows = rows.filter((row) => row.status === "ok");
@@ -56,31 +52,17 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
               buyPrice: acc.buyPrice + buyPrice,
               sellPrice: acc.sellPrice + sellPrice,
               livePnl: acc.livePnl + (row.livePnl ?? 0),
-              delta: acc.delta + (row.delta ?? 0),
-              gamma: acc.gamma + (row.gamma ?? 0),
-              theta: acc.theta + (row.theta ?? 0),
               brokerage: acc.brokerage + (row.brokerageIfClosed ?? 0),
               count: acc.count + 1,
             };
           },
-          { lots: 0, buyPrice: 0, sellPrice: 0, livePnl: 0, delta: 0, gamma: 0, theta: 0, brokerage: 0, count: 0 },
+          { lots: 0, buyPrice: 0, sellPrice: 0, livePnl: 0, brokerage: 0, count: 0 },
         );
-  const averages =
-    totals === null
-      ? null
-      : {
-          buyPrice: totals.buyPrice / totals.count,
-          sellPrice: totals.sellPrice / totals.count,
-          delta: totals.delta / totals.count,
-          gamma: totals.gamma / totals.count,
-          theta: totals.theta / totals.count,
-          brokerage: totals.brokerage / totals.count,
-        };
 
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-collapse text-sm">
+        <table className="w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-left">
               <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>Date</th>
@@ -91,11 +73,6 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Entry Price</th>
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Live LTP</th>
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Live P&amp;L</th>
-              <th className={`${tableHeadClass} px-2 py-3 text-right`}>Delta</th>
-              <th className={`${tableHeadClass} px-2 py-3 text-right`}>Gamma</th>
-              <th className={`${tableHeadClass} px-2 py-3 text-right`}>Theta</th>
-              <th className={`${tableHeadClass} px-2 py-3 text-right`}>Vega</th>
-              <th className={`${tableHeadClass} px-2 py-3 text-right`}>OI</th>
               <th className={`${tableHeadClass} px-2 py-3 pr-5 text-right`}>Brokerage if Closed</th>
             </tr>
           </thead>
@@ -110,7 +87,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
-                    onClick={() => onRowClick(entry)}
+                    onClick={() => onRowClick(row)}
                     className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
                   >
                     <td className="whitespace-nowrap py-2.5 pl-5 pr-2 text-muted-foreground">
@@ -137,7 +114,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                     </td>
 
                     {row.status === "untracked" ? (
-                      <td colSpan={8} className="px-2 py-2.5 text-center">
+                      <td colSpan={3} className="px-2 py-2.5 text-center">
                         <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
                           {needsExpiryOnly(entry)
                             ? "Set the expiry to start tracking"
@@ -153,7 +130,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                       // this branch the row silently fell through to the
                       // "ok" cells with every value null, indistinguishable
                       // from no_match and with no explanation at all.
-                      <td colSpan={8} className="px-2 py-2.5 text-center">
+                      <td colSpan={3} className="px-2 py-2.5 text-center">
                         <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-loss">
                           {row.errorMessage === "token_expired"
                             ? "Paused — token expired"
@@ -168,7 +145,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                       // by far the most common cause is an expiry that
                       // isn't an actual trading date, so offer to fix it
                       // right here rather than a silent dash.
-                      <td colSpan={8} className="px-2 py-2.5 text-center">
+                      <td colSpan={3} className="px-2 py-2.5 text-center">
                         <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-loss">
                           No live data for {entry.expiry_date} — check the expiry
                         </span>
@@ -185,21 +162,6 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                         >
                           {row.livePnl == null ? "—" : formatINR(row.livePnl)}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {formatGreek(row.delta, 3)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {formatGreek(row.gamma, 4)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {formatGreek(row.theta, 2)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {formatGreek(row.vega, 2)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {formatOi(row.oi)}
-                        </td>
                         <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums text-muted-foreground">
                           {row.brokerageIfClosed == null ? "—" : formatINR(row.brokerageIfClosed)}
                         </td>
@@ -210,7 +172,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
               })}
             </AnimatePresence>
           </tbody>
-          {totals && averages && (
+          {totals && (
             <tfoot>
               <tr className="border-t border-border font-semibold">
                 <td colSpan={4} className="whitespace-nowrap py-2.5 pl-5 pr-2">
@@ -223,48 +185,13 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                 <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
                   {totals.sellPrice.toFixed(2)}
                 </td>
-                <td className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${pnlColorClass(totals.livePnl)}`}>
+                <td
+                  className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${pnlColorClass(totals.livePnl)}`}
+                >
                   {formatINR(totals.livePnl)}
                 </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(totals.delta, 3)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(totals.gamma, 4)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(totals.theta, 2)}
-                </td>
-                <td className="px-2 py-2.5" />
-                <td className="px-2 py-2.5" />
                 <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums">
                   {formatINR(totals.brokerage)}
-                </td>
-              </tr>
-              <tr className="border-t border-border text-muted-foreground">
-                <td colSpan={5} className="whitespace-nowrap py-2.5 pl-5 pr-2 italic">
-                  Average
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {averages.buyPrice.toFixed(2)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {averages.sellPrice.toFixed(2)}
-                </td>
-                <td className="px-2 py-2.5" />
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(averages.delta, 3)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(averages.gamma, 4)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {formatGreek(averages.theta, 2)}
-                </td>
-                <td className="px-2 py-2.5" />
-                <td className="px-2 py-2.5" />
-                <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums">
-                  {formatINR(averages.brokerage)}
                 </td>
               </tr>
             </tfoot>

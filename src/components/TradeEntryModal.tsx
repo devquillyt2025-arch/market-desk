@@ -51,6 +51,23 @@ function todayISODate(): string {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
+/** Live-computed Greeks/OI for an open position — the table itself no longer shows these, only this popup does. */
+export type LiveGreeksInfo = {
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  oi: number | null;
+};
+
+function formatGreek(value: number | null, decimals: number): string {
+  return value == null ? "—" : value.toFixed(decimals);
+}
+
+function formatOi(value: number | null): string {
+  return value == null ? "—" : value.toLocaleString("en-IN");
+}
+
 type TradeEntryModalProps = {
   /** null = creating a new entry; otherwise the entry being edited. */
   entry: TradeEntry | null;
@@ -59,6 +76,8 @@ type TradeEntryModalProps = {
   onDelete: () => void;
   /** Shared with Paper Trade, which passes "Paper Trade" so the heading doesn't say "Trade Entry" on that page. */
   entityLabel?: string;
+  /** Only set when opened from Live Portfolio's/Paper Trade's Open Positions table — closed positions and plain Trade Entries have no live Greeks to show. */
+  liveGreeks?: LiveGreeksInfo | null;
 };
 
 export default function TradeEntryModal({
@@ -67,6 +86,7 @@ export default function TradeEntryModal({
   onClose,
   onDelete,
   entityLabel = "Trade Entry",
+  liveGreeks,
 }: TradeEntryModalProps) {
   const [entryDate, setEntryDate] = useState(entry?.entry_date ?? todayISODate());
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
@@ -320,6 +340,34 @@ export default function TradeEntryModal({
               ({DEFAULT_LOT_SIZES[instrument]} × {lots} lot{lots === 1 ? "" : "s"})
             </span>
           </div>
+
+          {liveGreeks && (
+            <div className="rounded-lg border border-border bg-black/20 p-3">
+              <p className={labelClass}>Live Greeks</p>
+              <div className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-5">
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Delta</dt>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.delta, 3)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Gamma</dt>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.gamma, 4)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Theta</dt>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.theta, 2)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Vega</dt>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.vega, 2)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">OI</dt>
+                  <dd className="font-mono text-sm tabular-nums">{formatOi(liveGreeks.oi)}</dd>
+                </div>
+              </div>
+            </div>
+          )}
 
           {formError && <p className="text-sm text-loss">{formError}</p>}
         </div>
