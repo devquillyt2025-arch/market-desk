@@ -313,6 +313,24 @@ export function FlaskIcon({ className }: IconProps) {
   );
 }
 
+export function EyeIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M9.9 4.24A9.4 9.4 0 0 1 12 4c6.5 0 10 7 10 7a17.5 17.5 0 0 1-2.16 3.19M6.6 6.6C3.9 8.3 2 11.5 2 12s3.5 7 10 7a9.5 9.5 0 0 0 5.4-1.6M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M2 2l20 20" />
+    </svg>
+  );
+}
+
 export function PrinterIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

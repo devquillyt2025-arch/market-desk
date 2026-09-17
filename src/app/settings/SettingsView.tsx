@@ -9,7 +9,7 @@
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
-import { CheckCircleIcon, KeyIcon } from "@/components/icons";
+import { CheckCircleIcon, EyeIcon, EyeOffIcon, KeyIcon } from "@/components/icons";
 import ThemeToggle from "@/components/ThemeToggle";
 import { showToast } from "@/lib/toast";
 import { getUpstoxConfig, saveUpstoxToken, type UpstoxConfig } from "@/lib/upstoxConfigStore";
@@ -40,6 +40,8 @@ export default function SettingsView() {
   const [config, setConfig] = useState<UpstoxConfig | null>(null);
   const [token, setToken] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [showSavedToken, setShowSavedToken] = useState(false);
 
   useEffect(() => {
     getUpstoxConfig()
@@ -112,7 +114,7 @@ export default function SettingsView() {
         <div className="mt-4 flex items-center gap-2 text-sm">
           {config === null ? (
             <span className="text-muted-foreground">Checking current status…</span>
-          ) : config.hasToken ? (
+          ) : config.token ? (
             <>
               <CheckCircleIcon className="size-4 shrink-0 text-profit" />
               <span>
@@ -130,19 +132,45 @@ export default function SettingsView() {
           )}
         </div>
 
+        {config?.token && (
+          <div className="mt-2 flex items-center gap-2">
+            <code className="flex-1 truncate rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+              {showSavedToken ? config.token : "•".repeat(Math.min(config.token.length, 48))}
+            </code>
+            <button
+              type="button"
+              onClick={() => setShowSavedToken((prev) => !prev)}
+              aria-label={showSavedToken ? "Hide saved token" : "Show saved token"}
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+            >
+              {showSavedToken ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+            </button>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-col gap-1.5">
           <label htmlFor="upstox-token" className={labelClass}>
             Access Token
           </label>
-          <input
-            id="upstox-token"
-            type="password"
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Paste today's token"
-            className={`${inputClass} font-mono`}
-          />
+          <div className="relative">
+            <input
+              id="upstox-token"
+              type={showTokenInput ? "text" : "password"}
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste today's token"
+              className={`${inputClass} pr-10 font-mono`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowTokenInput((prev) => !prev)}
+              aria-label={showTokenInput ? "Hide token" : "Show token"}
+              className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {showTokenInput ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+            </button>
+          </div>
         </div>
 
         <button

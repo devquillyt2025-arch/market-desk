@@ -10,7 +10,7 @@
 import { logEvent } from "@/lib/activityLog";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
-import { calculateEntryPnl, type AddTradeEntryInput } from "@/lib/tradeEntriesStore";
+import { calculateEntryPnl, parseImportedEntries, type AddTradeEntryInput, type ImportTradeEntriesResult } from "@/lib/tradeEntriesStore";
 import type { LivePortfolioEntry } from "@/lib/types";
 
 export { calculateEntryPnl, describeEntryContract } from "@/lib/tradeEntriesStore";
@@ -95,6 +95,55 @@ export async function setLivePortfolioExpiry(id: string, expiryDate: string): Pr
     .eq("id", id);
   if (error) throw error;
   logEvent(`Set expiry date for live portfolio position to ${expiryDate}`);
+}
+
+/**
+ * Bulk upsert from an exported (or hand-edited) JSON array — same shape and
+ * validation as Trade Entries' import, just against this table. Recomputes
+ * pnl from each row's own prices rather than trusting an embedded value.
+ */
+export async function importLivePortfolioEntries(data: unknown): Promise<ImportTradeEntriesResult> {
+  const entries = parseImportedEntries(data);
+  if (entries.length === 0) return { inserted: 0, updated: 0 };
+
+  const existingIds = new Set((cachedEntries ?? (await getLivePortfolioEntries())).map((e) => e.id));
+  const now = new Date().toISOString();
+
+  const rows = entries.map((entry) => {
+    const pnl = calculateEntryPnl({
+      instrument: entry.instrument,
+      lots: entry.lots,
+      buyPrice: entry.buy_price,
+      sellPrice: entry.sell_price,
+    });
+    return {
+      // Every row needs the same keys for a single bulk upsert statement —
+      // generate an id here rather than omitting it for new entries.
+      id: entry.id ?? crypto.randomUUID(),
+      entry_date: entry.entry_date,
+      instrument: entry.instrument,
+      strike_price: entry.strike_price ?? null,
+      option_type: entry.option_type ?? null,
+      expiry_date: entry.expiry_date ?? null,
+      closing_date: entry.closing_date ?? null,
+      lots: entry.lots,
+      side: entry.side,
+      buy_price: entry.buy_price,
+      sell_price: entry.sell_price,
+      pnl,
+      status: entry.status,
+      remarks: entry.remarks ?? null,
+      updated_at: now,
+    };
+  });
+
+  const { error } = await supabase.from("live_portfolio_entries").upsert(rows, { onConflict: "id" });
+  if (error) throw error;
+
+  const updated = entries.filter((e) => e.id && existingIds.has(e.id)).length;
+  const inserted = entries.length - updated;
+  logEvent(`Imported live portfolio: ${inserted} added, ${updated} updated`);
+  return { inserted, updated };
 }
 
 export async function deleteLivePortfolioEntry(id: string): Promise<void> {

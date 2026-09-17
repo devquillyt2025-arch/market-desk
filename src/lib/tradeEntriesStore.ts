@@ -184,7 +184,7 @@ export async function deleteTradeEntry(id: string): Promise<void> {
 }
 
 /** Shape accepted on import — a loosened TradeEntry: `id` optional (new row if absent/unmatched), server-only fields ignored. */
-type ImportedTradeEntry = {
+export type ImportedTradeEntry = {
   id?: string;
   entry_date: string;
   instrument: Instrument;
@@ -230,19 +230,27 @@ export type ImportTradeEntriesResult = {
 };
 
 /**
+ * Validates an unknown JSON value as an array of ImportedTradeEntry —
+ * shared by Trade Entries' and Live Portfolio's import, since both accept
+ * the exact same row shape (just against different tables).
+ */
+export function parseImportedEntries(data: unknown): ImportedTradeEntry[] {
+  if (!Array.isArray(data)) throw new Error("Expected a JSON array of trade entries.");
+  const invalidIndex = data.findIndex((item) => !isValidImportedEntry(item));
+  if (invalidIndex !== -1) {
+    throw new Error(`Entry ${invalidIndex + 1} is missing a required field or has the wrong type.`);
+  }
+  return data as ImportedTradeEntry[];
+}
+
+/**
  * Bulk upsert from an exported (or hand-edited) JSON array. Recomputes pnl
  * from each row's own prices rather than trusting an embedded value — an
  * edited file could carry a pnl that no longer matches its buy/sell price.
  */
 export async function importTradeEntries(data: unknown): Promise<ImportTradeEntriesResult> {
-  if (!Array.isArray(data)) throw new Error("Expected a JSON array of trade entries.");
-  if (data.length === 0) return { inserted: 0, updated: 0 };
-
-  const invalidIndex = data.findIndex((item) => !isValidImportedEntry(item));
-  if (invalidIndex !== -1) {
-    throw new Error(`Entry ${invalidIndex + 1} is missing a required field or has the wrong type.`);
-  }
-  const entries = data as ImportedTradeEntry[];
+  const entries = parseImportedEntries(data);
+  if (entries.length === 0) return { inserted: 0, updated: 0 };
 
   const existingIds = new Set((cachedEntries ?? (await getTradeEntries())).map((e) => e.id));
   const now = new Date().toISOString();

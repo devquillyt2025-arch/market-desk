@@ -1,10 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { InboxIcon, PencilIcon, PlusIcon, RefreshIcon, TrashIcon } from "@/components/icons";
+import { DownloadIcon, InboxIcon, PencilIcon, PlusIcon, RefreshIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import TradeEntryModal from "@/components/TradeEntryModal";
@@ -17,6 +17,7 @@ import {
   describeEntryContract,
   getCachedLivePortfolioEntries,
   getLivePortfolioEntries,
+  importLivePortfolioEntries,
   setLivePortfolioExpiry,
   subscribeToLivePortfolioChanges,
   updateLivePortfolioEntry,
@@ -27,6 +28,24 @@ import type { LivePortfolioEntry, TradeEntrySide } from "@/lib/types";
 import { useLivePricing } from "@/lib/useLivePricing";
 
 const POLL_MS = 10000;
+
+function todayISODate(): string {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function downloadJson(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 const badgeClass = "rounded-full bg-muted px-2.5 py-1 font-mono text-xs text-muted-foreground";
@@ -54,6 +73,8 @@ export default function PortfolioView() {
   const [entries, setEntries] = useState<LivePortfolioEntry[] | null>(getCachedLivePortfolioEntries);
   const [modalState, setModalState] = useState<ModalState>(null);
   const [pendingDelete, setPendingDelete] = useState<LivePortfolioEntry | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -152,6 +173,36 @@ export default function PortfolioView() {
     });
   }
 
+  function handleExport() {
+    if (!entries || entries.length === 0) {
+      showToast("No positions to export yet.");
+      return;
+    }
+    downloadJson(`live-portfolio-${todayISODate()}.json`, entries);
+  }
+
+  function handleImportClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so choosing the same file again still fires onChange
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const result = await importLivePortfolioEntries(parsed);
+      showToast(`Imported ${result.inserted} new, updated ${result.updated}.`, "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't import — check the file is valid JSON.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -167,14 +218,40 @@ export default function PortfolioView() {
             {POLL_MS / 1000}s. Add, edit, or delete right here.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setModalState({ mode: "add" })}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
-        >
-          <PlusIcon className="size-4" />
-          Add Position
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={handleImportClick}
+            disabled={importing}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60 active:scale-95"
+          >
+            <UploadIcon className="size-4" />
+            {importing ? "Importing…" : "Import"}
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <DownloadIcon className="size-4" />
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalState({ mode: "add" })}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+          >
+            <PlusIcon className="size-4" />
+            Add Position
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">

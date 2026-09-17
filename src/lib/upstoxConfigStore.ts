@@ -11,7 +11,8 @@ import { createClient } from "@/lib/supabase/client";
 const supabase = createClient();
 
 export type UpstoxConfig = {
-  hasToken: boolean;
+  /** The saved token itself, so Settings can offer a "reveal" toggle rather than just a saved/not-saved status. */
+  token: string | null;
   updatedAt: string | null;
 };
 
@@ -22,7 +23,7 @@ export async function getUpstoxConfig(): Promise<UpstoxConfig> {
     .eq("id", 1)
     .maybeSingle();
   if (error) throw error;
-  return { hasToken: Boolean(data?.access_token), updatedAt: data?.updated_at ?? null };
+  return { token: data?.access_token ?? null, updatedAt: data?.updated_at ?? null };
 }
 
 export async function saveUpstoxToken(token: string): Promise<void> {

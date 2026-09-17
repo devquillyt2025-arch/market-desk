@@ -88,8 +88,57 @@ function newLeg(option: CalcOption): CalcLeg {
   };
 }
 
+/**
+ * Persisted across tab switches and app restarts — only `handleClearAll`
+ * resets it. `option` is stored by id and re-resolved against CALC_OPTIONS
+ * on load (rather than persisting the object as-is) so a saved id that no
+ * longer exists (a future CALC_OPTIONS change) can't produce a broken leg.
+ */
+const STORAGE_KEY = "brokerage-calculator-legs";
+
+type StoredLeg = { optionId: string; buyPrice: string; sellPrice: string; qty: number };
+
+function isValidStoredLeg(value: unknown): value is StoredLeg {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.optionId === "string" &&
+    CALC_OPTIONS.some((o) => o.id === v.optionId) &&
+    typeof v.buyPrice === "string" &&
+    typeof v.sellPrice === "string" &&
+    typeof v.qty === "number" &&
+    v.qty > 0
+  );
+}
+
+function loadStoredLegs(): CalcLeg[] | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const valid = parsed.filter(isValidStoredLeg);
+    if (valid.length === 0) return null;
+    return valid.map((stored) => ({
+      key: nextLegKey++,
+      option: CALC_OPTIONS.find((o) => o.id === stored.optionId)!,
+      buyPrice: stored.buyPrice,
+      sellPrice: stored.sellPrice,
+      qty: stored.qty,
+    }));
+  } catch {
+    // localStorage may be unavailable (private browsing, disabled storage) or hold invalid JSON.
+    return null;
+  }
+}
+
 export default function BrokerageCalculator() {
   const [legs, setLegs] = useState<CalcLeg[]>(() => [newLeg(CALC_OPTIONS[0])]);
+  // Gates the persistence effect below until *after* the load attempt below
+  // has run and (if it found something) applied it — otherwise that effect
+  // would fire first, on the still-default pre-load state, and overwrite the
+  // very data the load effect was about to restore.
+  const [hydrated, setHydrated] = useState(false);
 
   const pendingLogs = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -100,6 +149,30 @@ export default function BrokerageCalculator() {
       timers.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const stored = loadStoredLegs();
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLegs(stored);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      const toStore: StoredLeg[] = legs.map((leg) => ({
+        optionId: leg.option.id,
+        buyPrice: leg.buyPrice,
+        sellPrice: leg.sellPrice,
+        qty: leg.qty,
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+    } catch {
+      // localStorage may be unavailable; values just won't persist for this load.
+    }
+  }, [legs, hydrated]);
 
   function logDebounced(key: string, message: string) {
     const timers = pendingLogs.current;
@@ -147,6 +220,11 @@ export default function BrokerageCalculator() {
     const legNumber = legs.findIndex((leg) => leg.key === key) + 1;
     setLegs((prev) => (prev.length > 1 ? prev.filter((leg) => leg.key !== key) : prev));
     if (legs.length > 1) logEvent(`Brokerage calculator: removed leg ${legNumber}`);
+  }
+
+  function handleClearAll() {
+    setLegs([newLeg(CALC_OPTIONS[0])]);
+    logEvent("Brokerage calculator: cleared all legs");
   }
 
   const legResults = legs.map((leg) => {
@@ -325,14 +403,24 @@ export default function BrokerageCalculator() {
               </table>
             </div>
 
-            <button
-              type="button"
-              onClick={addLeg}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground active:scale-[0.98]"
-            >
-              <PlusIcon className="size-4" />
-              Add Leg
-            </button>
+            <div className="flex items-stretch border-t border-dashed border-border">
+              <button
+                type="button"
+                onClick={addLeg}
+                className="flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground active:scale-[0.98]"
+              >
+                <PlusIcon className="size-4" />
+                Add Leg
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAll}
+                className="flex items-center gap-1.5 border-l border-dashed border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-[0.98]"
+              >
+                <TrashIcon className="size-4" />
+                Clear
+              </button>
+            </div>
           </section>
         </div>
 
