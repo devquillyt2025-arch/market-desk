@@ -84,7 +84,7 @@ function findLeg(chain: UpstoxOptionChainResult, entry: TrackableEntry): UpstoxO
  * entry's buy leg is the hypothetical buy-back (liveLtp); a buy-to-open
  * entry's sell leg is the hypothetical sell-to-close (liveLtp).
  */
-function syntheticPrices(entry: TradeEntry, liveLtp: number): { buyPrice: number; sellPrice: number } {
+export function syntheticPrices(entry: TradeEntry, liveLtp: number): { buyPrice: number; sellPrice: number } {
   return entry.side === "sell"
     ? { buyPrice: liveLtp, sellPrice: entry.sell_price }
     : { buyPrice: entry.buy_price, sellPrice: liveLtp };

@@ -328,13 +328,22 @@ export default function BrokerageCalculator() {
                 least one row visible rather than collapsing to nothing on
                 a very short viewport. */}
             <div className="min-h-[112px] flex-1 overflow-auto">
-              <table className="w-full border-collapse text-sm">
+              {/*
+                table-fixed + explicit widths on every column but Instrument
+                lock Buy Price/Sell Price/Qty in place regardless of cell
+                content — without it, the browser's auto table layout sizes
+                every column from the widest content in it, so switching an
+                instrument (which changes the Instrument label's and the "1
+                lot = N" text's natural width) reflowed the whole table and
+                visibly shook the price/qty columns next to it.
+              */}
+              <table className="w-full table-fixed border-collapse text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-border bg-background text-left text-muted-foreground">
-                    <th className="min-w-[220px] px-4 py-2 font-medium">Instrument</th>
-                    <th className="min-w-[110px] px-2 py-2 font-medium">Buy Price</th>
-                    <th className="min-w-[110px] px-2 py-2 font-medium">Sell Price</th>
-                    <th className="min-w-[110px] px-2 py-2 font-medium">Qty</th>
+                    <th className="px-4 py-2 font-medium">Instrument</th>
+                    <th className="w-[110px] px-2 py-2 font-medium">Buy Price</th>
+                    <th className="w-[110px] px-2 py-2 font-medium">Sell Price</th>
+                    <th className="w-[110px] px-2 py-2 font-medium">Qty</th>
                     <th className="w-12 py-3 pr-4" />
                   </tr>
                 </thead>

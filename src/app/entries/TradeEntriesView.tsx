@@ -463,8 +463,17 @@ export default function TradeEntriesView() {
       )}
 
       {rows !== null && rows.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <div className="flex w-fit items-center gap-1 rounded-full border border-border bg-background p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-32 shrink-0 sm:w-48">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search…"
+              className="w-full rounded-lg border border-border bg-card py-2 pl-8 pr-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
+            />
+          </div>
+          <div className="flex w-fit shrink-0 items-center gap-1 rounded-full border border-border bg-background p-1">
             {STATUS_PILLS.map((opt) => {
               const active = statusFilter === opt.value;
               const count = statusCounts?.[opt.value] ?? 0;
@@ -474,15 +483,20 @@ export default function TradeEntriesView() {
                   type="button"
                   onClick={() => setStatusFilter(opt.value)}
                   aria-pressed={active}
-                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
-                    active
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className={`relative flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                    active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  {opt.label}
+                  {active && (
+                    <motion.span
+                      layoutId="status-pill-active"
+                      className="absolute inset-0 rounded-full bg-accent"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                  <span className="relative z-10">{opt.label}</span>
                   <span
-                    className={`font-mono text-xs tabular-nums ${
+                    className={`relative z-10 font-mono text-xs tabular-nums ${
                       active ? "text-accent-foreground/80" : "text-muted-foreground/70"
                     }`}
                   >
@@ -492,47 +506,37 @@ export default function TradeEntriesView() {
               );
             })}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search instrument, remarks…"
-                className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30"
-              />
-            </div>
-            <div className="w-32 shrink-0">
-              <Select value={sideFilter} onChange={setSideFilter} options={SIDE_FILTER_OPTIONS} />
-            </div>
-            <div className="w-40 shrink-0">
-              <Select value={instrumentFilter} onChange={setInstrumentFilter} options={INSTRUMENT_FILTER_OPTIONS} />
-            </div>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-              >
-                Reset
-              </button>
-            )}
+          <span className="shrink-0 whitespace-nowrap text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Sort by
+          </span>
+          <div className="w-28 shrink-0 sm:w-36">
+            <Select value={sortField} onChange={setSortField} options={SORT_FIELD_OPTIONS} />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sort by</span>
-            <div className="w-36 shrink-0">
-              <Select value={sortField} onChange={setSortField} options={SORT_FIELD_OPTIONS} />
-            </div>
+          <button
+            type="button"
+            onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
+            aria-label={sortDir === "asc" ? "Ascending — click for descending" : "Descending — click for ascending"}
+            title={sortDir === "asc" ? "Ascending" : "Descending"}
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <ArrowUpDownIcon className="size-4" />
+            {sortDir === "asc" ? "Asc" : "Desc"}
+          </button>
+          <div className="w-28 shrink-0 sm:w-32">
+            <Select value={sideFilter} onChange={setSideFilter} options={SIDE_FILTER_OPTIONS} />
+          </div>
+          <div className="w-32 shrink-0 sm:w-40">
+            <Select value={instrumentFilter} onChange={setInstrumentFilter} options={INSTRUMENT_FILTER_OPTIONS} />
+          </div>
+          {hasActiveFilters && (
             <button
               type="button"
-              onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
-              aria-label={sortDir === "asc" ? "Ascending — click for descending" : "Descending — click for ascending"}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+              onClick={resetFilters}
+              className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
             >
-              <ArrowUpDownIcon className="size-4" />
-              {sortDir === "asc" ? "Ascending" : "Descending"}
+              Reset
             </button>
-          </div>
+          )}
         </div>
       )}
 

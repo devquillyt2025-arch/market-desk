@@ -27,7 +27,10 @@ type LoadingStateProps = {
  */
 export default function LoadingState({ className, label = "Loading…" }: LoadingStateProps) {
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
       className={`flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-background ${className ?? ""}`}
     >
       <div className="flex h-10 items-end gap-1.5">
@@ -42,6 +45,6 @@ export default function LoadingState({ className, label = "Loading…" }: Loadin
         ))}
       </div>
       {label && <span className="text-xs font-medium text-muted-foreground">{label}</span>}
-    </div>
+    </motion.div>
   );
 }

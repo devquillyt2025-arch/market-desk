@@ -210,6 +210,19 @@
   }
 }
 
+/*
+ * Reserves the vertical scrollbar's width permanently, whether or not the
+ * page actually needs to scroll right now. Without this, any action that
+ * changes page height across the viewport threshold — filtering a table to
+ * fewer rows, a dropdown opening a tall list — toggles the scrollbar on/off,
+ * and every fixed-width layout element shifts sideways by its width. That's
+ * the "shake" on the status pills (row count changes) and the Brokerage
+ * Calculator's instrument picker (its portaled dropdown list changes height).
+ */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

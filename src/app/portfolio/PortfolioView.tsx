@@ -10,6 +10,7 @@ import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import TradeEntryModal, { type LiveGreeksInfo } from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
+import { syntheticPrices } from "@/lib/calculatePortfolio";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import {
   addLivePortfolioEntry,
@@ -200,7 +201,24 @@ export default function PortfolioView() {
       showToast("No positions to export yet.");
       return;
     }
-    downloadJson(`live-portfolio-${todayISODate()}.json`, entries);
+
+    // A "hold" entry's own buy_price/sell_price is just whatever was typed
+    // in at entry time — never updated as the market moves. For a row
+    // that's currently live-matched, substitute today's LTP into whichever
+    // leg hasn't executed yet, so an export → re-import into Trade Entries
+    // (or Paper Trade) carries a live mark-to-market snapshot instead of
+    // silently reproducing the stale entry price every time.
+    const liveLtpByEntryId = new Map(
+      (rows ?? []).filter((r) => r.status === "ok").map((r) => [r.entry.id, r.liveLtp as number]),
+    );
+    const exportEntries = entries.map((entry) => {
+      const liveLtp = liveLtpByEntryId.get(entry.id);
+      if (liveLtp == null) return entry;
+      const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
+      return { ...entry, buy_price: buyPrice, sell_price: sellPrice };
+    });
+
+    downloadJson(`live-portfolio-${todayISODate()}.json`, exportEntries);
   }
 
   function handleImportClick() {
