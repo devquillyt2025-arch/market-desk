@@ -17,6 +17,7 @@ import Select from "@/components/Select";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { summarizeEntries } from "@/lib/calculateReports";
 import { formatINR, pnlColorClass } from "@/lib/format";
+import { PAGE_HEIGHT_LOCK_CLASS } from "@/lib/layout";
 import { showToast } from "@/lib/toast";
 import { INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
 import {
@@ -405,9 +406,12 @@ export default function TradeEntriesView() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col gap-6"
+      // Locks the page to the viewport so the table below can flex-fill the
+      // remaining space and scroll internally instead of growing the whole
+      // page — only the table body should scroll, not <main>.
+      className={`flex flex-col gap-6 ${PAGE_HEIGHT_LOCK_CLASS}`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="shrink-0 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Trade Entries</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -452,7 +456,7 @@ export default function TradeEntriesView() {
       </div>
 
       {statTiles && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
           {statTiles.map((stat) => (
             <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
@@ -463,7 +467,7 @@ export default function TradeEntriesView() {
       )}
 
       {rows !== null && rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <div className="relative w-32 shrink-0 sm:w-48">
             <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -540,98 +544,100 @@ export default function TradeEntriesView() {
         </div>
       )}
 
-      {rows === null ? (
-        <LoadingState className="h-40" label="Loading trade entries…" />
-      ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
-          <InboxIcon className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No trade entries yet. Add one above to get started.</p>
-        </div>
-      ) : displayedRows && displayedRows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
-          <SearchIcon className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No entries match the current search and filters.</p>
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="rounded-lg border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-          >
-            Reset filters
-          </button>
-        </div>
-      ) : (
-        <section className="overflow-hidden rounded-xl border border-border bg-background">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1020px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left">
-                  <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Side</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Lots</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Buy Price</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
-                  <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
-                  <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
-                </tr>
-              </thead>
-              <tbody>
-                <AnimatePresence initial={false}>
-                  {(displayedRows ?? []).map((row) => (
-                    <motion.tr
-                      key={row.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.15 }}
-                      onClick={() => setModalState({ mode: "edit", entry: row })}
-                      className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
-                    >
-                      <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
-                      <td className="whitespace-nowrap px-2 py-2.5">
-                        {formatCellDate(row.entry_date)}
-                        <span className="ml-1.5 text-xs text-muted-foreground">{row.day.slice(0, 3)}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 text-muted-foreground">
-                        {row.closing_date ? formatCellDate(row.closing_date) : "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(row)}</td>
-                      <td className="px-2 py-2.5">
-                        <span className={badgeClass}>{SIDE_LABELS[row.side]}</span>
-                      </td>
-                      <td className="px-2 py-2.5 text-right font-mono tabular-nums">{row.lots}</td>
-                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                        {row.buy_price.toFixed(2)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                        {row.sell_price.toFixed(2)}
-                      </td>
-                      <td
-                        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.pnl)}`}
-                      >
-                        {rupees(row.pnl)}
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_CLASSES[row.status]}`}
-                        >
-                          {STATUS_LABELS[row.status]}
-                        </span>
-                      </td>
-                      <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">
-                        {row.remarks || "—"}
-                      </td>
-                    </motion.tr>
-                  ))}
-                </AnimatePresence>
-              </tbody>
-            </table>
+      <div className="min-h-0 flex-1">
+        {rows === null ? (
+          <LoadingState className="h-40" label="Loading trade entries…" />
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
+            <InboxIcon className="size-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No trade entries yet. Add one above to get started.</p>
           </div>
-        </section>
-      )}
+        ) : displayedRows && displayedRows.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
+            <SearchIcon className="size-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No entries match the current search and filters.</p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-lg border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+            >
+              Reset filters
+            </button>
+          </div>
+        ) : (
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-background">
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full min-w-[1020px] border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-background">
+                  <tr className="border-b border-border text-left">
+                    <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Side</th>
+                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Lots</th>
+                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Buy Price</th>
+                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
+                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Status</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <AnimatePresence initial={false}>
+                    {(displayedRows ?? []).map((row) => (
+                      <motion.tr
+                        key={row.id}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        onClick={() => setModalState({ mode: "edit", entry: row })}
+                        className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
+                      >
+                        <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5">
+                          {formatCellDate(row.entry_date)}
+                          <span className="ml-1.5 text-xs text-muted-foreground">{row.day.slice(0, 3)}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-muted-foreground">
+                          {row.closing_date ? formatCellDate(row.closing_date) : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(row)}</td>
+                        <td className="px-2 py-2.5">
+                          <span className={badgeClass}>{SIDE_LABELS[row.side]}</span>
+                        </td>
+                        <td className="px-2 py-2.5 text-right font-mono tabular-nums">{row.lots}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                          {row.buy_price.toFixed(2)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                          {row.sell_price.toFixed(2)}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.pnl)}`}
+                        >
+                          {rupees(row.pnl)}
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_CLASSES[row.status]}`}
+                          >
+                            {STATUS_LABELS[row.status]}
+                          </span>
+                        </td>
+                        <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">
+                          {row.remarks || "—"}
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </AnimatePresence>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </div>
 
       <AnimatePresence>
         {modalState && (

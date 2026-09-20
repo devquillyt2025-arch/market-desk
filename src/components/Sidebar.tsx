@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   ActivityIcon,
   BarChartIcon,
@@ -293,20 +294,25 @@ export default function Sidebar() {
           })}
         </nav>
 
-        {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. */}
+        {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. Theme toggle rides alongside it so switching themes never requires opening Settings first. */}
         <div
           className={`shrink-0 border-t border-border px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
             collapsed ? "lg:px-2" : ""
           }`}
         >
-          <NavItem
-            href={SETTINGS_LINK.href}
-            label={SETTINGS_LINK.label}
-            icon={SETTINGS_LINK.icon}
-            active={pathname === SETTINGS_LINK.href}
-            collapsed={collapsed}
-            onClick={() => setOpen(false)}
-          />
+          <div className={`flex items-center gap-1 ${collapsed ? "lg:flex-col lg:gap-1.5" : ""}`}>
+            <div className="min-w-0 flex-1">
+              <NavItem
+                href={SETTINGS_LINK.href}
+                label={SETTINGS_LINK.label}
+                icon={SETTINGS_LINK.icon}
+                active={pathname === SETTINGS_LINK.href}
+                collapsed={collapsed}
+                onClick={() => setOpen(false)}
+              />
+            </div>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
     </>

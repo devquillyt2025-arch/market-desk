@@ -137,6 +137,13 @@ export default function TradeEntryModal({
       setFormError("Enter a valid strike price.");
       return;
     }
+    if (status === "squared_off" && !closingDate.trim()) {
+      // Reports keys realized P&L off closing_date (see calculateReports.ts)
+      // — a squared-off entry with no closing date would silently vanish
+      // from the P&L calendar and account growth chart.
+      setFormError("Pick a Closing Date for a squared-off entry.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -342,7 +349,7 @@ export default function TradeEntryModal({
           </div>
 
           {liveGreeks && (
-            <div className="rounded-lg border border-border bg-black/20 p-3">
+            <div className="rounded-lg border border-border bg-bg-surface-alt p-3">
               <p className={labelClass}>Live Greeks</p>
               <div className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-5">
                 <div>
@@ -372,7 +379,7 @@ export default function TradeEntryModal({
           {formError && <p className="text-sm text-loss">{formError}</p>}
         </div>
 
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-black/30 p-4">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
           {entry ? (
             <button
               type="button"

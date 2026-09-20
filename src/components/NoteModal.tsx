@@ -158,7 +158,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
           </div>
         </div>
 
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-black/30 p-4">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
           <div className="flex items-center gap-2">
             <button
               type="button"

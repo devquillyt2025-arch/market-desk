@@ -10,6 +10,8 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -33,6 +35,7 @@ import {
   computePnlByMonth,
   computePnlByOptionType,
   computePnlBySide,
+  computeTradeMixByInstrument,
   DATE_RANGE_LABELS,
   DATE_RANGES,
   filterEntriesByRange,
@@ -41,6 +44,7 @@ import {
   type CategoryPnl,
   type CumulativePoint,
   type DateRange,
+  type TradeMixSlice,
 } from "@/lib/calculateReports";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { getCachedPayments, getPayments, subscribeToPaymentChanges, type Payment } from "@/lib/paymentStore";
@@ -54,8 +58,32 @@ import {
 
 const RANGE_OPTIONS = DATE_RANGES.map((r) => ({ value: r, label: DATE_RANGE_LABELS[r] }));
 
+const CATEGORY_BREAKDOWN_PILLS = [
+  { value: "instrument", label: "Instrument" },
+  { value: "dayOfWeek", label: "Day of Week" },
+  { value: "side", label: "Side" },
+  { value: "optionType", label: "Option Type" },
+  { value: "month", label: "Month" },
+] as const;
+type CategoryBreakdown = (typeof CATEGORY_BREAKDOWN_PILLS)[number]["value"];
+
 function formatAxisDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+/** Compact ₹ amount for a Y-axis tick — lakh/crore grouping, matching how the rest of the app reads Indian currency. */
+function formatAxisAmount(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_00_00_000) return `${sign}₹${round1(abs / 1_00_00_000)}Cr`;
+  if (abs >= 1_00_000) return `${sign}₹${round1(abs / 1_00_000)}L`;
+  if (abs >= 1_000) return `${sign}₹${round1(abs / 1_000)}k`;
+  return `${sign}₹${abs}`;
+}
+
+function round1(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function todayISODate(): string {
@@ -161,6 +189,68 @@ function EmptyCategoryNote({ text }: { text: string }) {
   );
 }
 
+/** Cycled by slice index — accent/info/soft-accent cover today's 3 instruments, with success/danger as headroom for more. */
+const TRADE_MIX_COLORS = ["var(--accent)", "var(--info)", "var(--accent-soft)", "var(--success)", "var(--danger)"];
+
+function TradeMixTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const slice = payload[0].payload as TradeMixSlice & { pct: number };
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+      <div className="text-muted-foreground">{slice.label}</div>
+      <div className="mt-0.5 font-mono font-semibold">
+        {slice.count} trade{slice.count === 1 ? "" : "s"} · {Math.round(slice.pct)}%
+      </div>
+    </div>
+  );
+}
+
+/** Trade *count* composition, not P&L — where activity concentrates, as opposed to every other chart on this page which is about profit. Fixed pixel height (not "100%") — a ResponsiveContainer with a percentage height inside nested flex wrappers has no reliably non-zero resolved height to measure against and renders nothing. */
+function TradeMixChart({ data }: { data: TradeMixSlice[] }) {
+  const total = data.reduce((sum, d) => sum + d.count, 0);
+  const withPct = data.map((d) => ({ ...d, pct: total > 0 ? (d.count / total) * 100 : 0 }));
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="w-full flex-1">
+        <ResponsiveContainer width="100%" height={280}>
+          <PieChart>
+            <Tooltip content={TradeMixTooltip} />
+            <Pie
+              data={withPct}
+              dataKey="count"
+              nameKey="label"
+              innerRadius={80}
+              outerRadius={120}
+              paddingAngle={2}
+              strokeWidth={0}
+            >
+              {withPct.map((slice, i) => (
+                <Cell key={slice.label} fill={TRADE_MIX_COLORS[i % TRADE_MIX_COLORS.length]} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex w-full shrink-0 flex-col justify-center gap-3 sm:w-auto sm:min-w-[170px]">
+        {withPct.map((slice, i) => (
+          <div key={slice.label} className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: TRADE_MIX_COLORS[i % TRADE_MIX_COLORS.length] }}
+              />
+              {slice.label}
+            </span>
+            <span className="font-mono font-medium tabular-nums">
+              {slice.count} · {Math.round(slice.pct)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const STREAK_LABELS = { win: "win streak", loss: "loss streak", none: "no streak yet" } as const;
 
 export default function ReportsView() {
@@ -169,6 +259,7 @@ export default function ReportsView() {
   const [range, setRange] = useState<DateRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState(todayISODate());
+  const [breakdownBy, setBreakdownBy] = useState<CategoryBreakdown>("instrument");
 
   useEffect(() => {
     async function load() {
@@ -208,6 +299,16 @@ export default function ReportsView() {
   const byOptionType = useMemo(() => (filtered ? computePnlByOptionType(filtered) : null), [filtered]);
   const byMonth = useMemo(() => (filtered ? computePnlByMonth(filtered) : null), [filtered]);
   const byDayOfWeek = useMemo(() => (filtered ? computePnlByDayOfWeek(filtered) : null), [filtered]);
+  const tradeMix = useMemo(() => (filtered ? computeTradeMixByInstrument(filtered) : null), [filtered]);
+
+  const categoryBreakdowns: Record<CategoryBreakdown, { data: CategoryPnl[] | null; emptyText: string }> = {
+    instrument: { data: byInstrument, emptyText: "No data in this range." },
+    dayOfWeek: { data: byDayOfWeek, emptyText: "No data in this range." },
+    side: { data: bySide, emptyText: "No data in this range." },
+    optionType: { data: byOptionType, emptyText: "No options trades (with a CE/PE set) in this range." },
+    month: { data: byMonth, emptyText: "No data in this range." },
+  };
+  const activeBreakdown = categoryBreakdowns[breakdownBy];
 
   // Deliberately over the *full* history, not `filtered` — the calendar has
   // its own month navigation, independent of the page's date-range filter.
@@ -322,6 +423,119 @@ export default function ReportsView() {
             ))}
           </div>
 
+          <div className="grid gap-6 lg:grid-cols-2">
+            {summary && (
+              <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
+                <h2 className="text-sm font-medium">Performance</h2>
+                <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Best Trade</dt>
+                    <dd
+                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
+                    >
+                      {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                    </dd>
+                    {summary.bestTrade && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
+                    )}
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Worst Trade</dt>
+                    <dd
+                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
+                    >
+                      {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                    </dd>
+                    {summary.worstTrade && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
+                    )}
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Max Drawdown</dt>
+                    <dd
+                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
+                    >
+                      {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Current Streak</dt>
+                    <dd
+                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
+                        summary.currentStreak.type === "win"
+                          ? "text-profit"
+                          : summary.currentStreak.type === "loss"
+                            ? "text-loss"
+                            : "text-muted-foreground"
+                      }`}
+                    >
+                      {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                    </dd>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Profit Factor</dt>
+                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                      {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Avg Win</dt>
+                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-profit">
+                      {formatINR(summary.avgWin)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Avg Loss</dt>
+                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-loss">
+                      {formatINR(summary.avgLoss)}
+                    </dd>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-border pt-3">
+                  <div className="flex items-center justify-between">
+                    <dt className="text-xs text-muted-foreground">Win Rate</dt>
+                    <span className="font-mono text-sm font-semibold tabular-nums">
+                      {summary.winCount}W / {summary.lossCount}L
+                      {summary.totalTrades - summary.winCount - summary.lossCount > 0
+                        ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount} flat`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-loss/20">
+                    <div
+                      className="h-full rounded-full bg-profit transition-[width] duration-300"
+                      style={{ width: `${summary.winRatePct}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      <span className="font-medium text-foreground">{summary.squaredOffCount}</span> squared off
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground">{summary.holdCount}</span> on hold
+                    </span>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <section className="flex flex-col rounded-xl border border-border bg-background p-5 sm:p-6">
+              <h2 className="text-sm font-medium">Trade Mix</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Share of trades by instrument — where activity concentrates, not where the profit came from.
+              </p>
+              <div className="mt-2 min-h-0 flex-1">
+                {tradeMix && tradeMix.length > 0 ? (
+                  <TradeMixChart data={tradeMix} />
+                ) : (
+                  <EmptyCategoryNote text="No trades in this range." />
+                )}
+              </div>
+            </section>
+          </div>
+
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">Cumulative P&amp;L</h2>
             <div className="mt-2">
@@ -342,7 +556,13 @@ export default function ReportsView() {
                     tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
                     minTickGap={24}
                   />
-                  <YAxis hide />
+                  <YAxis
+                    tickFormatter={formatAxisAmount}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+                    width={56}
+                  />
                   <ReferenceLine y={0} stroke="var(--border)" />
                   <Tooltip
                     cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
@@ -399,7 +619,13 @@ export default function ReportsView() {
                       tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
                       minTickGap={24}
                     />
-                    <YAxis hide />
+                    <YAxis
+                      tickFormatter={formatAxisAmount}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+                      width={56}
+                    />
                     <ReferenceLine y={0} stroke="var(--border)" />
                     <Tooltip
                       cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
@@ -430,77 +656,6 @@ export default function ReportsView() {
             </div>
           </section>
 
-          {summary && (
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">Performance</h2>
-              <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Best Trade</dt>
-                  <dd
-                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
-                  >
-                    {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
-                  </dd>
-                  {summary.bestTrade && (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
-                  )}
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Worst Trade</dt>
-                  <dd
-                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
-                  >
-                    {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
-                  </dd>
-                  {summary.worstTrade && (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
-                  )}
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Max Drawdown</dt>
-                  <dd
-                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
-                  >
-                    {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Current Streak</dt>
-                  <dd
-                    className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
-                      summary.currentStreak.type === "win"
-                        ? "text-profit"
-                        : summary.currentStreak.type === "loss"
-                          ? "text-loss"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
-                  </dd>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Profit Factor</dt>
-                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
-                    {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Avg Win</dt>
-                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-profit">
-                    {formatINR(summary.avgWin)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Avg Loss</dt>
-                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-loss">
-                    {formatINR(summary.avgLoss)}
-                  </dd>
-                </div>
-              </div>
-            </section>
-          )}
-
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <h2 className="text-sm font-medium">Daily P&amp;L Calendar</h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -512,78 +667,44 @@ export default function ReportsView() {
             </div>
           </section>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">P&amp;L by Instrument</h2>
-              <div className="mt-2">
-                <CategoryPnlChart data={byInstrument ?? []} />
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">P&amp;L by Day of Week</h2>
-              <div className="mt-2">
-                <CategoryPnlChart data={byDayOfWeek ?? []} />
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">P&amp;L by Side</h2>
-              <div className="mt-2">
-                <CategoryPnlChart data={bySide ?? []} />
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">P&amp;L by Option Type</h2>
-              <div className="mt-2">
-                {byOptionType && byOptionType.length > 0 ? (
-                  <CategoryPnlChart data={byOptionType} />
-                ) : (
-                  <EmptyCategoryNote text="No options trades (with a CE/PE set) in this range." />
-                )}
-              </div>
-            </section>
-          </div>
-
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-            <h2 className="text-sm font-medium">P&amp;L by Month</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-medium">P&amp;L by {CATEGORY_BREAKDOWN_PILLS.find((p) => p.value === breakdownBy)?.label}</h2>
+              <div className="flex w-fit shrink-0 items-center gap-1 rounded-full border border-border bg-background p-1">
+                {CATEGORY_BREAKDOWN_PILLS.map((opt) => {
+                  const active = breakdownBy === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setBreakdownBy(opt.value)}
+                      aria-pressed={active}
+                      className={`relative rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                        active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId="category-breakdown-pill-active"
+                          className="absolute inset-0 rounded-full bg-accent"
+                          transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                        />
+                      )}
+                      <span className="relative z-10">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div className="mt-2">
-              {byMonth && byMonth.length > 0 ? (
-                <CategoryPnlChart data={byMonth} />
+              {activeBreakdown.data && activeBreakdown.data.length > 0 ? (
+                <CategoryPnlChart data={activeBreakdown.data} />
               ) : (
-                <EmptyCategoryNote text="No data in this range." />
+                <EmptyCategoryNote text={activeBreakdown.emptyText} />
               )}
             </div>
           </section>
 
-          {summary && (
-            <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium">Win Rate</h2>
-                <span className="font-mono text-sm font-semibold tabular-nums">
-                  {summary.winCount}W / {summary.lossCount}L
-                  {summary.totalTrades - summary.winCount - summary.lossCount > 0
-                    ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount} flat`
-                    : ""}
-                </span>
-              </div>
-              <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-loss/20">
-                <div
-                  className="h-full rounded-full bg-profit transition-[width] duration-300"
-                  style={{ width: `${summary.winRatePct}%` }}
-                />
-              </div>
-              <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  <span className="font-medium text-foreground">{summary.squaredOffCount}</span> squared off
-                </span>
-                <span>
-                  <span className="font-medium text-foreground">{summary.holdCount}</span> on hold
-                </span>
-              </div>
-            </section>
-          )}
         </>
       )}
     </motion.div>

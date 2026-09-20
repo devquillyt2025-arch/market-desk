@@ -41,9 +41,15 @@ export function useMargin(rows: PortfolioRow[] | null, pollMs = DEFAULT_MARGIN_P
 
   useEffect(() => {
     if (trackable.length === 0) {
+      // A row still resolving (status "loading") isn't "genuinely nothing
+      // trackable" yet — it just hasn't reached "ok" or a terminal status
+      // (error/no_match/untracked) yet. Settling totalMargin at 0 here would
+      // flash "₹0.00" for open positions with real capital blocked, instead
+      // of the intended "—" placeholder.
+      const stillResolving = rows !== null && rows.some((r) => r.status === "loading");
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting state to reflect "nothing to poll" isn't reacting to an external system, it's this hook's own derived state.
       setMarginByEntryId(new Map());
-      setTotalMargin(rows !== null ? 0 : null);
+      setTotalMargin(rows !== null && !stillResolving ? 0 : null);
       return;
     }
 

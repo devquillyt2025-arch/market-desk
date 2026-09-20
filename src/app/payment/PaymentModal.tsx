@@ -243,7 +243,7 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
           {formError && <p className="text-sm text-loss">{formError}</p>}
         </div>
 
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-black/30 p-4">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
           {payment ? (
             <button
               type="button"

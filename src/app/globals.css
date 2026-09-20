@@ -262,26 +262,15 @@ body {
  * not inline dropdowns anchored to a form field inside a card (Select,
  * DatePicker), which have no "real content behind them" worth blurring.
  * The card (.glass-panel) is deliberately plain: flat, fully opaque,
- * sharply in focus — every bit of "material" lives on the backdrop behind
- * it. .glass-backdrop is a *liquid glass* stack, four layers back to front:
- *   1. its own background — dark tint + blur(32px) saturate(180%). Saturate
- *      is what keeps this from reading as a flat grey wash: it pulls the
- *      actual color (violet accent, green/red P&L) out of whatever's
- *      blurred behind it instead of just dimming it to grey.
- *   2. ::before — a large diagonal sheen gradient, oversized and slowly
- *      drifting via animated background-position, like light crawling
- *      across a curved glass surface. Disabled under reduced-motion.
- *   3. ::after — a faint tiled SVG-noise grain at ~3.5% opacity, blended
- *      with `overlay` — this is what stops the blur looking like a
- *      uniform, perfectly smooth digital wash; real frosted surfaces have
- *      texture.
- *   4. the card itself, given z-index so it always paints above the two
- *      pseudo-element layers (both are position:absolute with no z-index
- *      of their own, and ::after is last in paint order — without this the
- *      grain would end up layered *over* the card).
+ * sharply in focus. .glass-backdrop is a plain frosted blur behind it — a
+ * dark tint + blur(32px) saturate(180%); saturate is what keeps this from
+ * reading as a flat grey wash, pulling the actual color (violet accent,
+ * green/red P&L) out of whatever's blurred behind it instead of just
+ * dimming it to grey. No animated sheen or grain texture on purpose — this
+ * app is stared at for hours of live numbers, and a constantly-drifting
+ * backdrop was more distracting than premium.
  * The 1px accent glow at the card's own edge (`.glass-panel`'s extra
- * box-shadow ring) represents the backdrop's glass "catching" at the
- * boundary — it doesn't touch the card's opacity, blur, or color, so the
+ * box-shadow ring) doesn't touch the card's opacity, blur, or color, so the
  * card itself is still untouched material-wise.
  *
  * In `@layer components` on purpose: Tailwind's utility layer always wins
@@ -296,65 +285,16 @@ body {
     -webkit-backdrop-filter: blur(32px) saturate(180%);
   }
 
-  .glass-backdrop::before,
-  .glass-backdrop::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  /* Sheen — the slow-drifting highlight that reads as "liquid" rather than "foggy". */
-  .glass-backdrop::before {
-    background: linear-gradient(
-      135deg,
-      rgba(120, 105, 252, 0.08) 0%,
-      transparent 35%,
-      rgba(255, 255, 255, 0.04) 50%,
-      transparent 65%,
-      rgba(120, 105, 252, 0.06) 100%
-    );
-    background-size: 180% 180%;
-    background-position: 0% 0%;
-    animation: liquid-glass-drift 26s ease-in-out infinite alternate;
-  }
-
-  /* Grain — cheap (a static tiled image, not filtered/animated), so it's kept even in the reduced-motion fallback below. */
-  .glass-backdrop::after {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
-    opacity: 0.035;
-    mix-blend-mode: overlay;
-  }
-
-  @keyframes liquid-glass-drift {
-    0% {
-      background-position: 0% 0%;
-    }
-    100% {
-      background-position: 18% 22%;
-    }
-  }
-
-  /* Performance guard: a static, un-drifting sheen plus a lighter blur — the grain layer is cheap enough to keep as-is. */
   @media (prefers-reduced-motion: reduce) {
     .glass-backdrop {
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-    }
-
-    .glass-backdrop::before {
-      animation: none;
     }
   }
 
   @supports not (backdrop-filter: blur(1px)) {
     .glass-backdrop {
       background: rgba(0, 0, 0, 0.85);
-    }
-
-    .glass-backdrop::before {
-      animation: none;
     }
   }
 

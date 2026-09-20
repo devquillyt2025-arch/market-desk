@@ -194,6 +194,10 @@ export function computeAccountGrowthSeries(entries: TradeEntry[], payments: Paym
   const events: Event[] = [];
   let seq = 0;
   for (const p of payments) {
+    // Only money that has actually moved counts toward capital — a
+    // "pending"/"partial" payin or payout hasn't landed yet, per Payment's
+    // own `status` semantics (see its doc comment in types.ts).
+    if (p.status !== "paid") continue;
     events.push({
       date: p.entry_date,
       seq: seq++,
@@ -290,6 +294,28 @@ export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
   return DAY_ORDER.filter((d) => totals.has(d)).map((d) => ({
     label: DAY_LABELS[d],
     pnl: totals.get(d) ?? 0,
+  }));
+}
+
+export type TradeMixSlice = {
+  label: string;
+  count: number;
+};
+
+/**
+ * How many trades landed in each instrument, over the filtered range — where
+ * the account's trading *activity* concentrates, independent of whether it
+ * made or lost money there. A different lens than the P&L breakdowns above,
+ * which are all about profit, not volume.
+ */
+export function computeTradeMixByInstrument(entries: TradeEntry[]): TradeMixSlice[] {
+  const counts = new Map<Instrument, number>();
+  for (const entry of entries) {
+    counts.set(entry.instrument, (counts.get(entry.instrument) ?? 0) + 1);
+  }
+  return INSTRUMENTS.filter((i) => counts.has(i)).map((i) => ({
+    label: INSTRUMENT_LABELS[i],
+    count: counts.get(i) ?? 0,
   }));
 }
 

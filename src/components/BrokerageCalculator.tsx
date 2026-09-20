@@ -333,9 +333,9 @@ export default function BrokerageCalculator() {
                 lock Buy Price/Sell Price/Qty in place regardless of cell
                 content — without it, the browser's auto table layout sizes
                 every column from the widest content in it, so switching an
-                instrument (which changes the Instrument label's and the "1
-                lot = N" text's natural width) reflowed the whole table and
-                visibly shook the price/qty columns next to it.
+                instrument (which changes the Instrument label's natural
+                width) reflowed the whole table and visibly shook the
+                price/qty columns next to it.
               */}
               <table className="w-full table-fixed border-collapse text-sm">
                 <thead className="sticky top-0 z-10">
@@ -407,15 +407,6 @@ export default function BrokerageCalculator() {
                               }}
                               className={`${inputClass} font-mono tabular-nums`}
                             />
-                            {/* Always rendered (blank when no lot size) so every row is the
-                                same height regardless of instrument — otherwise switching a
-                                leg between F&O and Equity changed just this cell's height,
-                                and the default table cell vertical-align centered the other
-                                (shorter) cells against it, throwing the whole row out of
-                                alignment and producing a visible jump as it changed. */}
-                            <span className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">
-                              {lotSize ? `1 lot = ${lotSize}` : " "}
-                            </span>
                           </td>
                           <td className="py-2 pr-4 text-center align-top">
                             <button

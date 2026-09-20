@@ -57,6 +57,12 @@ export async function fetchMargin(instruments: UpstoxMarginInstrumentRequest[]):
     if (!res.ok || isUpstoxMarginError(body)) {
       return isUpstoxMarginError(body) ? body : { error: `Request failed with status ${res.status}` };
     }
+    if (!Array.isArray(body?.data?.margins)) {
+      // Defensive fallback — same reasoning as fetchOptionChain: don't let a
+      // malformed success response throw and leave the caller's loading
+      // state stuck.
+      return { error: "Margin response was missing the expected data." };
+    }
     margins.push(...body.data.margins);
   }
 
