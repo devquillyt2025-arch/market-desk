@@ -670,7 +670,7 @@ export default function ReportsView() {
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-medium">P&amp;L by {CATEGORY_BREAKDOWN_PILLS.find((p) => p.value === breakdownBy)?.label}</h2>
-              <div className="flex w-fit shrink-0 items-center gap-1 rounded-full border border-border bg-background p-1">
+              <div className="flex w-fit max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full border border-border bg-background p-1">
                 {CATEGORY_BREAKDOWN_PILLS.map((opt) => {
                   const active = breakdownBy === opt.value;
                   return (
@@ -679,7 +679,7 @@ export default function ReportsView() {
                       type="button"
                       onClick={() => setBreakdownBy(opt.value)}
                       aria-pressed={active}
-                      className={`relative rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                      className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
                         active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
                     >

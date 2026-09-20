@@ -105,9 +105,12 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       setLastPolledAt(Date.now());
 
       if (anyTokenExpired && !tokenExpiredRef.current) {
+        // No showToast here — LivePricingBanners already renders this
+        // persistently as long as tokenExpired stays true, and stacking a
+        // transient toast on top of it just duplicates the message while
+        // temporarily covering real content on short (mobile) viewports.
         tokenExpiredRef.current = true;
         setTokenExpired(true);
-        showToast("Upstox token has expired — update it in Settings to resume live pricing.");
       } else if (!anyTokenExpired && tokenExpiredRef.current) {
         // Only reachable via a forced (manual) poll, since the interval
         // stops attempting once expired — a successful forced retry means
@@ -118,9 +121,10 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       }
 
       if (anyNetworkError && !offlineRef.current) {
+        // Same reasoning as the token-expired branch above — LivePricingBanners
+        // already covers this state persistently.
         offlineRef.current = true;
         setOffline(true);
-        showToast("No internet connection — live pricing is paused until it's back.");
       } else if (!anyNetworkError && offlineRef.current) {
         offlineRef.current = false;
         setOffline(false);

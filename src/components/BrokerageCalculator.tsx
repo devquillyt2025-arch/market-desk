@@ -318,9 +318,20 @@ export default function BrokerageCalculator() {
         </div>
       </section>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 lg:grid-cols-3">
-        <div className="flex min-h-0 flex-col gap-2 lg:col-span-2">
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border">
+      {/*
+        flex-col by default — lg:grid-rows-[minmax(0,1fr)] only makes sense
+        once lg:grid-cols-3 puts both children side by side in a single row;
+        below lg they stack into two separate rows, and that one explicit
+        row track would starve whichever one lands in the *second* row down
+        to near-zero height instead of sizing to its own content. shrink-0
+        on both children (lg:shrink resets it) keeps each one at its own
+        natural height on mobile instead of fighting flex-1 over 0 leftover
+        space; overflow-y-auto lets the pair scroll together if their
+        combined natural height still doesn't fit above the fold.
+      */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto lg:grid lg:grid-rows-[minmax(0,1fr)] lg:grid-cols-3 lg:overflow-visible">
+        <div className="flex min-h-0 min-w-0 shrink-0 flex-col gap-2 lg:flex-1 lg:shrink lg:col-span-2">
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border">
             {/* flex-1 fills whatever room is actually available (the whole
                 page is height-locked, see page.tsx) — a tall screen shows
                 many more rows before this needs to scroll at all, rather
@@ -335,9 +346,16 @@ export default function BrokerageCalculator() {
                 every column from the widest content in it, so switching an
                 instrument (which changes the Instrument label's natural
                 width) reflowed the whole table and visibly shook the
-                price/qty columns next to it.
+                price/qty columns next to it. min-w-[520px] gives the
+                unwidthed Instrument column a real floor — table-fixed
+                otherwise divides the *table's* own width among columns, and
+                on a narrow phone screen the three 110px + 48px fixed columns
+                alone (378px) already exceed a ~320-350px container, leaving
+                Instrument 0px and its search input overlapping Buy Price.
+                The wrapping div's overflow-auto (above) turns that into a
+                horizontal scroll instead, same as Trade Entries' table.
               */}
-              <table className="w-full table-fixed border-collapse text-sm">
+              <table className="w-full min-w-[520px] table-fixed border-collapse text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-border bg-background text-left text-muted-foreground">
                     <th className="px-4 py-2 font-medium">Instrument</th>
@@ -448,7 +466,7 @@ export default function BrokerageCalculator() {
           </section>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 shrink-0 flex-col gap-3 lg:flex-1 lg:shrink">
           <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background p-4 sm:p-5">
             <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Charges Breakup
