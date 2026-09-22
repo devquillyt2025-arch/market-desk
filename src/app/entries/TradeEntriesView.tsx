@@ -393,6 +393,8 @@ export default function TradeEntriesView() {
       summary
         ? [
             { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
+            { label: "Brokerage", value: formatINR(summary.totalCharges), color: "" },
+            { label: "Net P&L", value: formatINR(summary.netPnl), color: pnlColorClass(summary.netPnl) },
             { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
             { label: "Total Trades", value: String(summary.totalTrades), color: "" },
             { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
@@ -456,7 +458,7 @@ export default function TradeEntriesView() {
       </div>
 
       {statTiles && (
-        <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {statTiles.map((stat) => (
             <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>

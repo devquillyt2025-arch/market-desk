@@ -4,9 +4,11 @@
  * into the shapes each chart/stat needs.
  */
 
+import { calculateBrokerage, type BrokerageSegment } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
 import {
+  DEFAULT_LOT_SIZES,
   INSTRUMENT_LABELS,
   INSTRUMENTS,
   type Instrument,
@@ -15,6 +17,27 @@ import {
   type TradeEntryOptionType,
   type TradeEntrySide,
 } from "@/lib/types";
+
+/**
+ * All three tracked instruments (NIFTY/BANKNIFTY/SENSEX) are index
+ * derivatives — an entry is Options when it carries a strike/option type,
+ * otherwise it's an index Futures trade. Neither Delivery nor Intraday
+ * (equity-only segments) applies here.
+ */
+function entryBrokerageSegment(entry: TradeEntry): BrokerageSegment {
+  return entry.option_type ? "OPTIONS" : "FUTURES";
+}
+
+/** Estimated round-trip charges (brokerage, STT, GST, etc.) for one entry — see calculateBrokerage.ts. */
+function entryCharges(entry: TradeEntry): number {
+  const qty = DEFAULT_LOT_SIZES[entry.instrument] * entry.lots;
+  const { totalCharges } = calculateBrokerage(
+    entryBrokerageSegment(entry),
+    [{ buyPrice: entry.buy_price, sellPrice: entry.sell_price }],
+    qty,
+  );
+  return totalCharges;
+}
 
 export const DATE_RANGES = ["7d", "30d", "90d", "all", "custom"] as const;
 export type DateRange = (typeof DATE_RANGES)[number];
@@ -62,6 +85,10 @@ export type StreakInfo = {
 
 export type ReportSummary = {
   totalPnl: number;
+  /** Estimated brokerage/STT/GST/etc. summed across all entries — see calculateBrokerage.ts. */
+  totalCharges: number;
+  /** totalPnl minus totalCharges. */
+  netPnl: number;
   totalTrades: number;
   winCount: number;
   lossCount: number;
@@ -123,6 +150,8 @@ function computeCurrentStreak(sortedEntries: TradeEntry[]): StreakInfo {
 export function summarizeEntries(entries: TradeEntry[]): ReportSummary {
   const totalTrades = entries.length;
   const totalPnl = round2(entries.reduce((sum, e) => sum + e.pnl, 0));
+  const totalCharges = round2(entries.reduce((sum, e) => sum + entryCharges(e), 0));
+  const netPnl = round2(totalPnl - totalCharges);
   const wins = entries.filter((e) => e.pnl > 0);
   const losses = entries.filter((e) => e.pnl < 0);
   const winCount = wins.length;
@@ -138,6 +167,8 @@ export function summarizeEntries(entries: TradeEntry[]): ReportSummary {
 
   return {
     totalPnl,
+    totalCharges,
+    netPnl,
     totalTrades,
     winCount,
     lossCount,
