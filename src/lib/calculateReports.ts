@@ -408,28 +408,6 @@ export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
   );
 }
 
-export type TradeMixSlice = {
-  label: string;
-  count: number;
-};
-
-/**
- * How many trades landed in each instrument, over the filtered range — where
- * the account's trading *activity* concentrates, independent of whether it
- * made or lost money there. A different lens than the P&L breakdowns above,
- * which are all about profit, not volume.
- */
-export function computeTradeMixByInstrument(entries: TradeEntry[]): TradeMixSlice[] {
-  const counts = new Map<Instrument, number>();
-  for (const entry of entries) {
-    counts.set(entry.instrument, (counts.get(entry.instrument) ?? 0) + 1);
-  }
-  return INSTRUMENTS.filter((i) => counts.has(i)).map((i) => ({
-    label: INSTRUMENT_LABELS[i],
-    count: counts.get(i) ?? 0,
-  }));
-}
-
 /**
  * date (yyyy-mm-dd) -> total P&L that day — the calendar heatmap's data
  * source, always over the full history. Keyed by closing_date (when the

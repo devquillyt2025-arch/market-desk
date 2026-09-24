@@ -10,8 +10,6 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -36,7 +34,6 @@ import {
   computePnlByOptionType,
   computePnlBySide,
   computeReturnPct,
-  computeTradeMixByInstrument,
   CUMULATIVE_RANGE_LABELS,
   CUMULATIVE_RANGES,
   DATE_RANGE_LABELS,
@@ -49,7 +46,6 @@ import {
   type CumulativePoint,
   type CumulativeRange,
   type DateRange,
-  type TradeMixSlice,
 } from "@/lib/calculateReports";
 import { formatINR, formatPct, pnlColorClass } from "@/lib/format";
 import { getCachedPayments, getPayments, subscribeToPaymentChanges, type Payment } from "@/lib/paymentStore";
@@ -284,68 +280,6 @@ function EmptyCategoryNote({ text }: { text: string }) {
   );
 }
 
-/** Cycled by slice index — accent/info/soft-accent cover today's 3 instruments, with success/danger as headroom for more. */
-const TRADE_MIX_COLORS = ["var(--accent)", "var(--info)", "var(--accent-soft)", "var(--success)", "var(--danger)"];
-
-function TradeMixTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload || payload.length === 0) return null;
-  const slice = payload[0].payload as TradeMixSlice & { pct: number };
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
-      <div className="text-muted-foreground">{slice.label}</div>
-      <div className="mt-0.5 font-mono font-semibold">
-        {slice.count} trade{slice.count === 1 ? "" : "s"} · {Math.round(slice.pct)}%
-      </div>
-    </div>
-  );
-}
-
-/** Trade *count* composition, not P&L — where activity concentrates, as opposed to every other chart on this page which is about profit. Fixed pixel height (not "100%") — a ResponsiveContainer with a percentage height inside nested flex wrappers has no reliably non-zero resolved height to measure against and renders nothing. */
-function TradeMixChart({ data }: { data: TradeMixSlice[] }) {
-  const total = data.reduce((sum, d) => sum + d.count, 0);
-  const withPct = data.map((d) => ({ ...d, pct: total > 0 ? (d.count / total) * 100 : 0 }));
-  return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-      <div className="w-full flex-1">
-        <ResponsiveContainer width="100%" height={280}>
-          <PieChart>
-            <Tooltip content={TradeMixTooltip} />
-            <Pie
-              data={withPct}
-              dataKey="count"
-              nameKey="label"
-              innerRadius={80}
-              outerRadius={120}
-              paddingAngle={2}
-              strokeWidth={0}
-            >
-              {withPct.map((slice, i) => (
-                <Cell key={slice.label} fill={TRADE_MIX_COLORS[i % TRADE_MIX_COLORS.length]} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex w-full shrink-0 flex-col justify-center gap-3 sm:w-auto sm:min-w-[170px]">
-        {withPct.map((slice, i) => (
-          <div key={slice.label} className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span
-                className="size-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: TRADE_MIX_COLORS[i % TRADE_MIX_COLORS.length] }}
-              />
-              {slice.label}
-            </span>
-            <span className="font-mono font-medium tabular-nums">
-              {slice.count} · {Math.round(slice.pct)}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 const STREAK_LABELS = { win: "win streak", loss: "loss streak", none: "no streak yet" } as const;
 
 export default function ReportsView() {
@@ -403,7 +337,6 @@ export default function ReportsView() {
   const byOptionType = useMemo(() => (filtered ? computePnlByOptionType(filtered) : null), [filtered]);
   const byMonth = useMemo(() => (filtered ? computePnlByMonth(filtered) : null), [filtered]);
   const byDayOfWeek = useMemo(() => (filtered ? computePnlByDayOfWeek(filtered) : null), [filtered]);
-  const tradeMix = useMemo(() => (filtered ? computeTradeMixByInstrument(filtered) : null), [filtered]);
 
   const categoryBreakdowns: Record<CategoryBreakdown, { data: CategoryPnl[] | null; emptyText: string }> = {
     instrument: { data: byInstrument, emptyText: "No data in this range." },
@@ -544,124 +477,87 @@ export default function ReportsView() {
             ))}
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {summary && (
-              <section className="rounded-xl border border-border bg-background p-4">
-                <h2 className="text-sm font-medium">Performance</h2>
-                <div className="mt-2 flex flex-col divide-y divide-border">
-                  <div className="flex items-center justify-between gap-3 py-1.5 first:pt-0">
-                    <dt className="text-sm text-muted-foreground">Best Trade</dt>
-                    <div className="text-right">
-                      <dd
-                        className={`font-mono text-base font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
-                      >
-                        {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
-                      </dd>
-                      {summary.bestTrade && (
-                        <p className="truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5">
-                    <dt className="text-sm text-muted-foreground">Worst Trade</dt>
-                    <div className="text-right">
-                      <dd
-                        className={`font-mono text-base font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
-                      >
-                        {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
-                      </dd>
-                      {summary.worstTrade && (
-                        <p className="truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5">
-                    <dt className="text-sm text-muted-foreground">Max Drawdown</dt>
-                    <dd
-                      className={`font-mono text-base font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
-                    >
-                      {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5">
-                    <dt className="text-sm text-muted-foreground">Current Streak</dt>
-                    <div className="text-right">
-                      <dd
-                        className={`font-mono text-base font-semibold tabular-nums ${
-                          summary.currentStreak.type === "win"
-                            ? "text-profit"
-                            : summary.currentStreak.type === "loss"
-                              ? "text-loss"
-                              : "text-muted-foreground"
-                        }`}
-                      >
-                        {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
-                      </dd>
-                      <p className="text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5">
-                    <dt className="text-sm text-muted-foreground">Profit Factor</dt>
-                    <dd className="font-mono text-base font-semibold tabular-nums">
-                      {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5">
-                    <dt className="text-sm text-muted-foreground">Avg Win</dt>
-                    <dd className="font-mono text-base font-semibold tabular-nums text-profit">
-                      {formatINR(summary.avgWin)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 py-1.5 last:pb-0">
-                    <dt className="text-sm text-muted-foreground">Avg Loss</dt>
-                    <dd className="font-mono text-base font-semibold tabular-nums text-loss">
-                      {formatINR(summary.avgLoss)}
-                    </dd>
-                  </div>
+          {summary && (
+            <section className="rounded-xl border border-border bg-background p-4 sm:p-5">
+              <h2 className="text-sm font-medium">Performance</h2>
+              {/* Four tiles across, two rows — same tile look as the stat row above. */}
+              <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Best Trade</dt>
+                  <dd
+                    className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
+                  >
+                    {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                  </dd>
+                  {summary.bestTrade && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Worst Trade</dt>
+                  <dd
+                    className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
+                  >
+                    {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                  </dd>
+                  {summary.worstTrade && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Max Drawdown</dt>
+                  <dd
+                    className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
+                  >
+                    {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Current Streak</dt>
+                  <dd
+                    className={`mt-1 font-mono text-lg font-semibold tabular-nums ${
+                      summary.currentStreak.type === "win"
+                        ? "text-profit"
+                        : summary.currentStreak.type === "loss"
+                          ? "text-loss"
+                          : "text-muted-foreground"
+                    }`}
+                  >
+                    {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                  </dd>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
                 </div>
 
-                <div className="mt-3 border-t border-border pt-3">
-                  <div className="flex items-center justify-between">
-                    <dt className="text-sm text-muted-foreground">Win Rate</dt>
-                    <span className="font-mono text-base font-semibold tabular-nums">
-                      {summary.winCount}W / {summary.lossCount}L
-                      {summary.totalTrades - summary.winCount - summary.lossCount > 0
-                        ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount} flat`
-                        : ""}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-loss/20">
-                    <div
-                      className="h-full rounded-full bg-profit transition-[width] duration-300"
-                      style={{ width: `${summary.winRatePct}%` }}
-                    />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      <span className="font-medium text-foreground">{summary.squaredOffCount}</span> squared off
-                    </span>
-                    <span>
-                      <span className="font-medium text-foreground">{summary.holdCount}</span> on hold
-                    </span>
-                  </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Profit Factor</dt>
+                  <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
+                    {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
+                  </dd>
                 </div>
-              </section>
-            )}
-
-            <section className="flex flex-col rounded-xl border border-border bg-background p-5 sm:p-6">
-              <h2 className="text-sm font-medium">Trade Mix</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Share of trades by instrument — where activity concentrates, not where the profit came from.
-              </p>
-              <div className="mt-2 min-h-0 flex-1">
-                {tradeMix && tradeMix.length > 0 ? (
-                  <TradeMixChart data={tradeMix} />
-                ) : (
-                  <EmptyCategoryNote text="No trades in this range." />
-                )}
-              </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Avg Win</dt>
+                  <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-profit">
+                    {formatINR(summary.avgWin)}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Avg Loss</dt>
+                  <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-loss">
+                    {formatINR(summary.avgLoss)}
+                  </dd>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3">
+                  <dt className="text-sm text-muted-foreground">Win Rate</dt>
+                  <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
+                    {summary.winCount}W / {summary.lossCount}L
+                    {summary.totalTrades - summary.winCount - summary.lossCount > 0
+                      ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount}F`
+                      : ""}
+                  </dd>
+                </div>
+              </dl>
             </section>
-          </div>
+          )}
 
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
