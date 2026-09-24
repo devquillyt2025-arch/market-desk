@@ -9,9 +9,8 @@ import { DownloadIcon, InboxIcon, PlusIcon, RefreshIcon, UploadIcon } from "@/co
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
-import TradeEntryModal, { type LiveGreeksInfo } from "@/components/TradeEntryModal";
-import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
-import { syntheticPrices } from "@/lib/calculatePortfolio";
+import TradeEntryModal from "@/components/TradeEntryModal";
+import { syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import {
@@ -52,17 +51,11 @@ function downloadJson(filename: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
-const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
-const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
 
 const SIDE_LABELS: Record<TradeEntrySide, string> = {
   buy: "Buy",
   sell: "Sell",
 };
-
-function formatCellDate(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-}
 
 /** Sorted chronologically, same convention as Trade Entries / Paper Trade. */
 function sortEntries(entries: LivePortfolioEntry[]): LivePortfolioEntry[] {
@@ -74,7 +67,7 @@ function sortEntries(entries: LivePortfolioEntry[]): LivePortfolioEntry[] {
 
 type ModalState =
   | { mode: "add" }
-  | { mode: "edit"; entry: LivePortfolioEntry; liveGreeks?: LiveGreeksInfo }
+  | { mode: "edit"; entry: LivePortfolioEntry }
   | null;
 
 export default function PortfolioView() {
@@ -100,10 +93,6 @@ export default function PortfolioView() {
   // are squared_off/hold, not open/closed; hold is the still-live one.
   const openEntries = useMemo(
     () => (entries ? sortEntries(entries.filter((e) => e.status === "hold")) : null),
-    [entries],
-  );
-  const closedRows: BalanceSheetRow[] | null = useMemo(
-    () => (entries ? computeBalanceSheetRows(entries.filter((e) => e.status === "squared_off")) : null),
     [entries],
   );
 
@@ -139,6 +128,26 @@ export default function PortfolioView() {
           })
         : null,
     [rows, lastPolledAt, totalMargin, portfolioStats],
+  );
+
+  // A failed poll (token expired, connection dropped) turns every row into an
+  // error, which leaves nothing to analyse. Rather than blank the panel, hold
+  // the last good read and flag it as paused. Updated during render (React's
+  // "adjust state when a prop changes" pattern) instead of in an effect, so
+  // the held copy never lags a render behind.
+  const [heldRisk, setHeldRisk] = useState<{ analysis: NonNullable<typeof riskAnalysis>; at: number } | null>(null);
+  if (riskAnalysis && lastPolledAt && heldRisk?.analysis !== riskAnalysis) {
+    setHeldRisk({ analysis: riskAnalysis, at: lastPolledAt });
+  }
+  const riskPaused = riskAnalysis === null && heldRisk !== null;
+
+  // The popup's live figures come from the latest poll on every render — not
+  // a copy taken when the row was clicked — so they keep matching the row
+  // behind it as prices move.
+  const editingId = modalState?.mode === "edit" ? modalState.entry.id : null;
+  const editingLive = useMemo(
+    () => toLivePositionInfo(rows?.find((r) => r.entry.id === editingId)),
+    [rows, editingId],
   );
 
   function handleSetExpiry(entryId: string, expiryDate: string) {
@@ -372,102 +381,25 @@ export default function PortfolioView() {
           <LiveEntriesTable
             rows={rows}
             onSetExpiry={handleSetExpiry}
-            onRowClick={(row) =>
-              setModalState({
-                mode: "edit",
-                entry: row.entry,
-                liveGreeks:
-                  row.status === "ok"
-                    ? { delta: row.delta, gamma: row.gamma, theta: row.theta, vega: row.vega, oi: row.oi }
-                    : undefined,
-              })
-            }
+            onRowClick={(row) => setModalState({ mode: "edit", entry: row.entry })}
           />
         )}
       </div>
 
       {rows && rows.some((r) => r.status !== "untracked") && (
-        <RiskProbabilityPanel analysis={riskAnalysis} asOf={lastPolledAt} />
+        <RiskProbabilityPanel
+          analysis={riskAnalysis ?? heldRisk?.analysis ?? null}
+          asOf={riskAnalysis ? lastPolledAt : (heldRisk?.at ?? null)}
+          paused={riskPaused}
+        />
       )}
-
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Closed Positions</h2>
-
-        {closedRows === null ? (
-          <LoadingState className="h-32" label="Loading closed positions…" />
-        ) : closedRows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-8 text-center">
-            <InboxIcon className="size-7 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No closed positions yet.</p>
-          </div>
-        ) : (
-          <section className="overflow-hidden rounded-xl border border-border bg-background">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1020px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left">
-                    <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Side</th>
-                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Lots</th>
-                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Buy Price</th>
-                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>Sell Price</th>
-                    <th className={`${tableHeadClass} px-2 py-3 text-right`}>P&amp;L</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence initial={false}>
-                    {closedRows.map((row) => (
-                      <motion.tr
-                        key={row.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        onClick={() => setModalState({ mode: "edit", entry: row })}
-                        className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/30"
-                      >
-                        <td className="py-2.5 pl-5 pr-2 text-muted-foreground">{row.slNo}</td>
-                        <td className="whitespace-nowrap px-2 py-2.5">{formatCellDate(row.entry_date)}</td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-muted-foreground">
-                          {row.closing_date ? formatCellDate(row.closing_date) : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(row)}</td>
-                        <td className="px-2 py-2.5">
-                          <span className={badgeClass}>{SIDE_LABELS[row.side]}</span>
-                        </td>
-                        <td className="px-2 py-2.5 text-right font-mono tabular-nums">{row.lots}</td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {row.buy_price.toFixed(2)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {row.sell_price.toFixed(2)}
-                        </td>
-                        <td
-                          className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${pnlColorClass(row.pnl)}`}
-                        >
-                          {formatINR(row.pnl)}
-                        </td>
-                        <td className="max-w-40 truncate px-2 py-2.5 text-muted-foreground">{row.remarks || "—"}</td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-      </div>
 
       <AnimatePresence>
         {modalState && (
           <TradeEntryModal
             key={modalState.mode === "edit" ? modalState.entry.id : "new"}
             entry={modalState.mode === "edit" ? modalState.entry : null}
-            liveGreeks={modalState.mode === "edit" ? modalState.liveGreeks : undefined}
+            live={editingLive}
             onSave={handleModalSave}
             onClose={() => setModalState(null)}
             onDelete={handleModalDelete}

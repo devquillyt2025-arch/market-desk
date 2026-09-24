@@ -8,7 +8,7 @@ import { InboxIcon, PlusIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import LoadingState from "@/components/LoadingState";
-import TradeEntryModal, { type LiveGreeksInfo } from "@/components/TradeEntryModal";
+import TradeEntryModal from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import {
@@ -25,6 +25,7 @@ import {
 } from "@/lib/paperTradeEntriesStore";
 import { showToast } from "@/lib/toast";
 import type { PaperTradeEntry, TradeEntrySide } from "@/lib/types";
+import { toLivePositionInfo } from "@/lib/calculatePortfolio";
 import { useLivePricing } from "@/lib/useLivePricing";
 
 const POLL_MS = 10000;
@@ -51,7 +52,7 @@ function sortEntries(entries: PaperTradeEntry[]): PaperTradeEntry[] {
 
 type ModalState =
   | { mode: "add" }
-  | { mode: "edit"; entry: PaperTradeEntry; liveGreeks?: LiveGreeksInfo }
+  | { mode: "edit"; entry: PaperTradeEntry }
   | null;
 
 export default function PaperTradeView() {
@@ -82,6 +83,15 @@ export default function PaperTradeView() {
 
   const { rows, tokenExpired, offline, lastPolledAt, manualRefreshing, groupCount, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
+
+  // The popup's live figures come from the latest poll on every render — not
+  // a copy taken when the row was clicked — so they keep matching the row
+  // behind it as prices move.
+  const editingId = modalState?.mode === "edit" ? modalState.entry.id : null;
+  const editingLive = useMemo(
+    () => toLivePositionInfo(rows?.find((r) => r.entry.id === editingId)),
+    [rows, editingId],
+  );
 
   function handleSetExpiry(entryId: string, expiryDate: string) {
     const previous = entries;
@@ -218,16 +228,7 @@ export default function PaperTradeView() {
           <LiveEntriesTable
             rows={rows}
             onSetExpiry={handleSetExpiry}
-            onRowClick={(row) =>
-              setModalState({
-                mode: "edit",
-                entry: row.entry,
-                liveGreeks:
-                  row.status === "ok"
-                    ? { delta: row.delta, gamma: row.gamma, theta: row.theta, vega: row.vega, oi: row.oi }
-                    : undefined,
-              })
-            }
+            onRowClick={(row) => setModalState({ mode: "edit", entry: row.entry })}
           />
         )}
       </div>
@@ -309,7 +310,7 @@ export default function PaperTradeView() {
           <TradeEntryModal
             key={modalState.mode === "edit" ? modalState.entry.id : "new"}
             entry={modalState.mode === "edit" ? modalState.entry : null}
-            liveGreeks={modalState.mode === "edit" ? modalState.liveGreeks : undefined}
+            live={editingLive}
             onSave={handleModalSave}
             onClose={() => setModalState(null)}
             onDelete={handleModalDelete}

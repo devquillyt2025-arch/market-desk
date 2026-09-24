@@ -67,17 +67,65 @@ export type PortfolioRow = {
   /** Raw Upstox implied volatility for this leg (percent) — feeds the Risk & Probability panel. */
   iv: number | null;
   volume: number | null;
-  /** Underlying's spot price at the time of the poll, read off the matched strike row. */
+  /** Underlying's spot price at the time of the poll — off the matched strike row, or any other row in the same chain if that one omits it. */
   underlyingSpot: number | null;
+  /** IV of the closest strike (same CE/PE side) that does report one — a last-resort stand-in when this leg's own IV is missing/0. */
+  nearbyIv: number | null;
   /** Total round-trip brokerage (the entry order already placed + a hypothetical exit at liveLtp right now). */
   brokerageIfClosed: number | null;
 };
+
+/** What the edit popup shows for an open, live-priced position — the same numbers the table row shows. */
+export type LivePositionInfo = {
+  ltp: number | null;
+  pnl: number | null;
+  brokerageIfClosed: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  oi: number | null;
+};
+
+/** undefined when the row has no live data (untracked/loading/error/no_match) — the popup then just omits the live block. */
+export function toLivePositionInfo(row: PortfolioRow | undefined): LivePositionInfo | undefined {
+  if (!row || row.status !== "ok") return undefined;
+  return {
+    ltp: row.liveLtp,
+    pnl: row.livePnl,
+    brokerageIfClosed: row.brokerageIfClosed,
+    delta: row.delta,
+    gamma: row.gamma,
+    theta: row.theta,
+    vega: row.vega,
+    oi: row.oi,
+  };
+}
 
 function findStrikeRow(chain: UpstoxOptionChainResult, entry: TrackableEntry) {
   if (isUpstoxOptionChainError(chain)) return null;
   return (
     chain.data.find((row) => row.strike_price != null && Number(row.strike_price) === entry.strike_price) ?? null
   );
+}
+
+/** Every strike row in a chain carries the same underlying spot, so any one that has it will do. */
+function anySpot(chain: UpstoxOptionChainResult): number | null {
+  if (isUpstoxOptionChainError(chain)) return null;
+  return chain.data.find((row) => row.underlying_spot_price != null)?.underlying_spot_price ?? null;
+}
+
+function nearestReportedIv(chain: UpstoxOptionChainResult, entry: TrackableEntry): number | null {
+  if (isUpstoxOptionChainError(chain)) return null;
+  let best: { distance: number; iv: number } | null = null;
+  for (const row of chain.data) {
+    const strike = Number(row.strike_price);
+    const iv = (entry.option_type === "CE" ? row.call_options : row.put_options)?.option_greeks?.iv;
+    if (!Number.isFinite(strike) || iv == null || !(iv > 0)) continue;
+    const distance = Math.abs(strike - entry.strike_price);
+    if (best === null || distance < best.distance) best = { distance, iv };
+  }
+  return best?.iv ?? null;
 }
 
 function legOf(strikeRow: NonNullable<ReturnType<typeof findStrikeRow>>, entry: TrackableEntry): UpstoxOptionLeg | null {
@@ -109,6 +157,7 @@ const EMPTY_LIVE_FIELDS = {
   iv: null,
   volume: null,
   underlyingSpot: null,
+  nearbyIv: null,
   brokerageIfClosed: null,
 } as const;
 
@@ -141,7 +190,8 @@ export function computePortfolioRow(
     oi: leg?.market_data?.oi ?? null,
     iv: leg?.option_greeks?.iv ?? null,
     volume: leg?.market_data?.volume ?? null,
-    underlyingSpot: strikeRow?.underlying_spot_price ?? null,
+    underlyingSpot: strikeRow?.underlying_spot_price ?? anySpot(chain),
+    nearbyIv: nearestReportedIv(chain, entry),
   };
 
   if (liveLtp == null) {

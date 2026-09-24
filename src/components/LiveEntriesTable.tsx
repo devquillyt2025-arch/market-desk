@@ -34,29 +34,29 @@ type LiveEntriesTableProps = {
 /**
  * The live-priced positions table shared by Live Portfolio and Paper Trade:
  * one row per open entry (Date/Instrument/Expiry/Side/Lots/Entry Price/Live
- * LTP/Live P&L/Brokerage if Closed), plus a Cumulative footer row across
+ * LTP/Live P&L/Brokerage if Closed), plus a Total footer row across
  * every row with live data. Delta/Gamma/Theta/Vega/OI aren't shown here —
  * they're still computed per row and available in the edit popup.
  */
 export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: LiveEntriesTableProps) {
   const liveRows = rows.filter((row) => row.status === "ok");
+  // Plain column sums. Lots counts every row so it matches the column above
+  // it; the price, P&L and brokerage sums need a live price, so they only
+  // cover rows that have one. Each price column adds up its own values —
+  // Entry Price the entry prices, Live LTP the live prices — regardless of
+  // which side (buy/sell) each row was opened on.
+  const totalLots = rows.reduce((acc, row) => acc + row.entry.lots, 0);
   const totals =
     liveRows.length === 0
       ? null
       : liveRows.reduce(
-          (acc, row) => {
-            const buyPrice = row.entry.side === "sell" ? row.liveLtp! : row.entryPrice;
-            const sellPrice = row.entry.side === "sell" ? row.entryPrice : row.liveLtp!;
-            return {
-              lots: acc.lots + row.entry.lots,
-              buyPrice: acc.buyPrice + buyPrice,
-              sellPrice: acc.sellPrice + sellPrice,
-              livePnl: acc.livePnl + (row.livePnl ?? 0),
-              brokerage: acc.brokerage + (row.brokerageIfClosed ?? 0),
-              count: acc.count + 1,
-            };
-          },
-          { lots: 0, buyPrice: 0, sellPrice: 0, livePnl: 0, brokerage: 0, count: 0 },
+          (acc, row) => ({
+            entryPrice: acc.entryPrice + row.entryPrice,
+            liveLtp: acc.liveLtp + (row.liveLtp ?? 0),
+            livePnl: acc.livePnl + (row.livePnl ?? 0),
+            brokerage: acc.brokerage + (row.brokerageIfClosed ?? 0),
+          }),
+          { entryPrice: 0, liveLtp: 0, livePnl: 0, brokerage: 0 },
         );
 
   return (
@@ -176,14 +176,14 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
             <tfoot>
               <tr className="border-t border-border font-semibold">
                 <td colSpan={4} className="whitespace-nowrap py-2.5 pl-5 pr-2">
-                  Cumulative
+                  Total
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono tabular-nums">{totals.lots}</td>
+                <td className="px-2 py-2.5 text-right font-mono tabular-nums">{totalLots}</td>
                 <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {totals.buyPrice.toFixed(2)}
+                  {totals.entryPrice.toFixed(2)}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {totals.sellPrice.toFixed(2)}
+                  {totals.liveLtp.toFixed(2)}
                 </td>
                 <td
                   className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${pnlColorClass(totals.livePnl)}`}
@@ -198,6 +198,11 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
           )}
         </table>
       </div>
+      {liveRows.length > 0 && liveRows.length < rows.length && (
+        <p className="border-t border-border px-5 py-2 text-xs text-muted-foreground">
+          Price, P&amp;L and brokerage totals cover the {liveRows.length} of {rows.length} positions with live data.
+        </p>
+      )}
     </section>
   );
 }

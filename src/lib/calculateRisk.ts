@@ -54,6 +54,8 @@ export type PositionRisk = {
   contract: string;
   /** A long option sitting beyond a same-type short in the same expiry — it's there to cap loss, so decay/low-odds warnings don't apply to it. */
   isHedge: boolean;
+  /** Upstox sent no usable IV for this strike, so it was backed out from the live price (or borrowed from a neighbouring strike). */
+  ivEstimated: boolean;
   /** Calendar days to expiry in IST — 0 is expiry day, negative means the date has passed. */
   dte: number;
   /** Market-implied chance this leg, held alone to expiry, ends in profit. */
@@ -152,6 +154,33 @@ function probAbove(spot: number, x: number, sigma: number, t: number): number {
   return normCdf(-(Math.log(x / spot) + (sd * sd) / 2) / sd);
 }
 
+/**
+ * Black-Scholes implied vol (zero rate, matching the zero-drift model used
+ * everywhere else here) by bisection on the option's live price. null when
+ * the price is at/below intrinsic — no time value to invert — or expiry has
+ * passed.
+ */
+function impliedVolFromPrice(spot: number, strike: number, t: number, price: number, isCall: boolean): number | null {
+  if (!(t > 0) || !(price > 0)) return null;
+  const intrinsic = isCall ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0);
+  if (price <= intrinsic + 1e-6) return null;
+  const model = (sigma: number) => {
+    const sd = sigma * Math.sqrt(t);
+    const d1 = (Math.log(spot / strike) + (sd * sd) / 2) / sd;
+    const d2 = d1 - sd;
+    return isCall ? spot * normCdf(d1) - strike * normCdf(d2) : strike * normCdf(-d2) - spot * normCdf(-d1);
+  };
+  let lo = 0.01;
+  let hi = 3;
+  if (model(hi) < price || model(lo) > price) return null;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (model(mid) < price) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function istDateString(now: Date): string {
   return new Date(now.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
@@ -178,6 +207,7 @@ type Leg = {
   qty: number;
   spot: number;
   sigma: number;
+  ivEstimated: boolean;
   t: number;
   dte: number;
   expiry: string;
@@ -192,12 +222,22 @@ function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
     entry.option_type == null ||
     entry.expiry_date == null ||
     row.underlyingSpot == null ||
-    row.iv == null
+    !(row.underlyingSpot > 0)
   ) {
     return null;
   }
-  const sigma = normalizeIv(row.iv);
-  if (!(sigma > 0) || !(row.underlyingSpot > 0)) return null;
+  const t = yearsToExpiry(entry.expiry_date, now);
+  // Upstox leaves IV out (or reports 0) for illiquid and deep-ITM strikes.
+  // Rather than drop the position from the analysis, prefer its own IV, then
+  // one solved from its live price, then the nearest strike that has one.
+  const ownIv = row.iv != null && row.iv > 0 ? normalizeIv(row.iv) : null;
+  const solvedIv =
+    ownIv === null && row.liveLtp != null
+      ? impliedVolFromPrice(row.underlyingSpot, entry.strike_price, t, row.liveLtp, entry.option_type === "CE")
+      : null;
+  const nearby = ownIv === null && solvedIv === null && row.nearbyIv != null ? normalizeIv(row.nearbyIv) : null;
+  const sigma = ownIv ?? solvedIv ?? nearby;
+  if (sigma === null || !(sigma > 0)) return null;
   return {
     row,
     entryId: entry.id,
@@ -208,7 +248,8 @@ function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
     qty: entry.lots * DEFAULT_LOT_SIZES[entry.instrument],
     spot: row.underlyingSpot,
     sigma,
-    t: yearsToExpiry(entry.expiry_date, now),
+    ivEstimated: ownIv === null,
+    t,
     dte: daysBetween(today, entry.expiry_date),
     expiry: entry.expiry_date,
     groupKey: `${entry.instrument}|${entry.expiry_date}`,
@@ -257,6 +298,11 @@ function simulate(legs: Leg[]): { pop: number; expectedPnl: number } {
   return { pop: pop / wSum, expectedPnl: expected / wSum };
 }
 
+/** Smallest of 10/25/50/100/250/500/1000 that's ≥ `target` — a round price step for snapping the gauge window. */
+function niceStep(target: number): number {
+  return [10, 25, 50, 100, 250, 500].find((s) => s >= target) ?? 1000;
+}
+
 /** Range bar for one instrument+expiry group — its combined expiry payoff along the price axis. */
 function buildGauge(group: Leg[]): RangeGauge {
   const { spot, t } = group[0];
@@ -282,12 +328,33 @@ function buildGauge(group: Leg[]): RangeGauge {
     }
   }
 
-  // Window: ±2 sd around spot, stretched to fit any breakeven within 3.5 sd.
-  // Farther ones aren't drawn — the end zone simply runs off the edge.
-  const near = roots.filter((r) => r >= spot * (1 - 3.5 * sd) && r <= spot * (1 + 3.5 * sd));
-  const pad = 0.3 * sd * spot;
-  const min = Math.min(spot * (1 - 2 * sd), ...near.map((r) => r - pad));
-  const max = Math.max(spot * (1 + 2 * sd), ...near.map((r) => r + pad));
+  // Window: anchored on what the *positions* fix — strikes and breakevens
+  // (within 3.5 sd; farther ones just run off the edge) — plus the 1σ band
+  // and spot, then snapped outward to a coarse step. Deliberately not centred
+  // on spot: it re-polls every few seconds, and a spot-centred window would
+  // keep the Spot marker pinned mid-bar while the zones slid underneath it,
+  // hiding the very movement the bar exists to show. Snapping means the
+  // window only shifts when an anchor crosses a step, not on every tick.
+  const inReach = (x: number) => x >= spot * (1 - 3.5 * sd) && x <= spot * (1 + 3.5 * sd);
+  const anchors = [
+    spot,
+    spot * (1 - sigmaPct),
+    spot * (1 + sigmaPct),
+    ...group.map((l) => l.strike).filter(inReach),
+    ...roots.filter(inReach),
+  ];
+  const pad = Math.max(0.4 * sd * spot, 0.004 * spot);
+  let lo = Math.min(...anchors) - pad;
+  let hi = Math.max(...anchors) + pad;
+  const minHalf = spot * GAUGE_MIN_SD;
+  if (hi - lo < 2 * minHalf) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minHalf;
+    hi = mid + minHalf;
+  }
+  const step = niceStep(spot * 0.002);
+  const min = Math.floor(lo / step) * step;
+  const max = Math.ceil(hi / step) * step;
   const breakevens = roots.filter((r) => r > min && r < max);
 
   const bounds = [min, ...breakevens, max];
@@ -339,6 +406,7 @@ function buildPositionRisk(leg: Leg, isHedge: boolean): PositionRisk {
     row: leg.row,
     contract: describeEntryContract(leg.row.entry),
     isHedge,
+    ivEstimated: leg.ivEstimated,
     dte: leg.dte,
     pop,
     probItm,
@@ -372,7 +440,7 @@ function whyNotAnalysed(row: PortfolioRow): string {
       return `strike not found in the ${row.entry.expiry_date} chain — check the expiry`;
     case "ok":
       if (row.underlyingSpot == null || !(row.underlyingSpot > 0)) return "Upstox sent no underlying spot price";
-      return "Upstox sent no implied volatility for this strike";
+      return "no implied volatility available — none from Upstox, and none could be derived from its price or nearby strikes";
   }
 }
 
@@ -650,6 +718,19 @@ export function analyzeRisk(
         detail: `${names(thin)} — low OI can mean wide spreads and slippage when you exit.`,
       },
       ids(thin),
+    );
+  }
+
+  const ivEstimated = pick((p) => p.ivEstimated);
+  if (ivEstimated.length > 0) {
+    push(
+      {
+        id: "iv-estimated",
+        severity: "info",
+        title: `Volatility estimated for ${ivEstimated.length} position${ivEstimated.length === 1 ? "" : "s"}`,
+        detail: `${names(ivEstimated)} — Upstox sent no implied volatility for ${ivEstimated.length === 1 ? "this strike" : "these strikes"} (common for illiquid or deep in-the-money options), so it was backed out from the live price or a neighbouring strike. Their odds are approximate.`,
+      },
+      ids(ivEstimated),
     );
   }
 

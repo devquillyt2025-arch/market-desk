@@ -142,7 +142,10 @@ function PositionRow({ p }: { p: PositionRisk }) {
 type RiskProbabilityPanelProps = {
   /** null while there's nothing live-priced to analyse yet. */
   analysis: RiskAnalysis | null;
+  /** When `analysis` was computed — the last successful poll. */
   asOf: number | null;
+  /** True when polling has stopped (token expired / offline) and `analysis` is the last good read, not a current one. */
+  paused?: boolean;
 };
 
 /**
@@ -151,7 +154,7 @@ type RiskProbabilityPanelProps = {
  * a ranked list of warning signs, and a per-position breakdown. All numbers
  * come from calculateRisk.ts (market-implied, at expiry, before brokerage).
  */
-export default function RiskProbabilityPanel({ analysis, asOf }: RiskProbabilityPanelProps) {
+export default function RiskProbabilityPanel({ analysis, asOf, paused = false }: RiskProbabilityPanelProps) {
   if (!analysis) {
     return (
       <div className="flex flex-col gap-3">
@@ -182,11 +185,29 @@ export default function RiskProbabilityPanel({ analysis, asOf }: RiskProbability
             </span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">
-          {analysis.analysedCount} of {analysis.openCount} position{analysis.openCount === 1 ? "" : "s"} analysed
-          {asOf ? ` · ${new Date(asOf).toLocaleTimeString("en-IN")}` : ""}
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span
+            className={`size-2 shrink-0 rounded-full ${paused ? "bg-warning" : "animate-pulse bg-profit"}`}
+            aria-hidden="true"
+          />
+          <span className={`font-semibold ${paused ? "text-warning" : "text-profit"}`}>{paused ? "Paused" : "Live"}</span>
+          <span>
+            · {analysis.analysedCount} of {analysis.openCount} position{analysis.openCount === 1 ? "" : "s"} analysed
+            {asOf ? ` · ${new Date(asOf).toLocaleTimeString("en-IN")}` : ""}
+          </span>
         </span>
       </div>
+
+      {paused && (
+        <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm text-muted-foreground">
+          <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-warning" />
+          <p>
+            Live data is paused (token expired or no connection), so this is the last read
+            {asOf ? ` from ${new Date(asOf).toLocaleTimeString("en-IN")}` : ""} — it will refresh on its own once
+            prices are flowing again.
+          </p>
+        </div>
+      )}
 
       <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile

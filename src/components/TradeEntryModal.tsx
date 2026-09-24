@@ -6,6 +6,7 @@ import { useState } from "react";
 import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
 import Select from "@/components/Select";
+import type { LivePositionInfo } from "@/lib/calculatePortfolio";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
 import {
@@ -51,14 +52,15 @@ function todayISODate(): string {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
-/** Live-computed Greeks/OI for an open position — the table itself no longer shows these, only this popup does. */
-export type LiveGreeksInfo = {
-  delta: number | null;
-  gamma: number | null;
-  theta: number | null;
-  vega: number | null;
-  oi: number | null;
-};
+/** Marks a price field that's currently following the live LTP instead of holding a typed value. */
+function LiveTag() {
+  return (
+    <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] font-semibold normal-case tracking-normal text-profit">
+      <span className="size-1.5 animate-pulse rounded-full bg-profit" aria-hidden="true" />
+      live
+    </span>
+  );
+}
 
 function formatGreek(value: number | null, decimals: number): string {
   return value == null ? "—" : value.toFixed(decimals);
@@ -76,8 +78,14 @@ type TradeEntryModalProps = {
   onDelete: () => void;
   /** Shared with Paper Trade, which passes "Paper Trade" so the heading doesn't say "Trade Entry" on that page. */
   entityLabel?: string;
-  /** Only set when opened from Live Portfolio's/Paper Trade's Open Positions table — closed positions and plain Trade Entries have no live Greeks to show. */
-  liveGreeks?: LiveGreeksInfo | null;
+  /**
+   * Only set when opened from Live Portfolio's/Paper Trade's Open Positions
+   * table — closed positions and plain Trade Entries have no live data. The
+   * caller re-derives this from the latest poll on every render (not a
+   * snapshot taken at click time), so these figures keep matching the row
+   * behind the popup.
+   */
+  live?: LivePositionInfo | null;
 };
 
 export default function TradeEntryModal({
@@ -86,7 +94,7 @@ export default function TradeEntryModal({
   onClose,
   onDelete,
   entityLabel = "Trade Entry",
-  liveGreeks,
+  live,
 }: TradeEntryModalProps) {
   const [entryDate, setEntryDate] = useState(entry?.entry_date ?? todayISODate());
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
@@ -99,15 +107,40 @@ export default function TradeEntryModal({
   const [buyPrice, setBuyPrice] = useState(entry ? String(entry.buy_price) : "");
   const [sellPrice, setSellPrice] = useState(entry ? String(entry.sell_price) : "");
   const [status, setStatus] = useState<TradeEntryStatus>(entry?.status ?? "hold");
+  // True once the user types over the un-executed leg's price themselves — from then on it stops following the live LTP.
+  const [pendingLegTouched, setPendingLegTouched] = useState(false);
   const [remarks, setRemarks] = useState(entry?.remarks ?? "");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const parsedBuyPrice = Number(buyPrice);
-  const parsedSellPrice = Number(sellPrice);
+  // An open position's un-executed leg — the buy-back for a short, the
+  // sell-to-close for a long — isn't a real price yet, it's whatever the
+  // market says right now. While the position is still on Hold and the user
+  // hasn't overridden it, that field shows (and saves) the live LTP, the
+  // same substitution the table row makes, so this form's P&L is the row's
+  // Live P&L instead of a stale hand-typed placeholder.
+  const liveLtp = live?.ltp ?? null;
+  const followingLive = status === "hold" && liveLtp != null && !pendingLegTouched;
+  const followBuy = followingLive && side === "sell";
+  const followSell = followingLive && side === "buy";
+  const shownBuyPrice = followBuy ? liveLtp.toFixed(2) : buyPrice;
+  const shownSellPrice = followSell ? liveLtp.toFixed(2) : sellPrice;
+
+  function handleStatusChange(next: TradeEntryStatus) {
+    // Leaving Hold freezes the followed field at its current value, so the
+    // price doesn't keep drifting under a position being closed out.
+    if (next !== "hold" && liveLtp != null) {
+      if (followBuy) setBuyPrice(liveLtp.toFixed(2));
+      if (followSell) setSellPrice(liveLtp.toFixed(2));
+    }
+    setStatus(next);
+  }
+
+  const parsedBuyPrice = Number(shownBuyPrice);
+  const parsedSellPrice = Number(shownSellPrice);
   const hasValidPrices =
-    buyPrice.trim() !== "" &&
-    sellPrice.trim() !== "" &&
+    shownBuyPrice.trim() !== "" &&
+    shownSellPrice.trim() !== "" &&
     Number.isFinite(parsedBuyPrice) &&
     Number.isFinite(parsedSellPrice);
   const parsedStrikePrice = Number(strikePrice);
@@ -285,13 +318,17 @@ export default function TradeEntryModal({
             <div className="flex flex-col gap-1">
               <label htmlFor="entry-buy-price" className={labelClass}>
                 Buy Price
+                {followBuy && <LiveTag />}
               </label>
               <input
                 id="entry-buy-price"
                 type="number"
                 step="0.01"
-                value={buyPrice}
-                onChange={(e) => setBuyPrice(e.target.value)}
+                value={shownBuyPrice}
+                onChange={(e) => {
+                  setBuyPrice(e.target.value);
+                  if (side === "sell") setPendingLegTouched(true);
+                }}
                 placeholder="e.g. 120.50"
                 className={`${inputClass} font-mono tabular-nums`}
               />
@@ -299,13 +336,17 @@ export default function TradeEntryModal({
             <div className="flex flex-col gap-1">
               <label htmlFor="entry-sell-price" className={labelClass}>
                 Sell Price
+                {followSell && <LiveTag />}
               </label>
               <input
                 id="entry-sell-price"
                 type="number"
                 step="0.01"
-                value={sellPrice}
-                onChange={(e) => setSellPrice(e.target.value)}
+                value={shownSellPrice}
+                onChange={(e) => {
+                  setSellPrice(e.target.value);
+                  if (side === "buy") setPendingLegTouched(true);
+                }}
                 placeholder="e.g. 145.75"
                 className={`${inputClass} font-mono tabular-nums`}
               />
@@ -317,7 +358,7 @@ export default function TradeEntryModal({
               <Select
                 id="entry-status"
                 value={status}
-                onChange={setStatus}
+                onChange={handleStatusChange}
                 options={STATUS_OPTIONS}
                 triggerClassName={selectTriggerClass}
               />
@@ -348,29 +389,56 @@ export default function TradeEntryModal({
             </span>
           </div>
 
-          {liveGreeks && (
+          {live && (
             <div className="rounded-lg border border-border bg-bg-surface-alt p-3">
-              <p className={labelClass}>Live Greeks</p>
-              <div className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-5">
+              <div className="flex items-center gap-2">
+                <p className={labelClass}>Live</p>
+                <span className="size-1.5 animate-pulse rounded-full bg-profit" aria-hidden="true" />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">LTP</dt>
+                  <dd className="font-mono text-base font-semibold tabular-nums">
+                    {live.ltp == null ? "—" : live.ltp.toFixed(2)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Live P&amp;L</dt>
+                  <dd
+                    className={`font-mono text-base font-semibold tabular-nums ${
+                      live.pnl == null ? "text-muted-foreground" : pnlColorClass(live.pnl)
+                    }`}
+                  >
+                    {live.pnl == null ? "—" : formatINR(live.pnl)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Brokerage if closed</dt>
+                  <dd className="font-mono text-base tabular-nums text-muted-foreground">
+                    {live.brokerageIfClosed == null ? "—" : formatINR(live.brokerageIfClosed)}
+                  </dd>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 sm:grid-cols-5">
                 <div>
                   <dt className="text-[11px] text-muted-foreground">Delta</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.delta, 3)}</dd>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.delta, 3)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-muted-foreground">Gamma</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.gamma, 4)}</dd>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.gamma, 4)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-muted-foreground">Theta</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.theta, 2)}</dd>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.theta, 2)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-muted-foreground">Vega</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(liveGreeks.vega, 2)}</dd>
+                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.vega, 2)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-muted-foreground">OI</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatOi(liveGreeks.oi)}</dd>
+                  <dd className="font-mono text-sm tabular-nums">{formatOi(live.oi)}</dd>
                 </div>
               </div>
             </div>
