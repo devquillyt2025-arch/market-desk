@@ -8,9 +8,11 @@ import LoadingState from "@/components/LoadingState";
 import { DownloadIcon, InboxIcon, PlusIcon, RefreshIcon, UploadIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
+import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
 import TradeEntryModal, { type LiveGreeksInfo } from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { syntheticPrices } from "@/lib/calculatePortfolio";
+import { analyzeRisk } from "@/lib/calculateRisk";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import {
   addLivePortfolioEntry,
@@ -124,6 +126,20 @@ export default function PortfolioView() {
     }
     return { value, unrealizedPnl };
   }, [rows]);
+
+  // Keyed to the poll timestamp (not Date.now()) so "now" is stable between
+  // renders and the analysis only recomputes when fresh prices arrive.
+  const riskAnalysis = useMemo(
+    () =>
+      rows && lastPolledAt
+        ? analyzeRisk(rows, {
+            now: new Date(lastPolledAt),
+            totalMargin,
+            unrealizedPnl: portfolioStats?.unrealizedPnl ?? 0,
+          })
+        : null,
+    [rows, lastPolledAt, totalMargin, portfolioStats],
+  );
 
   function handleSetExpiry(entryId: string, expiryDate: string) {
     const previous = entries;
@@ -369,6 +385,10 @@ export default function PortfolioView() {
           />
         )}
       </div>
+
+      {rows && rows.some((r) => r.status !== "untracked") && (
+        <RiskProbabilityPanel analysis={riskAnalysis} asOf={lastPolledAt} />
+      )}
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Closed Positions</h2>

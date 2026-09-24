@@ -64,16 +64,23 @@ export type PortfolioRow = {
   theta: number | null;
   vega: number | null;
   oi: number | null;
+  /** Raw Upstox implied volatility for this leg (percent) — feeds the Risk & Probability panel. */
+  iv: number | null;
+  volume: number | null;
+  /** Underlying's spot price at the time of the poll, read off the matched strike row. */
+  underlyingSpot: number | null;
   /** Total round-trip brokerage (the entry order already placed + a hypothetical exit at liveLtp right now). */
   brokerageIfClosed: number | null;
 };
 
-function findLeg(chain: UpstoxOptionChainResult, entry: TrackableEntry): UpstoxOptionLeg | null {
+function findStrikeRow(chain: UpstoxOptionChainResult, entry: TrackableEntry) {
   if (isUpstoxOptionChainError(chain)) return null;
-  const strikeRow = chain.data.find(
-    (row) => row.strike_price != null && Number(row.strike_price) === entry.strike_price,
+  return (
+    chain.data.find((row) => row.strike_price != null && Number(row.strike_price) === entry.strike_price) ?? null
   );
-  if (!strikeRow) return null;
+}
+
+function legOf(strikeRow: NonNullable<ReturnType<typeof findStrikeRow>>, entry: TrackableEntry): UpstoxOptionLeg | null {
   return (entry.option_type === "CE" ? strikeRow.call_options : strikeRow.put_options) ?? null;
 }
 
@@ -99,6 +106,9 @@ const EMPTY_LIVE_FIELDS = {
   theta: null,
   vega: null,
   oi: null,
+  iv: null,
+  volume: null,
+  underlyingSpot: null,
   brokerageIfClosed: null,
 } as const;
 
@@ -120,7 +130,8 @@ export function computePortfolioRow(
     return { entry, entryPrice, status: "error", errorMessage: chain.error, ...EMPTY_LIVE_FIELDS };
   }
 
-  const leg = findLeg(chain, entry);
+  const strikeRow = findStrikeRow(chain, entry);
+  const leg = strikeRow ? legOf(strikeRow, entry) : null;
   const liveLtp = leg?.market_data?.ltp ?? null;
   const greeksAndOi = {
     delta: leg?.option_greeks?.delta ?? null,
@@ -128,6 +139,9 @@ export function computePortfolioRow(
     theta: leg?.option_greeks?.theta ?? null,
     vega: leg?.option_greeks?.vega ?? null,
     oi: leg?.market_data?.oi ?? null,
+    iv: leg?.option_greeks?.iv ?? null,
+    volume: leg?.market_data?.volume ?? null,
+    underlyingSpot: strikeRow?.underlying_spot_price ?? null,
   };
 
   if (liveLtp == null) {

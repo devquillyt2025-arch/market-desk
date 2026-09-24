@@ -15,6 +15,7 @@ export type UpstoxOptionGreeks = {
   gamma?: number;
   theta?: number;
   vega?: number;
+  /** Implied volatility in percent (e.g. 13.4) — `normalizeIv` in calculateRisk.ts handles either scale. */
   iv?: number;
 };
 
