@@ -35,18 +35,23 @@ import {
   computePnlByMonth,
   computePnlByOptionType,
   computePnlBySide,
+  computeReturnPct,
   computeTradeMixByInstrument,
+  CUMULATIVE_RANGE_LABELS,
+  CUMULATIVE_RANGES,
   DATE_RANGE_LABELS,
   DATE_RANGES,
+  filterEntriesByClosingRange,
   filterEntriesByRange,
   summarizeEntries,
   type AccountGrowthPoint,
   type CategoryPnl,
   type CumulativePoint,
+  type CumulativeRange,
   type DateRange,
   type TradeMixSlice,
 } from "@/lib/calculateReports";
-import { formatINR, pnlColorClass } from "@/lib/format";
+import { formatINR, formatPct, pnlColorClass } from "@/lib/format";
 import { getCachedPayments, getPayments, subscribeToPaymentChanges, type Payment } from "@/lib/paymentStore";
 import { showToast } from "@/lib/toast";
 import {
@@ -81,6 +86,12 @@ function formatAxisAmount(value: number): string {
   return `${sign}₹${abs}`;
 }
 
+/** Compact % for a Y-axis tick, e.g. +12.3%. */
+function formatAxisPct(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${round1(value)}%`;
+}
+
 function round1(n: number): string {
   const rounded = Math.round(n * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
@@ -90,6 +101,42 @@ function todayISODate(): string {
   const now = new Date();
   const offset = now.getTimezoneOffset() * 60000;
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+/**
+ * Anchors the Cumulative P&L chart to the selected window — a fixed range
+ * (1W/15D/1M/3M) should always span from "today minus N days" to today, not
+ * just from the first to the last trade that happened to close in it. Adds a
+ * zero point at the window's start if trading only began partway through it,
+ * and holds the line flat out to today if the last close wasn't today, so
+ * the axis reads as a real calendar window rather than a data-driven one.
+ */
+function padCumulativeToToday(points: CumulativePoint[], range: CumulativeRange): CumulativePoint[] {
+  const today = todayISODate();
+  // "All" has no fixed window to anchor a start to, but it should still hold
+  // flat out to today like every other range — otherwise it can end up
+  // spanning *less* visible time than a narrower range (e.g. 3M) just
+  // because nothing closed today, which reads as the range picker doing
+  // nothing.
+  if (range === "all") {
+    if (points.length === 0) return points;
+    const last = points[points.length - 1];
+    return last.date < today ? [...points, { date: today, cumulativePnl: last.cumulativePnl }] : points;
+  }
+  const days = range === "7d" ? 7 : range === "15d" ? 15 : range === "30d" ? 30 : 90;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+
+  const padded = [...points];
+  if (padded.length === 0 || padded[0].date > cutoffIso) {
+    padded.unshift({ date: cutoffIso, cumulativePnl: 0 });
+  }
+  const last = padded[padded.length - 1];
+  if (last.date < today) {
+    padded.push({ date: today, cumulativePnl: last.cumulativePnl });
+  }
+  return padded;
 }
 
 function downloadCsv(filename: string, csv: string) {
@@ -105,26 +152,72 @@ function downloadCsv(filename: string, csv: string) {
   URL.revokeObjectURL(url);
 }
 
-function CumulativeTooltip({ active, payload }: TooltipContentProps) {
+type CumulativeChartPoint = CumulativePoint & { cumulativePct: number | null };
+
+function CumulativeTooltip({ active, payload, mode }: TooltipContentProps & { mode: ValueMode }) {
   if (!active || !payload || payload.length === 0) return null;
-  const point = payload[0].payload as CumulativePoint;
+  const point = payload[0].payload as CumulativeChartPoint;
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
       <div className="text-muted-foreground">{formatAxisDate(point.date)}</div>
       <div className={`mt-0.5 font-mono font-semibold ${pnlColorClass(point.cumulativePnl)}`}>
-        {formatINR(point.cumulativePnl)}
+        {mode === "percent" && point.cumulativePct !== null ? formatPct(point.cumulativePct) : formatINR(point.cumulativePnl)}
       </div>
     </div>
   );
 }
 
-function CategoryTooltip({ active, payload }: TooltipContentProps) {
+type ValueMode = "amount" | "percent";
+
+/** Small ₹ / % pill switch reused by the Category Breakdown and Cumulative P&L charts. */
+function ValueModeToggle({
+  mode,
+  onChange,
+  percentDisabled,
+}: {
+  mode: ValueMode;
+  onChange: (mode: ValueMode) => void;
+  /** True when there's no capital figure to divide by yet (no Pay In logged) — % would be meaningless. */
+  percentDisabled?: boolean;
+}) {
+  const options: { value: ValueMode; label: string }[] = [
+    { value: "amount", label: "₹" },
+    { value: "percent", label: "%" },
+  ];
+  return (
+    <div className="flex w-fit shrink-0 items-center gap-1 rounded-full border border-border bg-background p-1">
+      {options.map((opt) => {
+        const active = mode === opt.value;
+        const disabled = opt.value === "percent" && percentDisabled;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            disabled={disabled}
+            title={disabled ? "Add a Pay In on the Payment tab to see % of capital" : undefined}
+            aria-pressed={active}
+            className={`relative shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors active:scale-95 ${
+              active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CategoryTooltip({ active, payload, mode }: TooltipContentProps & { mode: ValueMode }) {
   if (!active || !payload || payload.length === 0) return null;
   const point = payload[0].payload as CategoryPnl;
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
       <div className="text-muted-foreground">{point.label}</div>
-      <div className={`mt-0.5 font-mono font-semibold ${pnlColorClass(point.pnl)}`}>{formatINR(point.pnl)}</div>
+      <div className={`mt-0.5 font-mono font-semibold ${pnlColorClass(point.pnl)}`}>
+        {mode === "percent" ? formatPct(point.pct) : formatINR(point.pnl)}
+      </div>
     </div>
   );
 }
@@ -153,7 +246,9 @@ function AccountGrowthTooltip({ active, payload }: TooltipContentProps) {
   );
 }
 
-function CategoryPnlChart({ data }: { data: CategoryPnl[] }) {
+function CategoryPnlChart({ data, mode }: { data: CategoryPnl[]; mode: ValueMode }) {
+  const dataKey = mode === "percent" ? "pct" : "pnl";
+  const formatValue = mode === "percent" ? formatPct : formatINR;
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 16, right: 12, left: 12, bottom: 0 }}>
@@ -166,15 +261,15 @@ function CategoryPnlChart({ data }: { data: CategoryPnl[] }) {
         />
         <YAxis hide />
         <ReferenceLine y={0} stroke="var(--border)" />
-        <Tooltip cursor={{ fill: "var(--muted)", opacity: 0.5 }} content={CategoryTooltip} />
-        <Bar dataKey="pnl" radius={[4, 4, 0, 0]} maxBarSize={48}>
+        <Tooltip cursor={{ fill: "var(--muted)", opacity: 0.5 }} content={(props) => <CategoryTooltip {...props} mode={mode} />} />
+        <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={48}>
           {data.map((entry) => (
             <Cell key={entry.label} fill={entry.pnl >= 0 ? "var(--profit)" : "var(--loss)"} />
           ))}
           <LabelList
-            dataKey="pnl"
+            dataKey={dataKey}
             position="top"
-            formatter={(value) => formatINR(Number(value))}
+            formatter={(value) => formatValue(Number(value))}
             style={{ fill: "var(--muted-foreground)", fontSize: 11 }}
           />
         </Bar>
@@ -260,6 +355,9 @@ export default function ReportsView() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState(todayISODate());
   const [breakdownBy, setBreakdownBy] = useState<CategoryBreakdown>("instrument");
+  const [cumulativeRange, setCumulativeRange] = useState<CumulativeRange>("7d");
+  const [categoryValueMode, setCategoryValueMode] = useState<ValueMode>("amount");
+  const [cumulativeValueMode, setCumulativeValueMode] = useState<ValueMode>("amount");
 
   useEffect(() => {
     async function load() {
@@ -293,7 +391,13 @@ export default function ReportsView() {
     [entries, range, customFrom, customTo],
   );
   const summary = useMemo(() => (filtered ? summarizeEntries(filtered) : null), [filtered]);
-  const cumulative = useMemo(() => (filtered ? computeCumulativeSeries(filtered) : null), [filtered]);
+  const cumulative = useMemo(
+    () =>
+      entries
+        ? padCumulativeToToday(computeCumulativeSeries(filterEntriesByClosingRange(entries, cumulativeRange)), cumulativeRange)
+        : null,
+    [entries, cumulativeRange],
+  );
   const byInstrument = useMemo(() => (filtered ? computePnlByInstrument(filtered) : null), [filtered]);
   const bySide = useMemo(() => (filtered ? computePnlBySide(filtered) : null), [filtered]);
   const byOptionType = useMemo(() => (filtered ? computePnlByOptionType(filtered) : null), [filtered]);
@@ -319,6 +423,18 @@ export default function ReportsView() {
     () => computeAccountGrowthSeries(entries ?? [], payments ?? []),
     [entries, payments],
   );
+  // Net Pay Ins to date (not filtered by the page's range) — the denominator
+  // for every "Return %" figure below, so a return is always relative to
+  // capital actually put in, not just to whatever closed within the range.
+  const latestCapital = accountGrowth.length > 0 ? accountGrowth[accountGrowth.length - 1].capital : 0;
+  const returnPct = summary ? computeReturnPct(summary.netPnl, latestCapital) : null;
+  const cumulativeWithPct: CumulativeChartPoint[] | null = useMemo(
+    () =>
+      cumulative
+        ? cumulative.map((point) => ({ ...point, cumulativePct: computeReturnPct(point.cumulativePnl, latestCapital) }))
+        : null,
+    [cumulative, latestCapital],
+  );
   // Defaults to the month of the most recent *closing* date, matching the
   // calendar's own closing_date-based data — opening the calendar on a
   // month with entries but no closed trades would just show it empty.
@@ -335,12 +451,17 @@ export default function ReportsView() {
       summary
         ? [
             { label: "Total P&L", value: formatINR(summary.totalPnl), color: pnlColorClass(summary.totalPnl) },
+            {
+              label: "Return %",
+              value: returnPct === null ? "—" : formatPct(returnPct, 2),
+              color: returnPct === null ? "" : pnlColorClass(returnPct),
+            },
             { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
             { label: "Total Trades", value: String(summary.totalTrades), color: "" },
             { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
           ]
         : null,
-    [summary],
+    [summary, returnPct],
   );
 
   function handleExportCsv() {
@@ -414,7 +535,7 @@ export default function ReportsView() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {statTiles?.map((stat) => (
               <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
                 <dt className="text-xs text-muted-foreground">{stat.label}</dt>
@@ -425,78 +546,84 @@ export default function ReportsView() {
 
           <div className="grid gap-6 lg:grid-cols-2">
             {summary && (
-              <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
+              <section className="rounded-xl border border-border bg-background p-4">
                 <h2 className="text-sm font-medium">Performance</h2>
-                <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Best Trade</dt>
-                    <dd
-                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
-                    >
-                      {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
-                    </dd>
-                    {summary.bestTrade && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
-                    )}
+                <div className="mt-2 flex flex-col divide-y divide-border">
+                  <div className="flex items-center justify-between gap-3 py-1.5 first:pt-0">
+                    <dt className="text-sm text-muted-foreground">Best Trade</dt>
+                    <div className="text-right">
+                      <dd
+                        className={`font-mono text-base font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
+                      >
+                        {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                      </dd>
+                      {summary.bestTrade && (
+                        <p className="truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Worst Trade</dt>
-                    <dd
-                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
-                    >
-                      {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
-                    </dd>
-                    {summary.worstTrade && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
-                    )}
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <dt className="text-sm text-muted-foreground">Worst Trade</dt>
+                    <div className="text-right">
+                      <dd
+                        className={`font-mono text-base font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
+                      >
+                        {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                      </dd>
+                      {summary.worstTrade && (
+                        <p className="truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Max Drawdown</dt>
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <dt className="text-sm text-muted-foreground">Max Drawdown</dt>
                     <dd
-                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
+                      className={`font-mono text-base font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
                     >
                       {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Current Streak</dt>
-                    <dd
-                      className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
-                        summary.currentStreak.type === "win"
-                          ? "text-profit"
-                          : summary.currentStreak.type === "loss"
-                            ? "text-loss"
-                            : "text-muted-foreground"
-                      }`}
-                    >
-                      {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
-                    </dd>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <dt className="text-sm text-muted-foreground">Current Streak</dt>
+                    <div className="text-right">
+                      <dd
+                        className={`font-mono text-base font-semibold tabular-nums ${
+                          summary.currentStreak.type === "win"
+                            ? "text-profit"
+                            : summary.currentStreak.type === "loss"
+                              ? "text-loss"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                      </dd>
+                      <p className="text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
+                    </div>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Profit Factor</dt>
-                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <dt className="text-sm text-muted-foreground">Profit Factor</dt>
+                    <dd className="font-mono text-base font-semibold tabular-nums">
                       {summary.profitFactor === null ? "∞" : summary.profitFactor.toFixed(2)}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Avg Win</dt>
-                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-profit">
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <dt className="text-sm text-muted-foreground">Avg Win</dt>
+                    <dd className="font-mono text-base font-semibold tabular-nums text-profit">
                       {formatINR(summary.avgWin)}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Avg Loss</dt>
-                    <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-loss">
+                  <div className="flex items-center justify-between gap-3 py-1.5 last:pb-0">
+                    <dt className="text-sm text-muted-foreground">Avg Loss</dt>
+                    <dd className="font-mono text-base font-semibold tabular-nums text-loss">
                       {formatINR(summary.avgLoss)}
                     </dd>
                   </div>
                 </div>
 
-                <div className="mt-4 border-t border-border pt-3">
+                <div className="mt-3 border-t border-border pt-3">
                   <div className="flex items-center justify-between">
-                    <dt className="text-xs text-muted-foreground">Win Rate</dt>
-                    <span className="font-mono text-sm font-semibold tabular-nums">
+                    <dt className="text-sm text-muted-foreground">Win Rate</dt>
+                    <span className="font-mono text-base font-semibold tabular-nums">
                       {summary.winCount}W / {summary.lossCount}L
                       {summary.totalTrades - summary.winCount - summary.lossCount > 0
                         ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount} flat`
@@ -537,10 +664,40 @@ export default function ReportsView() {
           </div>
 
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
-            <h2 className="text-sm font-medium">Cumulative P&amp;L</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-medium">Cumulative P&amp;L</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-fit max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full border border-border bg-background p-1">
+                  {CUMULATIVE_RANGES.map((r) => {
+                    const active = cumulativeRange === r;
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setCumulativeRange(r)}
+                        aria-pressed={active}
+                        className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                          active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        }`}
+                      >
+                        {active && (
+                          <motion.span
+                            layoutId="cumulative-range-pill-active"
+                            className="absolute inset-0 rounded-full bg-accent"
+                            transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                          />
+                        )}
+                        <span className="relative z-10">{CUMULATIVE_RANGE_LABELS[r]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <ValueModeToggle mode={cumulativeValueMode} onChange={setCumulativeValueMode} percentDisabled={latestCapital <= 0} />
+              </div>
+            </div>
             <div className="mt-2">
               <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={cumulative ?? []} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
+                <AreaChart data={cumulativeWithPct ?? []} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
                   <defs>
                     <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
@@ -557,7 +714,7 @@ export default function ReportsView() {
                     minTickGap={24}
                   />
                   <YAxis
-                    tickFormatter={formatAxisAmount}
+                    tickFormatter={cumulativeValueMode === "percent" ? formatAxisPct : formatAxisAmount}
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
@@ -566,11 +723,11 @@ export default function ReportsView() {
                   <ReferenceLine y={0} stroke="var(--border)" />
                   <Tooltip
                     cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1 }}
-                    content={CumulativeTooltip}
+                    content={(props) => <CumulativeTooltip {...props} mode={cumulativeValueMode} />}
                   />
                   <Area
-                    type="monotone"
-                    dataKey="cumulativePnl"
+                    type="stepAfter"
+                    dataKey={cumulativeValueMode === "percent" ? "cumulativePct" : "cumulativePnl"}
                     stroke="var(--accent)"
                     strokeWidth={2}
                     fill="url(#cumulative-fill)"
@@ -670,35 +827,43 @@ export default function ReportsView() {
           <section className="rounded-xl border border-border bg-background p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-medium">P&amp;L by {CATEGORY_BREAKDOWN_PILLS.find((p) => p.value === breakdownBy)?.label}</h2>
-              <div className="flex w-fit max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full border border-border bg-background p-1">
-                {CATEGORY_BREAKDOWN_PILLS.map((opt) => {
-                  const active = breakdownBy === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setBreakdownBy(opt.value)}
-                      aria-pressed={active}
-                      className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
-                        active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
-                    >
-                      {active && (
-                        <motion.span
-                          layoutId="category-breakdown-pill-active"
-                          className="absolute inset-0 rounded-full bg-accent"
-                          transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                        />
-                      )}
-                      <span className="relative z-10">{opt.label}</span>
-                    </button>
-                  );
-                })}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-fit max-w-full shrink-0 items-center gap-1 overflow-x-auto rounded-full border border-border bg-background p-1">
+                  {CATEGORY_BREAKDOWN_PILLS.map((opt) => {
+                    const active = breakdownBy === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setBreakdownBy(opt.value)}
+                        aria-pressed={active}
+                        className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
+                          active ? "text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        }`}
+                      >
+                        {active && (
+                          <motion.span
+                            layoutId="category-breakdown-pill-active"
+                            className="absolute inset-0 rounded-full bg-accent"
+                            transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                          />
+                        )}
+                        <span className="relative z-10">{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <ValueModeToggle mode={categoryValueMode} onChange={setCategoryValueMode} />
               </div>
             </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {categoryValueMode === "percent"
+                ? "Each bar's share of this breakdown's own net P&L — a losing slice can push another past 100%."
+                : "Net P&L per slice, in ₹."}
+            </p>
             <div className="mt-2">
               {activeBreakdown.data && activeBreakdown.data.length > 0 ? (
-                <CategoryPnlChart data={activeBreakdown.data} />
+                <CategoryPnlChart data={activeBreakdown.data} mode={categoryValueMode} />
               ) : (
                 <EmptyCategoryNote text={activeBreakdown.emptyText} />
               )}

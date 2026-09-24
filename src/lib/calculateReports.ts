@@ -71,6 +71,31 @@ export function filterEntriesByRange(entries: TradeEntry[], range: DateRange, cu
   return entries.filter((e) => e.entry_date >= cutoffIso);
 }
 
+export const CUMULATIVE_RANGES = ["7d", "15d", "30d", "90d", "all"] as const;
+export type CumulativeRange = (typeof CUMULATIVE_RANGES)[number];
+
+export const CUMULATIVE_RANGE_LABELS: Record<CumulativeRange, string> = {
+  "7d": "1W",
+  "15d": "15D",
+  "30d": "1M",
+  "90d": "3M",
+  all: "All",
+};
+
+/**
+ * Own range control for the Cumulative P&L chart, independent of the page's
+ * main date-range filter — filters by closing_date (what the chart actually
+ * plots) rather than entry_date, so "1W" means "closed in the last 7 days".
+ */
+export function filterEntriesByClosingRange(entries: TradeEntry[], range: CumulativeRange): TradeEntry[] {
+  if (range === "all") return entries;
+  const days = range === "7d" ? 7 : range === "15d" ? 15 : range === "30d" ? 30 : 90;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  return entries.filter((e) => e.closing_date && e.closing_date >= cutoffIso);
+}
+
 export type TradeHighlight = {
   id: string;
   label: string;
@@ -191,13 +216,47 @@ export type CumulativePoint = {
   cumulativePnl: number;
 };
 
-/** Running total in chronological order — the account's growth curve over the filtered range. */
+/**
+ * Running total in chronological order — the account's growth curve over the
+ * filtered range. P&L lands on its closing_date, same as computeAccountGrowthSeries
+ * and the calendar heatmap: it only actually realizes once a position is squared
+ * off, not the day it was opened. An entry with no closing_date yet ("hold")
+ * contributes nothing here until it closes.
+ */
 export function computeCumulativeSeries(entries: TradeEntry[]): CumulativePoint[] {
-  let running = 0;
-  return sortByDate(entries).map((entry) => {
-    running = round2(running + entry.pnl);
-    return { date: entry.entry_date, cumulativePnl: running };
+  const closed = entries.filter((e) => e.closing_date);
+  const sorted = [...closed].sort((a, b) => {
+    const aDate = a.closing_date as string;
+    const bDate = b.closing_date as string;
+    if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+    return a.created_at < b.created_at ? -1 : 1;
   });
+  // One point per calendar day — several trades closing the same day collapse
+  // into a single running total as of end of day, so the x-axis shows each
+  // date once instead of repeating it per trade.
+  const points: CumulativePoint[] = [];
+  let running = 0;
+  for (const entry of sorted) {
+    running = round2(running + entry.pnl);
+    const date = entry.closing_date as string;
+    const last = points[points.length - 1];
+    if (last && last.date === date) {
+      last.cumulativePnl = running;
+    } else {
+      points.push({ date, cumulativePnl: running });
+    }
+  }
+  return points;
+}
+
+/**
+ * P&L relative to invested capital, as a signed percentage — the "return %"
+ * metric alongside the ₹ P&L stat tiles. Null when there's no capital to
+ * divide by yet (no Pay In logged on the Payment tab), rather than showing a
+ * misleading 0% or an infinite return.
+ */
+export function computeReturnPct(pnl: number, capital: number): number | null {
+  return capital > 0 ? round2((pnl / capital) * 100) : null;
 }
 
 export type AccountGrowthPoint = {
@@ -258,17 +317,34 @@ export function computeAccountGrowthSeries(entries: TradeEntry[], payments: Paym
 export type CategoryPnl = {
   label: string;
   pnl: number;
+  /**
+   * Share of this breakdown's own total P&L, as a signed percentage —
+   * pnl / sum(all pnl in this breakdown) * 100. Since the denominator is the
+   * sum of every slice, the slices always add up to exactly 100% (e.g. a
+   * losing month can show as a negative % that eats into a winning one's
+   * >100%), which is the correct decomposition of the net result rather than
+   * a share of trading volume. 0 when the breakdown nets to exactly zero.
+   */
+  pct: number;
 };
+
+/** Attaches `pct` (each pnl's signed share of the group's own total) to a set of category totals. */
+function withPct(items: { label: string; pnl: number }[]): CategoryPnl[] {
+  const total = items.reduce((sum, item) => sum + item.pnl, 0);
+  return items.map((item) => ({ ...item, pct: total !== 0 ? round2((item.pnl / total) * 100) : 0 }));
+}
 
 export function computePnlByInstrument(entries: TradeEntry[]): CategoryPnl[] {
   const totals = new Map<Instrument, number>();
   for (const entry of entries) {
     totals.set(entry.instrument, round2((totals.get(entry.instrument) ?? 0) + entry.pnl));
   }
-  return INSTRUMENTS.filter((i) => totals.has(i)).map((i) => ({
-    label: INSTRUMENT_LABELS[i],
-    pnl: totals.get(i) ?? 0,
-  }));
+  return withPct(
+    INSTRUMENTS.filter((i) => totals.has(i)).map((i) => ({
+      label: INSTRUMENT_LABELS[i],
+      pnl: totals.get(i) ?? 0,
+    })),
+  );
 }
 
 const SIDE_ORDER: TradeEntrySide[] = ["buy", "sell"];
@@ -279,7 +355,7 @@ export function computePnlBySide(entries: TradeEntry[]): CategoryPnl[] {
   for (const entry of entries) {
     totals.set(entry.side, round2((totals.get(entry.side) ?? 0) + entry.pnl));
   }
-  return SIDE_ORDER.filter((s) => totals.has(s)).map((s) => ({ label: SIDE_LABELS[s], pnl: totals.get(s) ?? 0 }));
+  return withPct(SIDE_ORDER.filter((s) => totals.has(s)).map((s) => ({ label: SIDE_LABELS[s], pnl: totals.get(s) ?? 0 })));
 }
 
 const OPTION_TYPE_ORDER: TradeEntryOptionType[] = ["CE", "PE"];
@@ -291,7 +367,7 @@ export function computePnlByOptionType(entries: TradeEntry[]): CategoryPnl[] {
     if (!entry.option_type) continue;
     totals.set(entry.option_type, round2((totals.get(entry.option_type) ?? 0) + entry.pnl));
   }
-  return OPTION_TYPE_ORDER.filter((t) => totals.has(t)).map((t) => ({ label: t, pnl: totals.get(t) ?? 0 }));
+  return withPct(OPTION_TYPE_ORDER.filter((t) => totals.has(t)).map((t) => ({ label: t, pnl: totals.get(t) ?? 0 })));
 }
 
 function formatMonthLabel(yyyyMm: string): string {
@@ -306,10 +382,12 @@ export function computePnlByMonth(entries: TradeEntry[]): CategoryPnl[] {
     const key = entry.entry_date.slice(0, 7);
     totals.set(key, round2((totals.get(key) ?? 0) + entry.pnl));
   }
-  return [...totals.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, pnl]) => ({
-    label: formatMonthLabel(key),
-    pnl,
-  }));
+  return withPct(
+    [...totals.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, pnl]) => ({
+      label: formatMonthLabel(key),
+      pnl,
+    })),
+  );
 }
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -322,10 +400,12 @@ export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
     const day = new Date(`${entry.entry_date}T00:00:00`).getDay();
     totals.set(day, round2((totals.get(day) ?? 0) + entry.pnl));
   }
-  return DAY_ORDER.filter((d) => totals.has(d)).map((d) => ({
-    label: DAY_LABELS[d],
-    pnl: totals.get(d) ?? 0,
-  }));
+  return withPct(
+    DAY_ORDER.filter((d) => totals.has(d)).map((d) => ({
+      label: DAY_LABELS[d],
+      pnl: totals.get(d) ?? 0,
+    })),
+  );
 }
 
 export type TradeMixSlice = {

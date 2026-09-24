@@ -15,3 +15,9 @@ export function pnlColorClass(pnl: number): string {
   if (pnl < 0) return "text-loss";
   return "text-foreground";
 }
+
+/** Signed percentage, e.g. +12.3% / -4.5% / 0.0% — 1 decimal by default. */
+export function formatPct(pct: number, decimals = 1): string {
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(decimals)}%`;
+}
