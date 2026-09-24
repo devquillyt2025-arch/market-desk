@@ -246,12 +246,17 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
                       key={toISODate(date)}
                       type="button"
                       onClick={() => selectDate(date)}
+                      aria-current={isToday ? "date" : undefined}
+                      title={isToday ? "Today" : undefined}
                       className={`mx-auto flex size-8 items-center justify-center rounded-md text-sm transition-colors ${
                         isSelected
-                          ? "bg-accent font-medium text-accent-foreground"
-                          : inMonth
-                            ? `text-foreground hover:bg-muted ${isToday ? "font-semibold text-accent" : ""}`
-                            : "text-muted-foreground/40 hover:bg-muted"
+                          ? // Still marks today when it's also the chosen date — an outer ring around the solid fill.
+                            `bg-accent font-medium text-accent-foreground ${isToday ? "ring-2 ring-accent/40 ring-offset-2 ring-offset-card" : ""}`
+                          : isToday
+                            ? "bg-accent/15 font-semibold text-accent ring-1 ring-inset ring-accent/60 hover:bg-accent/25"
+                            : inMonth
+                              ? "text-foreground hover:bg-muted"
+                              : "text-muted-foreground/40 hover:bg-muted"
                       }`}
                     >
                       {date.getDate()}
