@@ -22,30 +22,29 @@ import {
 } from "@/components/icons";
 
 /**
- * Ordered to follow an actual trading day: price a trade (Brokerage), log
- * and track it (Trade Entries -> Live Portfolio -> Paper Trade), review how
- * it went (Reports), then the money side (Payment). Notes/Links/Logs are
- * reference utilities, not workflow steps, so they sit in their own group
- * after a divider (see SECONDARY_GROUP_START) rather than interrupting the
- * trading flow above.
+ * Live Portfolio and Important Links come first — the two tabs checked most
+ * often through the day — followed by the workflow tabs (Brokerage, Paper
+ * Trade, Trade Entries, Reports, Payment). Notes and Logs are reference
+ * utilities, so they sit in their own group after a divider (see
+ * SECONDARY_GROUP_START) rather than interrupting the tabs above.
  */
 const LINKS = [
-  { href: "/", label: "Brokerage", icon: ReceiptIcon },
-  { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
+  { href: "/links", label: "Important Links", icon: LinkIcon },
+  { href: "/", label: "Brokerage", icon: ReceiptIcon },
   { href: "/paper-trade", label: "Paper Trade", icon: FlaskIcon },
+  { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: BarChartIcon },
   { href: "/payment", label: "Payment", icon: WalletIcon },
   { href: "/notes", label: "Notes", icon: NoteIcon },
-  { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/logs", label: "Logs", icon: ActivityIcon },
 ] as const;
 
 /** Pinned below the scrolling list, not part of it — settings isn't a workflow tab. */
 const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
 
-/** Everything from this index on (Notes/Important Links/Logs) renders as a visually separate "secondary" group when collapsed. */
-const SECONDARY_GROUP_START = 6;
+/** Everything from this index on (Notes/Logs) renders as a visually separate "secondary" group when collapsed. */
+const SECONDARY_GROUP_START = 7;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 
@@ -145,7 +144,7 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
  */
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link href="/" className={`flex items-center gap-2 ${collapsed ? "lg:hidden" : ""}`}>
+    <Link href="/portfolio" className={`flex items-center gap-2 ${collapsed ? "lg:hidden" : ""}`}>
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground">
         M
       </span>
