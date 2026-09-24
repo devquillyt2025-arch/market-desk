@@ -16,7 +16,7 @@
 
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
-import { DEFAULT_LOT_SIZES } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, type Instrument } from "@/lib/types";
 
 // --- Thresholds -----------------------------------------------------------
 // Heuristics, not market law — tuned to be noisy enough to matter and quiet
@@ -32,6 +32,9 @@ const LOSS_VS_MARGIN_CRITICAL = 0.25;
 const SKEWED_RISK_REWARD = 3; // risking ≥3× the max profit
 const DIRECTIONAL_VS_MARGIN = 0.05; // 1% index move swings ≥5% of margin
 const THIN_OI = 10_000;
+const GAUGE_MIN_SD = 0.015; // never draw a range narrower than ±1.5% — expiry-day 1σ is a hair's width
+const GAUGE_ROOT_STEPS = 400;
+const GAUGE_CURVE_STEPS = 120;
 const GRID_HALF_WIDTH_Z = 6;
 const GRID_STEPS = 240;
 const MS_PER_DAY = 86_400_000;
@@ -73,10 +76,38 @@ export type PositionRisk = {
   flag: RiskSeverity | null;
 };
 
+/** One underlying+expiry's range bar: where spot sits against its profit/loss zones and breakevens at expiry. */
+export type RangeGauge = {
+  instrument: Instrument;
+  expiry: string;
+  dte: number;
+  spot: number;
+  /** Visible price window. */
+  min: number;
+  max: number;
+  /** Prices where the group's combined payoff crosses zero, inside the window. */
+  breakevens: number[];
+  /** Contiguous segments covering [min, max], each wholly profit or wholly loss at expiry. */
+  zones: { from: number; to: number; profit: boolean }[];
+  /** Market-implied 1σ expected range to expiry. */
+  sigmaLow: number;
+  sigmaHigh: number;
+  /** ₹ P&L at expiry if the underlying finished exactly at today's spot. */
+  pnlAtSpot: number;
+  /**
+   * The group's expiry payoff sampled across [min, max], strikes and
+   * breakevens included — the payoff is piecewise linear with kinks only at
+   * strikes, so linear interpolation between these points is exact. Lets the
+   * range bar answer "what's my P&L if it settles at X?" without the legs.
+   */
+  curve: { price: number; pnl: number }[];
+};
+
 export type RiskVerdict = "high" | "elevated" | "comfortable";
 
 export type RiskAnalysis = {
   positions: PositionRisk[];
+  gauges: RangeGauge[];
   analysedCount: number;
   openCount: number;
   nearestDte: number | null;
@@ -226,6 +257,66 @@ function simulate(legs: Leg[]): { pop: number; expectedPnl: number } {
   return { pop: pop / wSum, expectedPnl: expected / wSum };
 }
 
+/** Range bar for one instrument+expiry group — its combined expiry payoff along the price axis. */
+function buildGauge(group: Leg[]): RangeGauge {
+  const { spot, t } = group[0];
+  const sigma = group.reduce((acc, l) => acc + l.sigma, 0) / group.length;
+  const payoff = (s: number) => group.reduce((acc, l) => acc + legPayoff(l, s), 0);
+  const sigmaPct = sigma * Math.sqrt(t);
+  const sd = Math.max(sigmaPct, GAUGE_MIN_SD);
+
+  // Payoff is piecewise linear with kinks only at strikes, so a zero crossing
+  // between two adjacent sample points (strikes included) interpolates exactly.
+  const domainLo = spot * 0.7;
+  const domainHi = spot * 1.3;
+  const samples = new Set<number>([domainLo, domainHi]);
+  for (let i = 1; i < GAUGE_ROOT_STEPS; i++) samples.add(domainLo + ((domainHi - domainLo) * i) / GAUGE_ROOT_STEPS);
+  for (const l of group) if (l.strike > domainLo && l.strike < domainHi) samples.add(l.strike);
+  const xs = [...samples].sort((a, b) => a - b);
+  const roots: number[] = [];
+  for (let i = 1; i < xs.length; i++) {
+    const fa = payoff(xs[i - 1]);
+    const fb = payoff(xs[i]);
+    if ((fa < 0 && fb > 0) || (fa > 0 && fb < 0)) {
+      roots.push(xs[i - 1] + ((xs[i] - xs[i - 1]) * Math.abs(fa)) / (Math.abs(fa) + Math.abs(fb)));
+    }
+  }
+
+  // Window: ±2 sd around spot, stretched to fit any breakeven within 3.5 sd.
+  // Farther ones aren't drawn — the end zone simply runs off the edge.
+  const near = roots.filter((r) => r >= spot * (1 - 3.5 * sd) && r <= spot * (1 + 3.5 * sd));
+  const pad = 0.3 * sd * spot;
+  const min = Math.min(spot * (1 - 2 * sd), ...near.map((r) => r - pad));
+  const max = Math.max(spot * (1 + 2 * sd), ...near.map((r) => r + pad));
+  const breakevens = roots.filter((r) => r > min && r < max);
+
+  const bounds = [min, ...breakevens, max];
+  const zones = bounds.slice(0, -1).map((from, i) => {
+    const to = bounds[i + 1];
+    return { from, to, profit: payoff((from + to) / 2) > 0 };
+  });
+
+  const curveXs = new Set<number>([min, max, ...breakevens]);
+  for (let i = 1; i < GAUGE_CURVE_STEPS; i++) curveXs.add(min + ((max - min) * i) / GAUGE_CURVE_STEPS);
+  for (const l of group) if (l.strike > min && l.strike < max) curveXs.add(l.strike);
+  const curve = [...curveXs].sort((a, b) => a - b).map((price) => ({ price, pnl: payoff(price) }));
+
+  return {
+    instrument: group[0].row.entry.instrument,
+    expiry: group[0].expiry,
+    dte: group[0].dte,
+    spot,
+    min,
+    max,
+    breakevens,
+    zones,
+    sigmaLow: spot * (1 - sigmaPct),
+    sigmaHigh: spot * (1 + sigmaPct),
+    pnlAtSpot: payoff(spot),
+    curve,
+  };
+}
+
 function buildPositionRisk(leg: Leg, isHedge: boolean): PositionRisk {
   const be = leg.isCall ? leg.strike + leg.premium : leg.strike - leg.premium;
   // A call breaks even at strike+premium, a put at strike−premium. The leg
@@ -332,6 +423,10 @@ export function analyzeRisk(
     maxLoss = maxLoss === null || ext.maxLoss === null ? null : maxLoss + ext.maxLoss;
     maxProfit = maxProfit === null || ext.maxProfit === null ? null : maxProfit + ext.maxProfit;
   }
+
+  const gauges = [...groups.values()]
+    .map(buildGauge)
+    .sort((a, b) => (a.expiry === b.expiry ? a.instrument.localeCompare(b.instrument) : a.expiry < b.expiry ? -1 : 1));
 
   const { pop, expectedPnl } = simulate(legs);
   const netThetaPerDay = positions.reduce((acc, p) => acc + (p.thetaPerDay ?? 0), 0);
@@ -580,6 +675,7 @@ export function analyzeRisk(
 
   return {
     positions,
+    gauges,
     analysedCount: legs.length,
     openCount: rows.length,
     nearestDte: nearest.dte,

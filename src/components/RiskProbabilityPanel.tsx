@@ -3,19 +3,20 @@
 import type { ReactNode } from "react";
 
 import { AlertCircleIcon, CheckCircleIcon } from "@/components/icons";
+import RangeGauge from "@/components/RangeGauge";
 import type { PositionRisk, RiskAnalysis, RiskSeverity, RiskVerdict } from "@/lib/calculateRisk";
 import { formatINR, pnlColorClass } from "@/lib/format";
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 
 const VERDICT_STYLES: Record<RiskVerdict, { label: string; pill: string }> = {
-  high: { label: "High risk", pill: "bg-loss/10 text-loss" },
+  high: { label: "High risk", pill: "bg-loss/15 text-danger-fg" },
   elevated: { label: "Elevated", pill: "bg-warning/10 text-warning" },
   comfortable: { label: "Comfortable", pill: "bg-profit/10 text-profit" },
 };
 
 const SEVERITY_STYLES: Record<RiskSeverity, { label: string; box: string; text: string; dot: string }> = {
-  critical: { label: "Critical", box: "border-loss/30 bg-loss/5", text: "text-loss", dot: "bg-loss" },
+  critical: { label: "Critical", box: "border-loss/40 bg-loss/10", text: "text-danger-fg", dot: "bg-danger-fg" },
   warning: { label: "Warning", box: "border-warning/30 bg-warning/5", text: "text-warning", dot: "bg-warning" },
   info: { label: "Note", box: "border-border bg-muted/30", text: "text-muted-foreground", dot: "bg-muted-foreground" },
 };
@@ -248,6 +249,15 @@ export default function RiskProbabilityPanel({ analysis, asOf }: RiskProbability
           hint="P&L change if the index rises 1%"
         />
       </dl>
+
+      <div className="flex flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Range at expiry
+          <span className="ml-2 font-normal normal-case tracking-normal">· hover the bar for P&amp;L at any price</span>
+        </h3>
+        {analysis.gauges.map((g) => (
+          <RangeGauge key={`${g.instrument}|${g.expiry}`} gauge={g} />
+        ))}
+      </div>
 
       <div className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Warning signs</h3>

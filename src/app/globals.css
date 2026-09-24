@@ -24,6 +24,8 @@
   --danger: #9a0a0a;
   --info: #417aa1;
   --warning: #d9a23a;
+  /* Brighter red for small text on dark surfaces — --danger is tuned for fills/P&L and is too dim to read as a label. */
+  --danger-fg: #f0605d;
   /* .glass-panel's hairline bevel — top / right / bottom / left, lightest at the top edge as if lit from above. */
   --glass-border: #313133 #292929 #252527 #292929;
 
@@ -67,6 +69,7 @@
   --color-danger: var(--danger);
   --color-info: var(--info);
   --color-warning: var(--warning);
+  --color-danger-fg: var(--danger-fg);
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -127,6 +130,7 @@
     --danger: #c22323;
     --info: #2f6690;
     --warning: #a86a00;
+    --danger-fg: #c22323;
 
     --background: var(--bg-base);
     --foreground: var(--text-primary);
@@ -158,6 +162,7 @@
   --danger: #c22323;
   --info: #2f6690;
   --warning: #a86a00;
+  --danger-fg: #c22323;
 
   --background: var(--bg-base);
   --foreground: var(--text-primary);
