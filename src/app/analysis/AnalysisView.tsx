@@ -15,6 +15,7 @@ import {
   analyzeStrategy,
   chartDomain,
   daysBetween,
+  expiryCloseMs,
   istDateString,
   legGreeks,
   priceLegs,
@@ -27,6 +28,7 @@ import {
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
 import { formatCompactINR, formatINR } from "@/lib/format";
+import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
 import {
   buildStrategyExport,
   parseStrategyImport,
@@ -243,6 +245,12 @@ export default function AnalysisView() {
   const [chainOpen, setChainOpen] = useState(false);
   // Spot from the most recent chain load — not derived from the cache, whose entry order says nothing about freshness.
   const [liveSpot, setLiveSpot] = useState<{ instrument: Instrument; value: number } | null>(null);
+  // Gates both the save effect and the first chain load below until *after*
+  // the saved strategy has been restored — otherwise the save effect would
+  // fire first, on the still-empty default state, and overwrite the very
+  // strategy the restore was about to bring back (and the chain load would
+  // fetch for the default underlying instead of the saved one).
+  const [hydrated, setHydrated] = useState(false);
   const requestedRef = useRef<Set<string>>(new Set());
   // Lets an in-flight chain fetch notice the underlying changed (e.g. via an
   // import) before it writes prices into legs that now belong to another index.
@@ -259,6 +267,25 @@ export default function AnalysisView() {
   useEffect(() => {
     instrumentRef.current = instrument;
   }, [instrument]);
+
+  // Restored after mount rather than in the useState initializers: localStorage
+  // doesn't exist during SSR, so reading it there would hydrate with a mismatch.
+  useEffect(() => {
+    const saved = loadSavedAnalysis();
+    if (saved) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setInstrument(saved.instrument);
+      setLegs(saved.legs);
+      setSpotOverride(saved.spotOverride);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+    setHydrated(true);
+  }, []);
+
+  // Every change is saved as it happens — there's no Save button. Only Clear All empties it.
+  useEffect(() => {
+    if (hydrated) saveAnalysis({ instrument, legs, spotOverride });
+  }, [hydrated, instrument, legs, spotOverride]);
 
   // "Now" only needs to be roughly current — it drives time-to-expiry.
   useEffect(() => {
@@ -319,10 +346,14 @@ export default function AnalysisView() {
     [fillPrices],
   );
 
-  const neededExpiries = [...new Set([defaultExpiry, ...legs.map((l) => l.expiry)])].sort().join(",");
+  // A saved strategy can outlive its expiry; Upstox has no chain for a date that's gone, so don't keep asking (every poll) for one.
+  const neededExpiries = [...new Set([defaultExpiry, ...legs.map((l) => l.expiry).filter((e) => e >= today)])]
+    .sort()
+    .join(",");
   useEffect(() => {
+    if (!hydrated) return;
     void loadChains(instrument, neededExpiries.split(","), { force: false, overwritePrices: false });
-  }, [instrument, neededExpiries, loadChains]);
+  }, [hydrated, instrument, neededExpiries, loadChains]);
 
   // Keep spot and IV current. Typed or imported prices are left alone — only "Reset Prices" overwrites them.
   useEffect(() => {
@@ -390,6 +421,12 @@ export default function AnalysisView() {
         return next;
       }),
     );
+  }
+
+  /** The strategy is auto-saved, so this is the one way to empty it — legs and any manual spot go together. */
+  function handleClearAll() {
+    setLegs([]);
+    setSpotOverride("");
   }
 
   function handleInstrumentChange(next: Instrument) {
@@ -493,11 +530,28 @@ export default function AnalysisView() {
 
   // --- Analysis --------------------------------------------------------------
 
+  // The analysis is anchored on the earliest expiry, so one expired leg beside
+  // live ones would drag everything back to a date that's already gone — the
+  // live legs valued as of then, POP and the date slider meaningless. That's
+  // routine now that a saved strategy outlives its weekly expiry, so while any
+  // included leg is still live, expired ones are left out (and flagged below,
+  // not deleted). A strategy that's *entirely* expired is left alone: it's
+  // still shown at its settled value.
+  const dropsExpired = useMemo(
+    () => legs.some((l) => l.enabled && expiryCloseMs(l.expiry) > nowMs),
+    [legs, nowMs],
+  );
+  const isLeftOut = useCallback(
+    (l: Pick<DraftLeg, "expiry">) => dropsExpired && expiryCloseMs(l.expiry) <= nowMs,
+    [dropsExpired, nowMs],
+  );
+  const leftOutCount = legs.filter((l) => l.enabled && isLeftOut(l)).length;
+
   const strategyLegs: StrategyLeg[] = useMemo(
     () =>
       legs.map((l) => ({
         id: l.id,
-        enabled: l.enabled,
+        enabled: l.enabled && !isLeftOut(l),
         side: l.side,
         type: l.type,
         strike: l.strike,
@@ -506,7 +560,7 @@ export default function AnalysisView() {
         price: l.price.trim() === "" ? NaN : Number(l.price),
         chainIv: quoteFor(l).iv,
       })),
-    [legs, quoteFor],
+    [legs, quoteFor, isLeftOut],
   );
 
   const priced = useMemo(() => (spot ? priceLegs(strategyLegs, spot, nowMs, lotSize) : []), [strategyLegs, spot, nowMs, lotSize]);
@@ -616,7 +670,8 @@ export default function AnalysisView() {
         <h1 className="text-2xl font-semibold tracking-tight">Analysis</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Build any option strategy leg by leg and see its payoff on expiry and on any date before it — max profit/loss,
-          break-evens, probability of profit, Greeks and margin. Nothing here is saved or traded.
+          break-evens, probability of profit, Greeks and margin. Your strategy is saved on this device until you clear
+          it — nothing here is traded.
         </p>
       </div>
 
@@ -675,7 +730,8 @@ export default function AnalysisView() {
             {legs.length > 0 && (
               <button
                 type="button"
-                onClick={() => setLegs([])}
+                onClick={handleClearAll}
+                title="Remove every leg and start fresh — your strategy is otherwise kept until you do"
                 className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
               >
                 Clear All
@@ -702,7 +758,9 @@ export default function AnalysisView() {
         </div>
 
         {legs.length === 0 ? (
-          <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border p-8 text-center">
+          <div
+            className={`mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border p-8 text-center ${hydrated ? "" : "invisible"}`}
+          >
             <InboxIcon className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               No legs yet. Click Add Leg to pick contracts from the option chain, or use Import to bring in positions from Live Portfolio or Paper Trade.
@@ -726,7 +784,10 @@ export default function AnalysisView() {
             {legs.map((leg) => (
               <div
                 key={leg.id}
-                className={`flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 ${LEG_GRID} ${leg.enabled ? "" : "opacity-50"}`}
+                title={leg.enabled && isLeftOut(leg) ? "Expired — left out of the analysis while other legs are still live" : undefined}
+                className={`flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 ${LEG_GRID} ${
+                  leg.enabled && !isLeftOut(leg) ? "" : "opacity-50"
+                }`}
               >
                 <input
                   type="checkbox"
@@ -799,7 +860,13 @@ export default function AnalysisView() {
             ))}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-sm text-muted-foreground">
               <span>
-                Lot size {lotSize} · {legs.filter((l) => l.enabled).length} of {legs.length} legs included
+                Lot size {lotSize} · {legs.filter((l) => l.enabled).length - leftOutCount} of {legs.length} legs included
+                {leftOutCount > 0 && (
+                  <>
+                    {" "}
+                    · <span className="text-warning">{leftOutCount} expired, left out</span>
+                  </>
+                )}
               </span>
               <span>
                 Premium <span className={`font-mono font-semibold ${metrics ? pnlTone(metrics.netPremium) : ""}`}>{netPremiumText}</span>
@@ -925,10 +992,18 @@ export default function AnalysisView() {
                   </span>
                 </div>
 
-                <div className="mt-5 grid gap-5 lg:grid-cols-2">
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2 text-sm">
-                      <span>
+                {/*
+                  Side by side, the two columns share their rows (subgrid) instead of
+                  stacking independently: the target column's header holds a Stepper
+                  (~34px, and wraps when the column is narrow) while the date column's is
+                  a single line of text, so as separate stacks the two sliders sat at
+                  different heights. Sharing rows keeps header / slider / caption lined up
+                  whatever either side does.
+                */}
+                <div className="mt-5 grid gap-5 lg:grid-cols-2 lg:gap-y-0">
+                  <div className="lg:row-span-3 lg:grid lg:grid-rows-subgrid">
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="whitespace-nowrap">
                         <span className="text-muted-foreground">{INSTRUMENT_LABELS[instrument]} Target</span>{" "}
                         <button
                           type="button"
@@ -938,13 +1013,14 @@ export default function AnalysisView() {
                           Reset
                         </button>
                       </span>
-                      <span className="flex items-center gap-2">
+                      <span className="ml-auto flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">{pctText(((targetSpot - spot) / spot) * 100)}</span>
                         <Stepper
                           value={Math.round(targetSpot * 10) / 10}
                           step={step}
                           min={1}
-                          width="w-24"
+                          // Important: INPUT_CLASS's own w-full otherwise wins, which stretched this to 215px and forced the header to wrap.
+                          width="w-20!"
                           onChange={setTargetSpotInput}
                         />
                       </span>
@@ -961,9 +1037,9 @@ export default function AnalysisView() {
                     />
                   </div>
 
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2 text-sm">
-                      <span>
+                  <div className="lg:row-span-3 lg:grid lg:grid-rows-subgrid">
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="whitespace-nowrap">
                         <span className="text-muted-foreground">Date: {totalDays - day}D to expiry</span>{" "}
                         <button
                           type="button"
@@ -973,7 +1049,7 @@ export default function AnalysisView() {
                           Reset
                         </button>
                       </span>
-                      <span className="font-mono text-xs text-muted-foreground">{dateLabel(targetMs)}</span>
+                      <span className="ml-auto font-mono text-xs text-muted-foreground">{dateLabel(targetMs)}</span>
                     </div>
                     <input
                       type="range"
