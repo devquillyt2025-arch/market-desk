@@ -4,10 +4,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { InboxIcon, PlusIcon, RefreshIcon } from "@/components/icons";
+import { InboxIcon, ListIcon, PlusIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import LoadingState from "@/components/LoadingState";
+import OptionChainPicker from "@/components/OptionChainPicker";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
 import { formatINR, pnlColorClass } from "@/lib/format";
@@ -23,12 +24,19 @@ import {
   updatePaperTradeEntry,
   type AddTradeEntryInput,
 } from "@/lib/paperTradeEntriesStore";
+import { pickedLegToEntryInput, type PickedLeg } from "@/lib/strategyTransfer";
 import { showToast } from "@/lib/toast";
-import type { PaperTradeEntry, TradeEntrySide } from "@/lib/types";
+import type { Instrument, PaperTradeEntry, TradeEntrySide } from "@/lib/types";
 import { toLivePositionInfo } from "@/lib/calculatePortfolio";
 import { useLivePricing } from "@/lib/useLivePricing";
 
 const POLL_MS = 10000;
+
+function todayISODate(): string {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
@@ -58,6 +66,7 @@ type ModalState =
 export default function PaperTradeView() {
   const [entries, setEntries] = useState<PaperTradeEntry[] | null>(getCachedPaperTradeEntries);
   const [modalState, setModalState] = useState<ModalState>(null);
+  const [chainOpen, setChainOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PaperTradeEntry | null>(null);
 
   useEffect(() => {
@@ -145,6 +154,25 @@ export default function PaperTradeView() {
     setModalState(null);
   }
 
+  /** Contracts picked on the option-chain ladder become open positions, entered at today's date and the market price. */
+  async function handleChainPicked(inst: Instrument, picked: PickedLeg[]) {
+    setChainOpen(false);
+    const inputs = picked
+      .map((p) => pickedLegToEntryInput(inst, p, todayISODate()))
+      .filter((i): i is AddTradeEntryInput => i !== null);
+    if (inputs.length === 0) {
+      showToast("None of the picked contracts had a price yet — try again in a moment.");
+      return;
+    }
+    const results = await Promise.allSettled(inputs.map((input) => addPaperTradeEntry(input)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    const added = inputs.length - failed;
+    const unpriced = picked.length - inputs.length;
+    const skippedNote = unpriced > 0 ? ` ${unpriced} skipped — no price yet.` : "";
+    if (failed > 0) showToast(`Added ${added} of ${inputs.length} — ${failed} couldn't be saved. Try again.${skippedNote}`);
+    else showToast(`Added ${added} position${added === 1 ? "" : "s"} from the option chain.${skippedNote}`, "success");
+  }
+
   function handleModalDelete() {
     if (modalState?.mode !== "edit") return;
     setPendingDelete(modalState.entry);
@@ -179,14 +207,24 @@ export default function PaperTradeView() {
             touches real P&amp;L, Reports, or Payment.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setModalState({ mode: "add" })}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
-        >
-          <PlusIcon className="size-4" />
-          Add Paper Trade
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setChainOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <ListIcon className="size-4" />
+            Option Chain
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalState({ mode: "add" })}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+          >
+            <PlusIcon className="size-4" />
+            Add Paper Trade
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -304,6 +342,18 @@ export default function PaperTradeView() {
           </section>
         )}
       </div>
+
+      <AnimatePresence>
+        {chainOpen && (
+          <OptionChainPicker
+            key="chain"
+            initialInstrument="NIFTY"
+            doneLabel={(n) => `Add ${n} position${n === 1 ? "" : "s"}`}
+            onDone={handleChainPicked}
+            onClose={() => setChainOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {modalState && (

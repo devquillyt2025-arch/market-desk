@@ -21,3 +21,13 @@ export function formatPct(pct: number, decimals = 1): string {
   const sign = pct > 0 ? "+" : "";
   return `${sign}${pct.toFixed(decimals)}%`;
 }
+
+/** Compact Indian-style amount for tight spaces — 1.14L, 39.2K, 2.5Cr — without a currency symbol. */
+export function formatCompactINR(amount: number): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+  if (abs >= 1e7) return `${sign}${(abs / 1e7).toFixed(2)}Cr`;
+  if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(2)}L`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}${Math.round(abs)}`;
+}

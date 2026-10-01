@@ -231,6 +231,15 @@ export function BarChartIcon({ className }: IconProps) {
   );
 }
 
+export function LineChartIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M3 3v18h18" />
+      <path d="M7 15l4-5 3 3 5-7" />
+    </svg>
+  );
+}
+
 export function DownloadIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

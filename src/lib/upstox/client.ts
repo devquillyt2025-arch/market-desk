@@ -28,7 +28,13 @@ export async function fetchOptionChain(instrument: Instrument, expiry: string): 
 
 const MARGIN_BATCH_SIZE = 20; // Upstox's own per-request limit
 
-export type MarginFetchResult = { margins: UpstoxMarginLine[] } | { error: string };
+export type MarginFetchResult =
+  | {
+      margins: UpstoxMarginLine[];
+      /** Upstox's basket-level `final_margin` (hedge benefit applied), summed across chunks — null if any chunk omitted it. */
+      finalMargin: number | null;
+    }
+  | { error: string };
 
 /**
  * Fetches margin for every instrument, chunking into batches of 20 (Upstox's
@@ -39,6 +45,7 @@ export type MarginFetchResult = { margins: UpstoxMarginLine[] } | { error: strin
  */
 export async function fetchMargin(instruments: UpstoxMarginInstrumentRequest[]): Promise<MarginFetchResult> {
   const margins: UpstoxMarginLine[] = [];
+  let finalMargin: number | null = 0;
 
   for (let i = 0; i < instruments.length; i += MARGIN_BATCH_SIZE) {
     const batch = instruments.slice(i, i + MARGIN_BATCH_SIZE);
@@ -64,7 +71,24 @@ export async function fetchMargin(instruments: UpstoxMarginInstrumentRequest[]):
       return { error: "Margin response was missing the expected data." };
     }
     margins.push(...body.data.margins);
+    const chunkFinal = body.data.final_margin;
+    finalMargin = finalMargin !== null && typeof chunkFinal === "number" ? finalMargin + chunkFinal : null;
   }
 
-  return { margins };
+  return { margins, finalMargin };
+}
+
+export type ExpiriesFetchResult = { expiries: string[] } | { error: string };
+
+/** The expiry dates (yyyy-mm-dd, soonest first) Upstox lists for an index — feeds the option-chain picker's expiry dropdown. */
+export async function fetchExpiries(instrument: Instrument): Promise<ExpiriesFetchResult> {
+  try {
+    const res = await fetch(`/api/upstox/expiries?${new URLSearchParams({ instrument })}`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (!Array.isArray(body?.expiries)) return { error: "Expiry response was missing the expected data." };
+    return { expiries: body.expiries };
+  } catch {
+    return { error: "network_error" };
+  }
 }

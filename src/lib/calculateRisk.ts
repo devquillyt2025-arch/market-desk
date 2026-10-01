@@ -134,7 +134,7 @@ export type RiskAnalysis = {
 // --- Math -----------------------------------------------------------------
 
 /** Standard normal CDF, Abramowitz & Stegun 7.1.26 (|error| < 1.5e-7). */
-function normCdf(x: number): number {
+export function normCdf(x: number): number {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
   const d = 0.3989423 * Math.exp((-x * x) / 2);
   const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
@@ -142,7 +142,7 @@ function normCdf(x: number): number {
 }
 
 /** Upstox reports IV in percent (13.4); accept a decimal (0.134) too. */
-function normalizeIv(iv: number): number {
+export function normalizeIv(iv: number): number {
   return iv > 3 ? iv / 100 : iv;
 }
 
@@ -160,7 +160,7 @@ function probAbove(spot: number, x: number, sigma: number, t: number): number {
  * the price is at/below intrinsic — no time value to invert — or expiry has
  * passed.
  */
-function impliedVolFromPrice(spot: number, strike: number, t: number, price: number, isCall: boolean): number | null {
+export function impliedVolFromPrice(spot: number, strike: number, t: number, price: number, isCall: boolean): number | null {
   if (!(t > 0) || !(price > 0)) return null;
   const intrinsic = isCall ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0);
   if (price <= intrinsic + 1e-6) return null;

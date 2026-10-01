@@ -12,6 +12,7 @@ import {
   CalendarIcon,
   FlaskIcon,
   LinkIcon,
+  LineChartIcon,
   MenuIcon,
   NoteIcon,
   ReceiptIcon,
@@ -24,7 +25,7 @@ import {
 /**
  * Live Portfolio and Important Links come first — the two tabs checked most
  * often through the day — followed by the workflow tabs (Brokerage, Paper
- * Trade, Trade Entries, Reports, Payment). Notes and Logs are reference
+ * Trade, Analysis, Trade Entries, Reports, Payment). Notes and Logs are reference
  * utilities, so they sit in their own group after a divider (see
  * SECONDARY_GROUP_START) rather than interrupting the tabs above.
  */
@@ -33,6 +34,7 @@ const LINKS = [
   { href: "/links", label: "Important Links", icon: LinkIcon },
   { href: "/", label: "Brokerage", icon: ReceiptIcon },
   { href: "/paper-trade", label: "Paper Trade", icon: FlaskIcon },
+  { href: "/analysis", label: "Analysis", icon: LineChartIcon },
   { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: BarChartIcon },
   { href: "/payment", label: "Payment", icon: WalletIcon },
@@ -44,7 +46,7 @@ const LINKS = [
 const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
 
 /** Everything from this index on (Notes/Logs) renders as a visually separate "secondary" group when collapsed. */
-const SECONDARY_GROUP_START = 7;
+const SECONDARY_GROUP_START = 8;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 

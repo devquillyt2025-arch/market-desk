@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingState from "@/components/LoadingState";
-import { DownloadIcon, InboxIcon, PlusIcon, RefreshIcon, UploadIcon } from "@/components/icons";
+import { DownloadIcon, InboxIcon, ListIcon, PlusIcon, RefreshIcon, UploadIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
+import OptionChainPicker from "@/components/OptionChainPicker";
 import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
@@ -26,8 +27,9 @@ import {
   updateLivePortfolioEntry,
   type AddTradeEntryInput,
 } from "@/lib/livePortfolioEntriesStore";
+import { pickedLegToEntryInput, type PickedLeg } from "@/lib/strategyTransfer";
 import { showToast } from "@/lib/toast";
-import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, type Instrument, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
 import { useLivePricing } from "@/lib/useLivePricing";
 import { useMargin } from "@/lib/useMargin";
 
@@ -75,6 +77,7 @@ export default function PortfolioView() {
   const [modalState, setModalState] = useState<ModalState>(null);
   const [pendingDelete, setPendingDelete] = useState<LivePortfolioEntry | null>(null);
   const [importing, setImporting] = useState(false);
+  const [chainOpen, setChainOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -202,6 +205,25 @@ export default function PortfolioView() {
     setModalState(null);
   }
 
+  /** Contracts picked on the option-chain ladder become open positions, entered at today's date and the market price. */
+  async function handleChainPicked(inst: Instrument, picked: PickedLeg[]) {
+    setChainOpen(false);
+    const inputs = picked
+      .map((p) => pickedLegToEntryInput(inst, p, todayISODate()))
+      .filter((i): i is AddTradeEntryInput => i !== null);
+    if (inputs.length === 0) {
+      showToast("None of the picked contracts had a price yet — try again in a moment.");
+      return;
+    }
+    const results = await Promise.allSettled(inputs.map((input) => addLivePortfolioEntry(input)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    const added = inputs.length - failed;
+    const unpriced = picked.length - inputs.length;
+    const skippedNote = unpriced > 0 ? ` ${unpriced} skipped — no price yet.` : "";
+    if (failed > 0) showToast(`Added ${added} of ${inputs.length} — ${failed} couldn't be saved. Try again.${skippedNote}`);
+    else showToast(`Added ${added} position${added === 1 ? "" : "s"} from the option chain.${skippedNote}`, "success");
+  }
+
   function handleModalDelete() {
     if (modalState?.mode !== "edit") return;
     setPendingDelete(modalState.entry);
@@ -310,6 +332,14 @@ export default function PortfolioView() {
           </button>
           <button
             type="button"
+            onClick={() => setChainOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <ListIcon className="size-4" />
+            Option Chain
+          </button>
+          <button
+            type="button"
             onClick={() => setModalState({ mode: "add" })}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
@@ -393,6 +423,18 @@ export default function PortfolioView() {
           paused={riskPaused}
         />
       )}
+
+      <AnimatePresence>
+        {chainOpen && (
+          <OptionChainPicker
+            key="chain"
+            initialInstrument="NIFTY"
+            doneLabel={(n) => `Add ${n} position${n === 1 ? "" : "s"}`}
+            onDone={handleChainPicked}
+            onClose={() => setChainOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {modalState && (
