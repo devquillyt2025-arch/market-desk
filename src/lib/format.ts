@@ -9,6 +9,13 @@ export function formatINR(amount: number): string {
   return inr.format(Math.round(amount));
 }
 
+const level = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** An index level or a point move to the paisa with Indian digit grouping, e.g. 22,421.95 or -198.50. */
+export function formatLevel(value: number): string {
+  return level.format(value);
+}
+
 /** Text color token for a P&L figure — green above zero, red below, neutral at zero. */
 export function pnlColorClass(pnl: number): string {
   if (pnl > 0) return "text-profit";

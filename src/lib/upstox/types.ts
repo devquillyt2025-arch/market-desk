@@ -10,6 +10,8 @@
  * throwing.
  */
 
+import type { Instrument } from "@/lib/types";
+
 export type UpstoxOptionGreeks = {
   delta?: number;
   gamma?: number;
@@ -92,6 +94,38 @@ export type UpstoxMarginSuccess = {
     final_margin: number;
   };
 };
+
+/**
+ * What this app's own /api/upstox/heatmap route returns — already reduced
+ * from Upstox's `GET /v3/market-quote/ltp` (`last_price` + `cp`, the
+ * previous close) and, for ranges longer than a day, its daily history, so
+ * unlike the types above it isn't Upstox's own shape.
+ */
+export type HeatmapQuote = {
+  /** NSE trading symbol, matching HeatmapStock.symbol. */
+  symbol: string;
+  price: number;
+  /** Percent move over the requested range — null when there's nothing to compare against (e.g. not listed that far back). */
+  changePct: number | null;
+};
+
+/** One of the three headline indices, measured over the same range as the tiles. */
+export type IndexQuote = {
+  instrument: Instrument;
+  /** The index level. */
+  price: number;
+  /** Points moved over the range; null whenever `changePct` is. */
+  change: number | null;
+  changePct: number | null;
+};
+
+export type UpstoxHeatmapSuccess = { quotes: HeatmapQuote[]; indices: IndexQuote[] };
+export type UpstoxHeatmapError = { error: string; detail?: string };
+export type UpstoxHeatmapResult = UpstoxHeatmapSuccess | UpstoxHeatmapError;
+
+export function isUpstoxHeatmapError(result: UpstoxHeatmapResult): result is UpstoxHeatmapError {
+  return "error" in result;
+}
 
 export type UpstoxMarginError = { error: string; detail?: string };
 export type UpstoxMarginResult = UpstoxMarginSuccess | UpstoxMarginError;

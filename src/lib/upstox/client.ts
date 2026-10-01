@@ -4,10 +4,13 @@
  * (instrument, expiry) group; Live Portfolio is the only caller today.
  */
 
+import type { HeatmapRange } from "@/lib/heatmap/ranges";
 import type { Instrument } from "@/lib/types";
 import {
+  isUpstoxHeatmapError,
   isUpstoxMarginError,
   isUpstoxOptionChainError,
+  type UpstoxHeatmapResult,
   type UpstoxMarginInstrumentRequest,
   type UpstoxMarginLine,
   type UpstoxOptionChainResult,
@@ -21,6 +24,21 @@ export async function fetchOptionChain(instrument: Instrument, expiry: string): 
   if (!res.ok && !isUpstoxOptionChainError(body)) {
     // Defensive fallback — the route always returns { error } on a non-ok
     // status, but don't let a malformed response masquerade as chain data.
+    return { error: `Request failed with status ${res.status}` };
+  }
+  return body;
+}
+
+/**
+ * Price + percent change over `range` for every constituent of an index, plus
+ * the three headline index levels — feeds the Heatmap tab. `index` NIFTY means Nifty 50.
+ */
+export async function fetchHeatmap(index: Instrument, range: HeatmapRange): Promise<UpstoxHeatmapResult> {
+  const res = await fetch(`/api/upstox/heatmap?${new URLSearchParams({ index, range })}`, { cache: "no-store" });
+  const body: UpstoxHeatmapResult = await res.json();
+
+  if (!res.ok && !isUpstoxHeatmapError(body)) {
+    // Same defensive fallback as fetchOptionChain.
     return { error: `Request failed with status ${res.status}` };
   }
   return body;
