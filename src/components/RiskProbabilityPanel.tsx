@@ -170,6 +170,9 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
   const critical = analysis.warnings.filter((w) => w.severity === "critical").length;
   const warning = analysis.warnings.filter((w) => w.severity === "warning").length;
   const riskPerReward = analysis.rewardToRisk && analysis.rewardToRisk > 0 ? 1 / analysis.rewardToRisk : null;
+  // pnlPer1PctMove is delta-only, so a 1% fall is its exact mirror. `|| 0` keeps a flat book from showing "-₹0".
+  const pnlIfRise = analysis.pnlPer1PctMove;
+  const pnlIfFall = -analysis.pnlPer1PctMove || 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -209,7 +212,7 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
         </div>
       )}
 
-      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Tile
           label="Probability of Profit"
           value={formatPop(analysis.pop)}
@@ -264,10 +267,16 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
           hint={analysis.netThetaPerDay >= 0 ? "Time decay is paying you" : "Time decay is costing you"}
         />
         <Tile
-          label="1% Market Move"
-          value={formatINR(analysis.pnlPer1PctMove)}
-          valueClass={pnlColorClass(analysis.pnlPer1PctMove)}
+          label="Market +1%"
+          value={formatINR(pnlIfRise)}
+          valueClass={pnlColorClass(pnlIfRise)}
           hint="P&L change if the index rises 1%"
+        />
+        <Tile
+          label="Market −1%"
+          value={formatINR(pnlIfFall)}
+          valueClass={pnlColorClass(pnlIfFall)}
+          hint="P&L change if the index falls 1%"
         />
       </dl>
 
