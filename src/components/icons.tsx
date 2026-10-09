@@ -322,6 +322,15 @@ export function FlaskIcon({ className }: IconProps) {
   );
 }
 
+export function LockIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
 export function EyeIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

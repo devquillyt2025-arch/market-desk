@@ -41,6 +41,13 @@ npm install && npm run dev
 
 Then open http://localhost:3000 — no environment variables or database needed.
 
+### PIN lock
+
+Every page asks for a PIN first (default `2026`; set `APP_PIN` to change it,
+which signs every browser out). The unlock lasts 30 days, and the lock icon at
+the bottom of the sidebar locks it again. Sessions are signed with
+`SUPABASE_SERVICE_ROLE_KEY`, so that must be set for the PIN to be accepted.
+
 ### Optional: wiring up Supabase
 
 A schema is included under `supabase/migrations/` for if/when this needs real

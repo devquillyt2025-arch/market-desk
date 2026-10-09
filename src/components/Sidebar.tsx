@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { lock } from "@/app/lock/actions";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
   ActivityIcon,
@@ -14,6 +15,7 @@ import {
   GridIcon,
   LinkIcon,
   LineChartIcon,
+  LockIcon,
   MenuIcon,
   NoteIcon,
   ReceiptIcon,
@@ -187,6 +189,9 @@ export default function Sidebar() {
     });
   }
 
+  // The PIN screen stands alone — no nav to wander into while locked.
+  if (pathname === "/lock") return null;
+
   return (
     <>
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/80 px-4 py-3 backdrop-blur lg:hidden">
@@ -315,6 +320,16 @@ export default function Sidebar() {
               />
             </div>
             <ThemeToggle />
+            <form action={lock}>
+              <button
+                type="submit"
+                aria-label="Lock MarketDesk"
+                title="Lock"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <LockIcon className="size-[18px]" />
+              </button>
+            </form>
           </div>
         </div>
       </aside>
