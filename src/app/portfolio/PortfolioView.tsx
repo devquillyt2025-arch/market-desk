@@ -13,7 +13,7 @@ import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
-import { formatINR, pnlColorClass } from "@/lib/format";
+import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
   addLivePortfolioEntry,
   calculateEntryPnl,
@@ -99,7 +99,7 @@ export default function PortfolioView() {
     [entries],
   );
 
-  const { rows, tokenExpired, offline, lastPolledAt, manualRefreshing, groupCount, handleManualRefresh } =
+  const { rows, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, groupCount, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
   const { totalMargin } = useMargin(rows);
 
@@ -119,30 +119,34 @@ export default function PortfolioView() {
     return { value, unrealizedPnl };
   }, [rows]);
 
-  // Keyed to the poll timestamp (not Date.now()) so "now" is stable between
-  // renders and the analysis only recomputes when fresh prices arrive.
+  // The moment the figures being analysed are from: the poll timestamp (not
+  // Date.now()) so "now" is stable between renders and the analysis only
+  // recomputes when fresh prices arrive — or, while rows are showing
+  // last-known prices through an outage, when those prices were fetched, so
+  // time-to-expiry stays consistent with the spot and premiums it's paired with.
+  const riskAsOf = stalePricesAsOf ?? lastPolledAt;
   const riskAnalysis = useMemo(
     () =>
-      rows && lastPolledAt
+      rows && riskAsOf
         ? analyzeRisk(rows, {
-            now: new Date(lastPolledAt),
+            now: new Date(riskAsOf),
             totalMargin,
             unrealizedPnl: portfolioStats?.unrealizedPnl ?? 0,
           })
         : null,
-    [rows, lastPolledAt, totalMargin, portfolioStats],
+    [rows, riskAsOf, totalMargin, portfolioStats],
   );
 
-  // A failed poll (token expired, connection dropped) turns every row into an
-  // error, which leaves nothing to analyse. Rather than blank the panel, hold
-  // the last good read and flag it as paused. Updated during render (React's
-  // "adjust state when a prop changes" pattern) instead of in an effect, so
-  // the held copy never lags a render behind.
+  // A failed poll with no last-known prices to fall back on turns every row
+  // into an error, which leaves nothing to analyse. Rather than blank the
+  // panel, hold the last good read and flag it as paused. Updated during
+  // render (React's "adjust state when a prop changes" pattern) instead of in
+  // an effect, so the held copy never lags a render behind.
   const [heldRisk, setHeldRisk] = useState<{ analysis: NonNullable<typeof riskAnalysis>; at: number } | null>(null);
-  if (riskAnalysis && lastPolledAt && heldRisk?.analysis !== riskAnalysis) {
-    setHeldRisk({ analysis: riskAnalysis, at: lastPolledAt });
+  if (riskAnalysis && riskAsOf && heldRisk?.analysis !== riskAnalysis) {
+    setHeldRisk({ analysis: riskAnalysis, at: riskAsOf });
   }
-  const riskPaused = riskAnalysis === null && heldRisk !== null;
+  const riskPaused = (riskAnalysis === null && heldRisk !== null) || stalePricesAsOf !== null;
 
   // The popup's live figures come from the latest poll on every render — not
   // a copy taken when the row was clicked — so they keep matching the row
@@ -376,10 +380,18 @@ export default function PortfolioView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Open Positions</h2>
           <div className="flex items-center gap-2">
-            {lastPolledAt && !tokenExpired && !offline && (
-              <span className="whitespace-nowrap text-xs text-muted-foreground">
-                Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+            {stalePricesAsOf !== null ? (
+              <span className="whitespace-nowrap text-xs font-medium text-warning">
+                Last prices {formatAsOf(stalePricesAsOf)}
               </span>
+            ) : (
+              lastPolledAt &&
+              !tokenExpired &&
+              !offline && (
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                  Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+                </span>
+              )
             )}
             {groupCount > 0 && (
               <button
@@ -396,7 +408,7 @@ export default function PortfolioView() {
           </div>
         </div>
 
-        <LivePricingBanners tokenExpired={tokenExpired} offline={offline} />
+        <LivePricingBanners tokenExpired={tokenExpired} offline={offline} lastPricesAt={stalePricesAsOf} />
 
         {rows === null ? (
           <LoadingState className="h-40" label="Loading open positions…" />
@@ -419,7 +431,7 @@ export default function PortfolioView() {
       {rows && rows.some((r) => r.status !== "untracked") && (
         <RiskProbabilityPanel
           analysis={riskAnalysis ?? heldRisk?.analysis ?? null}
-          asOf={riskAnalysis ? lastPolledAt : (heldRisk?.at ?? null)}
+          asOf={riskAnalysis ? riskAsOf : (heldRisk?.at ?? null)}
           paused={riskPaused}
         />
       )}

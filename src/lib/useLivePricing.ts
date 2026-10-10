@@ -13,8 +13,11 @@ import {
   computePortfolioRow,
   isTrackableEntry,
   portfolioGroupKey,
+  toLegSnapshot,
+  type LegSnapshots,
   type PortfolioRow,
 } from "@/lib/calculatePortfolio";
+import { loadLegSnapshots, saveLegSnapshots } from "@/lib/lastKnownPrices";
 import { showToast } from "@/lib/toast";
 import type { TradeEntry } from "@/lib/types";
 import { fetchOptionChain } from "@/lib/upstox/client";
@@ -27,6 +30,12 @@ export type LivePricingState = {
   tokenExpired: boolean;
   offline: boolean;
   lastPolledAt: number | null;
+  /**
+   * When the oldest price still on screen was fetched, if any row is showing a
+   * last-known price instead of a current one (token expired / offline) — null
+   * while everything is live.
+   */
+  stalePricesAsOf: number | null;
   manualRefreshing: boolean;
   /** Number of distinct instrument+expiry groups being polled — 0 means the refresh button has nothing to do. */
   groupCount: number;
@@ -40,6 +49,15 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
   const [offline, setOffline] = useState(false);
   const [lastPolledAt, setLastPolledAt] = useState<number | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  // The last good price per contract. The ref is the source of truth (read
+  // from localStorage on the first poll, written after every good one); the
+  // state only mirrors it so a render sees it. Used solely when a poll fails
+  // for an outage reason — see computePortfolioRow.
+  const [lastKnown, setLastKnown] = useState<LegSnapshots>({});
+  const lastKnownRef = useRef<LegSnapshots | null>(null);
+  // The poll loop's closure is only recreated when `groupKeysDep` changes, so
+  // it reads the current entries (needed to snapshot per contract) from here.
+  const entriesRef = useRef<TradeEntry[] | null>(null);
   // Mirrors `tokenExpired` for the poll loop to read synchronously — the
   // loop's own closure is only recreated when `groupKeysDep` changes, so it
   // would otherwise see a stale value across ticks within that window.
@@ -61,6 +79,10 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
     return [...set].sort();
   }, [openEntries]);
   const groupKeysDep = groupKeys.join(",");
+
+  useEffect(() => {
+    entriesRef.current = openEntries;
+  }, [openEntries]);
 
   useEffect(() => {
     if (groupKeys.length === 0) return;
@@ -101,8 +123,24 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
           if (data.error === "network_error") anyNetworkError = true;
         }
       }
+      const polledAt = Date.now();
+
+      // Remember every contract that priced this time, so a later outage (the
+      // token lapsing overnight, a dropped connection) can still show it.
+      lastKnownRef.current ??= loadLegSnapshots();
+      const fresh: LegSnapshots = {};
+      for (const entry of entriesRef.current ?? []) {
+        const snapshot = toLegSnapshot(computePortfolioRow(entry, next), polledAt);
+        if (snapshot) fresh[snapshot.key] = snapshot.snapshot;
+      }
+      if (Object.keys(fresh).length > 0) {
+        lastKnownRef.current = { ...lastKnownRef.current, ...fresh };
+        saveLegSnapshots(lastKnownRef.current);
+      }
+
       setChainsByGroup(next);
-      setLastPolledAt(Date.now());
+      setLastKnown(lastKnownRef.current);
+      setLastPolledAt(polledAt);
 
       if (anyTokenExpired && !tokenExpiredRef.current) {
         // No showToast here — LivePricingBanners already renders this
@@ -151,15 +189,24 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
   }
 
   const rows: PortfolioRow[] | null = useMemo(
-    () => (openEntries ? openEntries.map((entry) => computePortfolioRow(entry, chainsByGroup)) : null),
-    [openEntries, chainsByGroup],
+    () => (openEntries ? openEntries.map((entry) => computePortfolioRow(entry, chainsByGroup, lastKnown)) : null),
+    [openEntries, chainsByGroup, lastKnown],
   );
+
+  const stalePricesAsOf = useMemo(() => {
+    let oldest: number | null = null;
+    for (const row of rows ?? []) {
+      if (row.stale && row.asOf != null && (oldest === null || row.asOf < oldest)) oldest = row.asOf;
+    }
+    return oldest;
+  }, [rows]);
 
   return {
     rows,
     tokenExpired,
     offline,
     lastPolledAt,
+    stalePricesAsOf,
     manualRefreshing,
     groupCount: groupKeys.length,
     handleManualRefresh,

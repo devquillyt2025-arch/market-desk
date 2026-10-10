@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import LoadingState from "@/components/LoadingState";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import { AlertCircleIcon, RefreshIcon } from "@/components/icons";
-import { formatLevel, formatPct } from "@/lib/format";
+import { formatAsOf, formatLevel, formatPct } from "@/lib/format";
 import { HEATMAP_TABS, getHeatmapStocks, type HeatmapStock } from "@/lib/heatmap/constituents";
 import {
   DEFAULT_HEATMAP_RANGE,
@@ -175,6 +175,8 @@ export default function HeatmapView() {
   const { quotes, indices, tokenExpired, offline, loadError, lastPolledAt, manualRefreshing, handleManualRefresh } =
     useHeatmap(index, range, HEATMAP_POLL_MS);
   const band = RANGE_BANDS[range];
+  // Polling is failing but there are still prices on screen — they're the last ones seen, not current.
+  const pricesAreLast = tokenExpired || offline || loadError !== null;
 
   // Biggest gainers first, biggest losers last — the reading order the grid
   // is built around. A stock with no comparison price (e.g. not listed that
@@ -209,11 +211,16 @@ export default function HeatmapView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {lastPolledAt && !tokenExpired && !offline && (
-            <span className="whitespace-nowrap text-xs text-muted-foreground">
-              Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
-            </span>
-          )}
+          {lastPolledAt &&
+            (pricesAreLast ? (
+              <span className="whitespace-nowrap text-xs font-medium text-warning">
+                Last prices {formatAsOf(lastPolledAt)}
+              </span>
+            ) : (
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+              </span>
+            ))}
           <button
             type="button"
             onClick={handleManualRefresh}
@@ -239,7 +246,7 @@ export default function HeatmapView() {
         ))}
       </div>
 
-      <LivePricingBanners tokenExpired={tokenExpired} offline={offline} />
+      <LivePricingBanners tokenExpired={tokenExpired} offline={offline} lastPricesAt={lastPolledAt} />
 
       {loadError && !tokenExpired && !offline && (
         <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">

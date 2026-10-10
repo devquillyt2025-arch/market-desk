@@ -11,7 +11,7 @@ import LoadingState from "@/components/LoadingState";
 import OptionChainPicker from "@/components/OptionChainPicker";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { computeBalanceSheetRows, type BalanceSheetRow } from "@/lib/calculateBalanceSheet";
-import { formatINR, pnlColorClass } from "@/lib/format";
+import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
   addPaperTradeEntry,
   calculateEntryPnl,
@@ -90,7 +90,7 @@ export default function PaperTradeView() {
     [entries],
   );
 
-  const { rows, tokenExpired, offline, lastPolledAt, manualRefreshing, groupCount, handleManualRefresh } =
+  const { rows, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, groupCount, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
 
   // The popup's live figures come from the latest poll on every render — not
@@ -231,10 +231,18 @@ export default function PaperTradeView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Open Positions</h2>
           <div className="flex items-center gap-2">
-            {lastPolledAt && !tokenExpired && !offline && (
-              <span className="whitespace-nowrap text-xs text-muted-foreground">
-                Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+            {stalePricesAsOf !== null ? (
+              <span className="whitespace-nowrap text-xs font-medium text-warning">
+                Last prices {formatAsOf(stalePricesAsOf)}
               </span>
+            ) : (
+              lastPolledAt &&
+              !tokenExpired &&
+              !offline && (
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                  Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+                </span>
+              )
             )}
             {groupCount > 0 && (
               <button
@@ -251,7 +259,7 @@ export default function PaperTradeView() {
           </div>
         </div>
 
-        <LivePricingBanners tokenExpired={tokenExpired} offline={offline} />
+        <LivePricingBanners tokenExpired={tokenExpired} offline={offline} lastPricesAt={stalePricesAsOf} />
 
         {rows === null ? (
           <LoadingState className="h-32" label="Loading open positions…" />

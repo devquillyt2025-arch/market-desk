@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { HeatmapRange } from "@/lib/heatmap/ranges";
+import { loadHeatmap, saveHeatmap, type StoredHeatmap } from "@/lib/lastKnownPrices";
 import { showToast } from "@/lib/toast";
 import type { Instrument } from "@/lib/types";
 import { fetchHeatmap } from "@/lib/upstox/client";
@@ -29,13 +30,17 @@ export type HeatmapState = {
   offline: boolean;
   /** A failure that's neither of the above (e.g. Upstox returned a 5xx) — the message to show. */
   loadError: string | null;
-  /** When the active index + range last loaded successfully — null until it has. */
+  /**
+   * When the active index + range last loaded successfully — null until it has.
+   * While polling is failing this is the age of the prices still on screen,
+   * which may come from an earlier session (they're kept on this device).
+   */
   lastPolledAt: number | null;
   manualRefreshing: boolean;
   handleManualRefresh: () => Promise<void>;
 };
 
-type Payload = { quotes: HeatmapQuote[]; indices: IndexQuote[]; /** When this index + range last loaded successfully. */ at: number };
+type Payload = StoredHeatmap;
 
 export function useHeatmap(index: Instrument, range: HeatmapRange, pollMs = HEATMAP_POLL_MS): HeatmapState {
   const [payloadByKey, setPayloadByKey] = useState<Record<string, Payload | undefined>>({});
@@ -87,6 +92,13 @@ export function useHeatmap(index: Instrument, range: HeatmapRange, pollMs = HEAT
       appliedSeq = seq;
 
       if (isUpstoxHeatmapError(result)) {
+        // Nothing in memory for this index + range yet (a fresh page load —
+        // e.g. the morning after the daily token lapsed): fall back to the
+        // last result saved on this device, so there are still prices to show.
+        // Only on a failure, so a normal load never flashes yesterday's numbers.
+        const saved = loadHeatmap(key);
+        if (saved) setPayloadByKey((prev) => (prev[key] ? prev : { ...prev, [key]: saved }));
+
         if (result.error === "token_expired") {
           // No toast — LivePricingBanners already renders this persistently.
           tokenExpiredRef.current = true;
@@ -105,8 +117,9 @@ export function useHeatmap(index: Instrument, range: HeatmapRange, pollMs = HEAT
         return;
       }
 
-      const at = Date.now();
-      setPayloadByKey((prev) => ({ ...prev, [key]: { quotes: result.quotes, indices: result.indices, at } }));
+      const payload: Payload = { quotes: result.quotes, indices: result.indices, at: Date.now() };
+      saveHeatmap(key, payload);
+      setPayloadByKey((prev) => ({ ...prev, [key]: payload }));
       setOffline(false);
       setLoadError(null);
       if (tokenExpiredRef.current) {

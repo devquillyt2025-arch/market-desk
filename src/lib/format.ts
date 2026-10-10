@@ -16,6 +16,17 @@ export function formatLevel(value: number): string {
   return level.format(value);
 }
 
+/**
+ * When a last-known price was fetched: just the time for today ("3:29:41 pm"),
+ * with the date for any earlier day ("9 Oct, 3:29 pm") — the daily Upstox token
+ * lapses overnight, so the last price on screen is often yesterday's.
+ */
+export function formatAsOf(ms: number, now: number = Date.now()): string {
+  const at = new Date(ms);
+  if (at.toDateString() === new Date(now).toDateString()) return at.toLocaleTimeString("en-IN");
+  return at.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
 /** Text color token for a P&L figure — green above zero, red below, neutral at zero. */
 export function pnlColorClass(pnl: number): string {
   if (pnl > 0) return "text-profit";

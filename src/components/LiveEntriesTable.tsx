@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import DatePicker from "@/components/DatePicker";
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
-import { formatINR, pnlColorClass } from "@/lib/format";
+import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract, type TradeEntrySide } from "@/lib/tradeEntriesStore";
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
@@ -152,13 +152,18 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                       </td>
                     ) : (
                       <>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
+                        {/* A last-known price (token expired / offline) stays readable but dimmed, with its time on hover — the banner above explains why. */}
+                        <td
+                          title={row.stale && row.asOf != null ? `Last price, as of ${formatAsOf(row.asOf)}` : undefined}
+                          className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${row.stale ? "opacity-60" : ""}`}
+                        >
                           {row.liveLtp == null ? "—" : row.liveLtp.toFixed(2)}
                         </td>
                         <td
+                          title={row.stale && row.asOf != null ? `Last P&L, as of ${formatAsOf(row.asOf)}` : undefined}
                           className={`whitespace-nowrap px-2 py-2.5 text-right font-mono font-medium tabular-nums ${
                             row.livePnl == null ? "text-muted-foreground" : pnlColorClass(row.livePnl)
-                          }`}
+                          } ${row.stale ? "opacity-60" : ""}`}
                         >
                           {row.livePnl == null ? "—" : formatINR(row.livePnl)}
                         </td>

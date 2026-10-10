@@ -7,7 +7,7 @@ import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
 import Select from "@/components/Select";
 import type { LivePositionInfo } from "@/lib/calculatePortfolio";
-import { formatINR, pnlColorClass } from "@/lib/format";
+import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
 import {
   calculateEntryPnl,
@@ -392,8 +392,11 @@ export default function TradeEntryModal({
           {live && (
             <div className="rounded-lg border border-border bg-bg-surface-alt p-3">
               <div className="flex items-center gap-2">
-                <p className={labelClass}>Live</p>
-                <span className="size-1.5 animate-pulse rounded-full bg-profit" aria-hidden="true" />
+                <p className={labelClass}>{live.asOf != null ? `Last price · ${formatAsOf(live.asOf)}` : "Live"}</p>
+                <span
+                  className={`size-1.5 rounded-full ${live.asOf != null ? "bg-warning" : "animate-pulse bg-profit"}`}
+                  aria-hidden="true"
+                />
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3">
                 <div>

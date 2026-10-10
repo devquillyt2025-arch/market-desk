@@ -28,6 +28,7 @@ import {
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
 import { formatCompactINR, formatINR } from "@/lib/format";
+import { loadLastSpots, saveLastSpot, type StoredSpot } from "@/lib/lastKnownPrices";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
 import {
   buildStrategyExport,
@@ -244,7 +245,9 @@ export default function AnalysisView() {
   const [importSource, setImportSource] = useState<ImportSource | null>(null);
   const [chainOpen, setChainOpen] = useState(false);
   // Spot from the most recent chain load — not derived from the cache, whose entry order says nothing about freshness.
-  const [liveSpot, setLiveSpot] = useState<{ instrument: Instrument; value: number } | null>(null);
+  const [liveSpot, setLiveSpot] = useState<({ instrument: Instrument } & StoredSpot) | null>(null);
+  // The last spot saved on this device per index — only used when a chain load fails with no spot seen yet this session.
+  const [storedSpots, setStoredSpots] = useState<Partial<Record<Instrument, StoredSpot>>>({});
   // Gates both the save effect and the first chain load below until *after*
   // the saved strategy has been restored — otherwise the save effect would
   // fire first, on the still-empty default state, and overwrite the very
@@ -279,6 +282,7 @@ export default function AnalysisView() {
       setSpotOverride(saved.spotOverride);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
+    setStoredSpots(loadLastSpots());
     setHydrated(true);
   }, []);
 
@@ -337,7 +341,11 @@ export default function AnalysisView() {
       const freshSpot = Object.values(loaded)
         .flat()
         .find((r) => (r.underlying_spot_price ?? 0) > 0)?.underlying_spot_price;
-      if (freshSpot) setLiveSpot({ instrument: inst, value: freshSpot });
+      if (freshSpot) {
+        const spotNow = { value: freshSpot, at: Date.now() };
+        setLiveSpot({ instrument: inst, ...spotNow });
+        saveLastSpot(inst, spotNow);
+      }
       setChains((prev) => ({ ...prev, ...loaded }));
       tokenExpiredRef.current = status === "token_expired";
       setChainStatus(status);
@@ -373,7 +381,13 @@ export default function AnalysisView() {
     }
   }
 
-  const chainSpot = liveSpot?.instrument === instrument ? liveSpot.value : null;
+  // Once the chain can't be reached (token expired / offline) the spot on screen is the last one seen — this
+  // session's if there is one, else the one saved on this device (e.g. the token lapsed overnight).
+  const chainsDown = chainStatus === "token_expired" || chainStatus === "offline";
+  const lastSeenSpot =
+    liveSpot?.instrument === instrument ? liveSpot : chainsDown ? (storedSpots[instrument] ?? null) : null;
+  const chainSpot = lastSeenSpot?.value ?? null;
+  const spotIsLast = chainsDown && lastSeenSpot !== null;
 
   const overrideNum = Number(spotOverride);
   const spot = overrideNum > 0 ? overrideNum : chainSpot;
@@ -675,7 +689,11 @@ export default function AnalysisView() {
         </p>
       </div>
 
-      <LivePricingBanners tokenExpired={chainStatus === "token_expired"} offline={chainStatus === "offline"} />
+      <LivePricingBanners
+        tokenExpired={chainStatus === "token_expired"}
+        offline={chainStatus === "offline"}
+        lastPricesAt={spotIsLast ? lastSeenSpot.at : null}
+      />
 
       {/* Strategy builder */}
       <section className="rounded-xl border border-border bg-background p-4">
@@ -687,7 +705,7 @@ export default function AnalysisView() {
             </div>
             <div className="w-36">
               <label htmlFor="spot" className="mb-1 block text-xs text-muted-foreground">
-                Spot {overrideNum > 0 ? "(manual)" : chainSpot ? "(live)" : ""}
+                Spot {overrideNum > 0 ? "(manual)" : chainSpot ? (spotIsLast ? "(last)" : "(live)") : ""}
               </label>
               <input
                 id="spot"

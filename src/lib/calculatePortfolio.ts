@@ -73,10 +73,64 @@ export type PortfolioRow = {
   nearbyIv: number | null;
   /** Total round-trip brokerage (the entry order already placed + a hypothetical exit at liveLtp right now). */
   brokerageIfClosed: number | null;
+  /** True when the figures here are the last ones seen before live pricing dropped (token expired / offline), not current. */
+  stale: boolean;
+  /** When a stale row's prices were fetched — null for a current row. */
+  asOf: number | null;
 };
+
+type GreeksAndOi = Pick<
+  PortfolioRow,
+  "delta" | "gamma" | "theta" | "vega" | "oi" | "iv" | "volume" | "underlyingSpot" | "nearbyIv"
+>;
+
+/** Everything a priced row needs from the market, kept between polls (and page loads) so an outage can still show it. */
+export type LegSnapshot = GreeksAndOi & {
+  /** When these figures were fetched, in ms since the epoch. */
+  at: number;
+  ltp: number;
+  instrumentKey: string | null;
+};
+
+/** Last good snapshot per contract, keyed by legSnapshotKey. */
+export type LegSnapshots = Record<string, LegSnapshot>;
+
+/** One contract — the same strike can sit in several open positions, and they all share one last price. */
+export function legSnapshotKey(entry: TrackableEntry): string {
+  return `${entry.instrument}|${entry.expiry_date}|${entry.strike_price}|${entry.option_type}`;
+}
+
+/** Null unless the row holds a current (not already stale) live price. */
+export function toLegSnapshot(row: PortfolioRow, at: number): { key: string; snapshot: LegSnapshot } | null {
+  if (row.status !== "ok" || row.stale || row.liveLtp == null || !isTrackableEntry(row.entry)) return null;
+  return {
+    key: legSnapshotKey(row.entry),
+    snapshot: {
+      at,
+      ltp: row.liveLtp,
+      instrumentKey: row.instrumentKey,
+      delta: row.delta,
+      gamma: row.gamma,
+      theta: row.theta,
+      vega: row.vega,
+      oi: row.oi,
+      iv: row.iv,
+      volume: row.volume,
+      underlyingSpot: row.underlyingSpot,
+      nearbyIv: row.nearbyIv,
+    },
+  };
+}
+
+/** Failures that say nothing about the market itself — worth showing the last known price through. */
+function isOutage(error: string): boolean {
+  return error === "token_expired" || error === "network_error";
+}
 
 /** What the edit popup shows for an open, live-priced position — the same numbers the table row shows. */
 export type LivePositionInfo = {
+  /** When these figures are from, if they're the last ones seen rather than current — null while live. */
+  asOf: number | null;
   ltp: number | null;
   pnl: number | null;
   brokerageIfClosed: number | null;
@@ -91,6 +145,7 @@ export type LivePositionInfo = {
 export function toLivePositionInfo(row: PortfolioRow | undefined): LivePositionInfo | undefined {
   if (!row || row.status !== "ok") return undefined;
   return {
+    asOf: row.stale ? row.asOf : null,
     ltp: row.liveLtp,
     pnl: row.livePnl,
     brokerageIfClosed: row.brokerageIfClosed,
@@ -159,11 +214,48 @@ const EMPTY_LIVE_FIELDS = {
   underlyingSpot: null,
   nearbyIv: null,
   brokerageIfClosed: null,
+  stale: false,
+  asOf: null,
 } as const;
 
+/** A row with a live price — either fresh from a chain or the last snapshot standing in for one. */
+function pricedRow(
+  entry: TrackableEntry,
+  entryPrice: number,
+  liveLtp: number,
+  instrumentKey: string | null,
+  greeksAndOi: GreeksAndOi,
+  freshness: { stale: boolean; asOf: number | null },
+): PortfolioRow {
+  const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
+  const livePnl = calculateEntryPnl({ instrument: entry.instrument, lots: entry.lots, buyPrice, sellPrice });
+  const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
+  const brokerageIfClosed = calculateBrokerage("OPTIONS", [{ buyPrice, sellPrice }], qty).totalCharges;
+
+  return {
+    entry,
+    entryPrice,
+    status: "ok",
+    instrumentKey,
+    liveLtp,
+    livePnl,
+    brokerageIfClosed,
+    ...greeksAndOi,
+    ...freshness,
+  };
+}
+
+/**
+ * `lastKnown` is the fallback for an outage (token expired, no connection):
+ * a contract whose poll failed keeps the last price it was seen at, flagged
+ * `stale`, instead of turning into an error row with nothing to show. Any
+ * other failure still surfaces as an error — that one says something is wrong
+ * with the request, not that the market is out of reach.
+ */
 export function computePortfolioRow(
   entry: TradeEntry,
   chainsByGroup: Record<string, UpstoxOptionChainResult | undefined>,
+  lastKnown?: LegSnapshots,
 ): PortfolioRow {
   const entryPrice = entry.side === "sell" ? entry.sell_price : entry.buy_price;
 
@@ -176,6 +268,11 @@ export function computePortfolioRow(
     return { entry, entryPrice, status: "loading", ...EMPTY_LIVE_FIELDS };
   }
   if (isUpstoxOptionChainError(chain)) {
+    const snapshot = isOutage(chain.error) ? lastKnown?.[legSnapshotKey(entry)] : undefined;
+    if (snapshot) {
+      const { at, ltp, instrumentKey, ...greeksAndOi } = snapshot;
+      return pricedRow(entry, entryPrice, ltp, instrumentKey, greeksAndOi, { stale: true, asOf: at });
+    }
     return { entry, entryPrice, status: "error", errorMessage: chain.error, ...EMPTY_LIVE_FIELDS };
   }
 
@@ -204,22 +301,10 @@ export function computePortfolioRow(
       livePnl: null,
       brokerageIfClosed: null,
       ...greeksAndOi,
+      stale: false,
+      asOf: null,
     };
   }
 
-  const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
-  const livePnl = calculateEntryPnl({ instrument: entry.instrument, lots: entry.lots, buyPrice, sellPrice });
-  const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
-  const brokerageIfClosed = calculateBrokerage("OPTIONS", [{ buyPrice, sellPrice }], qty).totalCharges;
-
-  return {
-    entry,
-    entryPrice,
-    status: "ok",
-    instrumentKey: leg?.instrument_key ?? null,
-    liveLtp,
-    livePnl,
-    brokerageIfClosed,
-    ...greeksAndOi,
-  };
+  return pricedRow(entry, entryPrice, liveLtp, leg?.instrument_key ?? null, greeksAndOi, { stale: false, asOf: null });
 }
