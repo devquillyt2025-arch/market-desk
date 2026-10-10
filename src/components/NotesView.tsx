@@ -119,12 +119,14 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
     if (activeTag) result = result.filter((n) => n.tags.includes(activeTag));
     if (activeColor) result = result.filter((n) => n.color === activeColor);
 
+    // Newest/Oldest go by when a note was *added*, not last touched — editing,
+    // pinning or recoloring a note must leave it where it is in the list.
     if (sortOrder === "alpha") {
       result.sort((a, b) => a.title.localeCompare(b.title));
     } else if (sortOrder === "oldest") {
-      result.sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+      result.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     } else {
-      result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
     return result;
   }, [notes, search, activeTag, activeColor, sortOrder]);

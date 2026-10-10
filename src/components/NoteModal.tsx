@@ -59,6 +59,20 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
       onClose();
       return;
     }
+    // Just looking at a note (open, then close) isn't an edit — don't write it back.
+    const savedTags = note.tags ?? [];
+    const unchanged =
+      !isNew &&
+      title.trim() === note.title &&
+      content === note.content &&
+      color === note.color &&
+      pinned === note.pinned &&
+      tags.length === savedTags.length &&
+      tags.every((t, i) => t === savedTags[i]);
+    if (unchanged) {
+      onClose();
+      return;
+    }
     onSave({ ...note, title: title.trim(), content, color, pinned, tags, updatedAt: new Date().toISOString() });
     onClose();
   }
