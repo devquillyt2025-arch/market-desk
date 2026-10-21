@@ -2,7 +2,7 @@
  * Shape of Upstox's `GET /v2/option/chain` response — the fields below were
  * checked against a real live response and match. Upstox's actual payload
  * carries a few more fields than are modeled here (e.g. bid/ask price and
- * qty, close_price, prev_oi, pop) that this app doesn't currently use;
+ * qty, prev_oi, pop) that this app doesn't currently use;
  * they're simply left untyped rather than omitted for any correctness
  * reason. Every field is still read defensively (optional chaining, never
  * assumed present) — if Upstox ever changes a field name, `findLeg` in
@@ -23,6 +23,8 @@ export type UpstoxOptionGreeks = {
 
 export type UpstoxMarketData = {
   ltp?: number;
+  /** The previous session's close — the baseline for "today's" move. */
+  close_price?: number;
   oi?: number;
   volume?: number;
 };

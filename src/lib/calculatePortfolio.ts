@@ -59,6 +59,8 @@ export type PortfolioRow = {
   instrumentKey: string | null;
   liveLtp: number | null;
   livePnl: number | null;
+  /** The contract's previous-session close, as Upstox reports it — what today's move is measured from. */
+  prevClose: number | null;
   delta: number | null;
   gamma: number | null;
   theta: number | null;
@@ -81,7 +83,7 @@ export type PortfolioRow = {
 
 type GreeksAndOi = Pick<
   PortfolioRow,
-  "delta" | "gamma" | "theta" | "vega" | "oi" | "iv" | "volume" | "underlyingSpot" | "nearbyIv"
+  "prevClose" | "delta" | "gamma" | "theta" | "vega" | "oi" | "iv" | "volume" | "underlyingSpot" | "nearbyIv"
 >;
 
 /** Everything a priced row needs from the market, kept between polls (and page loads) so an outage can still show it. */
@@ -109,6 +111,7 @@ export function toLegSnapshot(row: PortfolioRow, at: number): { key: string; sna
       at,
       ltp: row.liveLtp,
       instrumentKey: row.instrumentKey,
+      prevClose: row.prevClose,
       delta: row.delta,
       gamma: row.gamma,
       theta: row.theta,
@@ -155,6 +158,35 @@ export function toLivePositionInfo(row: PortfolioRow | undefined): LivePositionI
     vega: row.vega,
     oi: row.oi,
   };
+}
+
+/** yyyy-mm-dd of a timestamp in the device's own timezone — matches how entry_date is entered. */
+function localISODate(ms: number): string {
+  const d = new Date(ms);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+/**
+ * What a position has made or lost since today's open: the move from the
+ * previous close to the live price — or from the entry price if it was opened
+ * today, since the move before that never belonged to this position. Same sign
+ * convention as livePnl (and likewise before brokerage). Null when there's
+ * nothing sound to measure: no live price, no previous close reported, or a
+ * last-known price from an earlier day, which would pass off an old session's
+ * move as today's.
+ */
+export function calculateTodayPnl(row: PortfolioRow, today: string): number | null {
+  if (row.status !== "ok" || row.liveLtp == null) return null;
+  if (row.stale && (row.asOf == null || localISODate(row.asOf) !== today)) return null;
+
+  const base = row.entry.entry_date === today ? row.entryPrice : row.prevClose;
+  if (base == null) return null;
+
+  const { buyPrice, sellPrice } =
+    row.entry.side === "sell"
+      ? { buyPrice: row.liveLtp, sellPrice: base }
+      : { buyPrice: base, sellPrice: row.liveLtp };
+  return calculateEntryPnl({ instrument: row.entry.instrument, lots: row.entry.lots, buyPrice, sellPrice });
 }
 
 function findStrikeRow(chain: UpstoxOptionChainResult, entry: TrackableEntry) {
@@ -204,6 +236,7 @@ const EMPTY_LIVE_FIELDS = {
   instrumentKey: null,
   liveLtp: null,
   livePnl: null,
+  prevClose: null,
   delta: null,
   gamma: null,
   theta: null,
@@ -279,7 +312,9 @@ export function computePortfolioRow(
   const strikeRow = findStrikeRow(chain, entry);
   const leg = strikeRow ? legOf(strikeRow, entry) : null;
   const liveLtp = leg?.market_data?.ltp ?? null;
+  const closePrice = leg?.market_data?.close_price;
   const greeksAndOi = {
+    prevClose: closePrice != null && closePrice > 0 ? closePrice : null,
     delta: leg?.option_greeks?.delta ?? null,
     gamma: leg?.option_greeks?.gamma ?? null,
     theta: leg?.option_greeks?.theta ?? null,

@@ -55,6 +55,8 @@ function isLegSnapshot(value: unknown): value is LegSnapshot {
     typeof value.ltp === "number" &&
     Number.isFinite(value.ltp) &&
     (value.instrumentKey === null || typeof value.instrumentKey === "string") &&
+    // Snapshots saved before prevClose existed lack it; they're still good, and loadLegSnapshots fills it in.
+    (value.prevClose === undefined || isNumberOrNull(value.prevClose)) &&
     isNumberOrNull(value.delta) &&
     isNumberOrNull(value.gamma) &&
     isNumberOrNull(value.theta) &&
@@ -73,7 +75,7 @@ export function loadLegSnapshots(): LegSnapshots {
   if (!isRecord(parsed)) return {};
   const out: LegSnapshots = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (isLegSnapshot(value)) out[key] = value;
+    if (isLegSnapshot(value)) out[key] = { ...value, prevClose: value.prevClose ?? null };
   }
   return out;
 }

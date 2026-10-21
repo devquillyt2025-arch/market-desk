@@ -11,7 +11,7 @@ import LivePricingBanners from "@/components/LivePricingBanners";
 import OptionChainPicker from "@/components/OptionChainPicker";
 import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
 import TradeEntryModal from "@/components/TradeEntryModal";
-import { syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
+import { calculateTodayPnl, syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
@@ -106,17 +106,24 @@ export default function PortfolioView() {
   // Current mark value of open positions (premium terms) and their
   // unrealized P&L — livePnl is already sign-correct for both buy and sell
   // sides, so it's summed directly rather than derived from value math that
-  // would get the sign backwards for a short position.
+  // would get the sign backwards for a short position. Today's P&L is the same
+  // sum measured from the previous close instead of the entry price; null when
+  // no position has anything to measure against (e.g. all prices are from an
+  // earlier session), so the tile shows "—" rather than a misleading ₹0.
   const portfolioStats = useMemo(() => {
     if (!rows) return null;
+    const today = todayISODate();
     let value = 0;
     let unrealizedPnl = 0;
+    let todayPnl: number | null = null;
     for (const row of rows) {
       const qty = row.entry.lots * DEFAULT_LOT_SIZES[row.entry.instrument];
       value += (row.liveLtp ?? row.entryPrice) * qty;
       unrealizedPnl += row.livePnl ?? 0;
+      const rowToday = calculateTodayPnl(row, today);
+      if (rowToday !== null) todayPnl = (todayPnl ?? 0) + rowToday;
     }
-    return { value, unrealizedPnl };
+    return { value, unrealizedPnl, todayPnl };
   }, [rows]);
 
   // The moment the figures being analysed are from: the poll timestamp (not
@@ -354,7 +361,7 @@ export default function PortfolioView() {
       </div>
 
       {portfolioStats && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <section className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Total Invested (Margin)</dt>
             <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">
@@ -371,6 +378,16 @@ export default function PortfolioView() {
               className={`mt-1 font-mono text-xl font-semibold tabular-nums ${pnlColorClass(portfolioStats.unrealizedPnl)}`}
             >
               {formatINR(portfolioStats.unrealizedPnl)}
+            </dd>
+          </section>
+          <section className="rounded-xl border border-border bg-background p-4">
+            <dt className="text-xs text-muted-foreground">Today&apos;s P&amp;L</dt>
+            <dd
+              className={`mt-1 font-mono text-xl font-semibold tabular-nums ${
+                portfolioStats.todayPnl === null ? "" : pnlColorClass(portfolioStats.todayPnl)
+              }`}
+            >
+              {portfolioStats.todayPnl === null ? "—" : formatINR(portfolioStats.todayPnl)}
             </dd>
           </section>
         </div>
