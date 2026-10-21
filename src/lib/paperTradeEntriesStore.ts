@@ -104,6 +104,17 @@ export async function deletePaperTradeEntry(id: string): Promise<void> {
   if (entry) logEvent(`Deleted paper trade: ${entry.entry_date}`);
 }
 
+/** Empties the sandbox — every open and closed paper trade — back to the first-visit state. */
+export async function clearPaperTradeEntries(): Promise<void> {
+  const { count, error } = await supabase
+    .from("paper_trade_entries")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (error) throw error;
+  cachedEntries = [];
+  if (count) logEvent(`Cleared all paper trades (${count})`);
+}
+
 /** Keeps every open session in sync via Supabase Realtime, same as tradeEntriesStore.ts. */
 export function subscribeToPaperTradeChanges(callback: () => void): () => void {
   return subscribeToTableChanges("paper_trade_entries", callback);

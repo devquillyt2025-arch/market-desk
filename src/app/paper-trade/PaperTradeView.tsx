@@ -15,6 +15,7 @@ import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
   addPaperTradeEntry,
   calculateEntryPnl,
+  clearPaperTradeEntries,
   deletePaperTradeEntry,
   describeEntryContract,
   getCachedPaperTradeEntries,
@@ -68,6 +69,7 @@ export default function PaperTradeView() {
   const [modalState, setModalState] = useState<ModalState>(null);
   const [chainOpen, setChainOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PaperTradeEntry | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -192,6 +194,18 @@ export default function PaperTradeView() {
     });
   }
 
+  function confirmClearAll() {
+    setConfirmingClear(false);
+    setModalState(null);
+
+    const previous = entries;
+    setEntries([]);
+    clearPaperTradeEntries().catch(() => {
+      setEntries(previous);
+      showToast("Couldn't clear the paper trades. Try again.");
+    });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -208,6 +222,16 @@ export default function PaperTradeView() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {entries !== null && entries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setConfirmingClear(true)}
+              title="Delete every open and closed paper trade and start fresh"
+              className="rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+            >
+              Clear All
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setChainOpen(true)}
@@ -384,6 +408,18 @@ export default function PaperTradeView() {
             message={`${describeEntryContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — this can't be undone.`}
             onConfirm={confirmDelete}
             onCancel={() => setPendingDelete(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {confirmingClear && (
+          <ConfirmDialog
+            title="Clear all paper trades?"
+            message={`This deletes all ${entries?.length ?? 0} paper trade${entries?.length === 1 ? "" : "s"}, open and closed — this can't be undone.`}
+            confirmLabel="Clear All"
+            onConfirm={confirmClearAll}
+            onCancel={() => setConfirmingClear(false)}
           />
         )}
       </AnimatePresence>
