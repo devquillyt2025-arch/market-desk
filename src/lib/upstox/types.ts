@@ -10,7 +10,7 @@
  * throwing.
  */
 
-import type { Instrument } from "@/lib/types";
+import type { Instrument, TradeEntryOptionType, TradeEntrySide } from "@/lib/types";
 
 export type UpstoxOptionGreeks = {
   delta?: number;
@@ -133,5 +133,160 @@ export type UpstoxMarginError = { error: string; detail?: string };
 export type UpstoxMarginResult = UpstoxMarginSuccess | UpstoxMarginError;
 
 export function isUpstoxMarginError(result: UpstoxMarginResult): result is UpstoxMarginError {
+  return "error" in result;
+}
+
+/**
+ * One open (or squared-off-today) index option position, as this app's own
+ * /api/upstox/positions route returns it — reduced from Upstox's
+ * `GET /v2/portfolio/short-term-positions` and already matched to its
+ * contract, so unlike Upstox's own shape it carries strike/CE-PE/expiry
+ * rather than an opaque instrument token. Both products (NRML and intraday)
+ * of one contract are merged into a single position.
+ */
+export type UpstoxPosition = {
+  instrumentKey: string;
+  instrument: Instrument;
+  strike: number;
+  optionType: TradeEntryOptionType;
+  /** yyyy-mm-dd. */
+  expiry: string;
+  lotSize: number;
+  /** Signed: positive long, negative short, 0 once squared off today. */
+  quantity: number;
+  /** Signed quantity carried in from the previous session. */
+  overnightQuantity: number;
+  /** Average price of the open quantity — null once flat. */
+  averagePrice: number | null;
+  /** Everything bought / sold in this position, carried-in quantity included — what Upstox's own positions screen averages. */
+  buyQuantity: number;
+  buyValue: number;
+  sellQuantity: number;
+  sellValue: number;
+  dayBuyQuantity: number;
+  dayBuyValue: number;
+  daySellQuantity: number;
+  daySellValue: number;
+  lastPrice: number | null;
+  /** The previous session's close — what a carried position's day P&L is measured from. */
+  closePrice: number | null;
+  /** When the still-open quantity was first traded (yyyy-mm-dd) — null when it opened today or the trade history couldn't say. */
+  openedOn: string | null;
+};
+
+export type UpstoxPositionsSuccess = {
+  positions: UpstoxPosition[];
+  /** Positions in anything other than Nifty / Bank Nifty / Sensex options (stocks, futures, other indices) — left out. */
+  otherCount: number;
+};
+export type UpstoxPositionsError = { error: string; detail?: string };
+export type UpstoxPositionsResult = UpstoxPositionsSuccess | UpstoxPositionsError;
+
+export function isUpstoxPositionsError(result: UpstoxPositionsResult): result is UpstoxPositionsError {
+  return "error" in result;
+}
+
+/**
+ * One closed round trip from Upstox's trade-wise P&L report
+ * (`GET /v2/trade/profit-loss/data`), as /api/upstox/pnl-report returns it.
+ * Upstox lists a row per matched fill (a 3-lot exit is three rows); rows of
+ * one contract opened and closed on the same pair of dates are merged into
+ * one trade here, the way the Trade Entries journal records them.
+ */
+export type UpstoxClosedTrade = {
+  /** Stable within a report: instrument | expiry | strike | type | buy date | sell date. */
+  key: string;
+  instrument: Instrument;
+  /** Null for a futures trade. */
+  strike: number | null;
+  optionType: TradeEntryOptionType | null;
+  expiry: string;
+  side: TradeEntrySide;
+  /** The earlier of the buy and sell dates. */
+  entryDate: string;
+  closingDate: string;
+  quantity: number;
+  lots: number;
+  buyPrice: number;
+  sellPrice: number;
+  /** Sell amount minus buy amount, before charges — exact, whatever the lot size was at the time. */
+  pnl: number;
+};
+
+export type UpstoxPnlReportSuccess = {
+  /** yyyy-mm-dd bounds of the financial year the report covers. */
+  from: string;
+  to: string;
+  trades: UpstoxClosedTrade[];
+  /** Round trips in anything other than the three indices, left out — with their names for the summary. */
+  otherCount: number;
+  otherNames: string[];
+  /**
+   * Sell minus buy over every row of the report, the left-out underlyings
+   * included — the same scope as `charges`, so the two can be netted against
+   * each other. `trades` alone would leave the stock options' P&L out while
+   * their charges stayed in.
+   */
+  grossPnl: number;
+  /** Upstox's own charges (brokerage, STT, GST, stamp duty, …) for the year — null if they couldn't be fetched. */
+  charges: UpstoxChargesBreakdown | null;
+};
+export type UpstoxPnlReportError = { error: string; detail?: string };
+export type UpstoxPnlReportResult = UpstoxPnlReportSuccess | UpstoxPnlReportError;
+
+export function isUpstoxPnlReportError(result: UpstoxPnlReportResult): result is UpstoxPnlReportError {
+  return "error" in result;
+}
+
+/** The P&L report segments Reports offers, in Upstox's own codes. */
+export const UPSTOX_PNL_SEGMENTS = ["FO", "EQ"] as const;
+export type UpstoxPnlSegment = (typeof UPSTOX_PNL_SEGMENTS)[number];
+
+export const UPSTOX_PNL_SEGMENT_LABELS: Record<UpstoxPnlSegment, string> = {
+  FO: "F&O",
+  EQ: "Equity",
+};
+
+/** Upstox's own charges for a period, as /api/upstox/pnl-report and pnl-summary return them. */
+export type UpstoxChargesBreakdown = {
+  total: number;
+  brokerage: number;
+  gst: number;
+  stt: number;
+  stampDuty: number;
+  /** Exchange transaction charges plus SEBI turnover fees — Upstox's API reports them as one figure. */
+  transactionAndSebi: number;
+  clearing: number;
+  ipft: number;
+  demat: number;
+};
+
+/**
+ * Upstox's "Trade summary" for one segment and date range, as
+ * /api/upstox/pnl-summary returns it — totals over every row of that
+ * segment's P&L report (for F&O, stock options included, the same as Upstox's
+ * own screen). Counted per row like Upstox does, so a 3-lot exit is three
+ * trades.
+ */
+export type UpstoxPnlSummary = {
+  segment: UpstoxPnlSegment;
+  /** yyyy-mm-dd — the range Upstox was asked for, by the date each trade closed. */
+  from: string;
+  to: string;
+  tradeCount: number;
+  winningCount: number;
+  grossPnl: number;
+  /** Sum of the winning rows' P&L. */
+  winningPnl: number;
+  /** Sum of the losing rows' P&L — negative. */
+  losingPnl: number;
+  /** Total bought — the base of Upstox's ROI %. */
+  buyValue: number;
+  charges: UpstoxChargesBreakdown;
+};
+export type UpstoxPnlSummaryError = { error: string; detail?: string };
+export type UpstoxPnlSummaryResult = UpstoxPnlSummary | UpstoxPnlSummaryError;
+
+export function isUpstoxPnlSummaryError(result: UpstoxPnlSummaryResult): result is UpstoxPnlSummaryError {
   return "error" in result;
 }

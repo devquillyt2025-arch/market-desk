@@ -1,37 +1,42 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import ClosedTodayTable from "@/components/ClosedTodayTable";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingState from "@/components/LoadingState";
-import { DownloadIcon, InboxIcon, ListIcon, PlusIcon, RefreshIcon, UploadIcon } from "@/components/icons";
+import { DownloadIcon, InboxIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
-import OptionChainPicker from "@/components/OptionChainPicker";
 import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
 import TradeEntryModal from "@/components/TradeEntryModal";
-import { calculateTodayPnl, syntheticPrices, toLivePositionInfo } from "@/lib/calculatePortfolio";
+import {
+  calculateTodayPnl,
+  isTrackableEntry,
+  legSnapshotKey,
+  syntheticPrices,
+  toLivePositionInfo,
+} from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
-  addLivePortfolioEntry,
   calculateEntryPnl,
   deleteLivePortfolioEntry,
   describeEntryContract,
   getCachedLivePortfolioEntries,
   getLivePortfolioEntries,
-  importLivePortfolioEntries,
   setLivePortfolioExpiry,
   subscribeToLivePortfolioChanges,
   updateLivePortfolioEntry,
   type AddTradeEntryInput,
 } from "@/lib/livePortfolioEntriesStore";
-import { pickedLegToEntryInput, type PickedLeg } from "@/lib/strategyTransfer";
 import { showToast } from "@/lib/toast";
-import { DEFAULT_LOT_SIZES, type Instrument, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
+import { positionContractKey, positionDayPnl } from "@/lib/upstoxSync";
 import { useLivePricing } from "@/lib/useLivePricing";
 import { useMargin } from "@/lib/useMargin";
+import { useUpstoxPositions } from "@/lib/useUpstoxPositions";
 
 const POLL_MS = 10000;
 
@@ -67,18 +72,10 @@ function sortEntries(entries: LivePortfolioEntry[]): LivePortfolioEntry[] {
   });
 }
 
-type ModalState =
-  | { mode: "add" }
-  | { mode: "edit"; entry: LivePortfolioEntry }
-  | null;
-
 export default function PortfolioView() {
   const [entries, setEntries] = useState<LivePortfolioEntry[] | null>(getCachedLivePortfolioEntries);
-  const [modalState, setModalState] = useState<ModalState>(null);
+  const [editing, setEditing] = useState<LivePortfolioEntry | null>(null);
   const [pendingDelete, setPendingDelete] = useState<LivePortfolioEntry | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [chainOpen, setChainOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -92,6 +89,9 @@ export default function PortfolioView() {
     return subscribeToLivePortfolioChanges(load);
   }, []);
 
+  // Writes Upstox's positions into the table every minute; the subscription above picks them up.
+  const upstox = useUpstoxPositions();
+
   // "Open" here means status === "hold" — this app's TRADE_ENTRY_STATUSES
   // are squared_off/hold, not open/closed; hold is the still-live one.
   const openEntries = useMemo(
@@ -99,32 +99,67 @@ export default function PortfolioView() {
     [entries],
   );
 
-  const { rows, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, groupCount, handleManualRefresh } =
+  const { rows, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
   const { totalMargin } = useMargin(rows);
+
+  // Only today's sync counts — positions from an earlier day (the token
+  // lapsed overnight and nothing has synced since) aren't today's anything.
+  const todaysPositions = useMemo(
+    () =>
+      upstox.syncedAt !== null && new Date(upstox.syncedAt).toDateString() === new Date().toDateString()
+        ? upstox.positions
+        : null,
+    [upstox.positions, upstox.syncedAt],
+  );
+  const closedToday = useMemo(() => (todaysPositions ?? []).filter((p) => p.quantity === 0), [todaysPositions]);
 
   // Current mark value of open positions (premium terms) and their
   // unrealized P&L — livePnl is already sign-correct for both buy and sell
   // sides, so it's summed directly rather than derived from value math that
-  // would get the sign backwards for a short position. Today's P&L is the same
-  // sum measured from the previous close instead of the entry price; null when
-  // no position has anything to measure against (e.g. all prices are from an
-  // earlier session), so the tile shows "—" rather than a misleading ₹0.
+  // would get the sign backwards for a short position.
+  //
+  // Today's P&L comes from today's Upstox positions when there are some —
+  // they also cover what was squared off today, which the open rows no longer
+  // show — with each open contract marked at the live LTP the table polls.
+  // Otherwise it falls back to the open rows measured from the previous close
+  // (or entry price, if opened today). Null when nothing has anything to
+  // measure against (e.g. all prices are from an earlier session), so the
+  // tile shows "—" rather than a misleading ₹0.
   const portfolioStats = useMemo(() => {
     if (!rows) return null;
     const today = todayISODate();
     let value = 0;
     let unrealizedPnl = 0;
-    let todayPnl: number | null = null;
     for (const row of rows) {
       const qty = row.entry.lots * DEFAULT_LOT_SIZES[row.entry.instrument];
       value += (row.liveLtp ?? row.entryPrice) * qty;
       unrealizedPnl += row.livePnl ?? 0;
-      const rowToday = calculateTodayPnl(row, today);
-      if (rowToday !== null) todayPnl = (todayPnl ?? 0) + rowToday;
     }
-    return { value, unrealizedPnl, todayPnl };
-  }, [rows]);
+
+    let todayPnl: number | null = null;
+    let bookedToday = 0;
+    if (todaysPositions && todaysPositions.length > 0) {
+      const liveLtpByContract = new Map<string, number>();
+      for (const row of rows) {
+        if (row.status === "ok" && row.liveLtp != null && isTrackableEntry(row.entry)) {
+          liveLtpByContract.set(legSnapshotKey(row.entry), row.liveLtp);
+        }
+      }
+      for (const position of todaysPositions) {
+        const pnl = positionDayPnl(position, liveLtpByContract.get(positionContractKey(position)) ?? null);
+        if (pnl === null) continue;
+        todayPnl = (todayPnl ?? 0) + pnl;
+        if (position.quantity === 0) bookedToday += pnl;
+      }
+    } else {
+      for (const row of rows) {
+        const rowToday = calculateTodayPnl(row, today);
+        if (rowToday !== null) todayPnl = (todayPnl ?? 0) + rowToday;
+      }
+    }
+    return { value, unrealizedPnl, todayPnl, bookedToday };
+  }, [rows, todaysPositions]);
 
   // The moment the figures being analysed are from: the poll timestamp (not
   // Date.now()) so "now" is stable between renders and the analysis only
@@ -158,11 +193,22 @@ export default function PortfolioView() {
   // The popup's live figures come from the latest poll on every render — not
   // a copy taken when the row was clicked — so they keep matching the row
   // behind it as prices move.
-  const editingId = modalState?.mode === "edit" ? modalState.entry.id : null;
+  const editingId = editing?.id ?? null;
   const editingLive = useMemo(
     () => toLivePositionInfo(rows?.find((r) => r.entry.id === editingId)),
     [rows, editingId],
   );
+
+  // Either feed failing for want of a token / a connection means the same thing to the user.
+  const anyTokenExpired = tokenExpired || upstox.tokenExpired;
+  const anyOffline = offline || upstox.offline;
+  const refreshing = manualRefreshing || upstox.manualSyncing;
+
+  async function handleRefresh() {
+    // Positions first, so a newly opened one is in the table before prices are polled.
+    await upstox.syncNow();
+    await handleManualRefresh();
+  }
 
   function handleSetExpiry(entryId: string, expiryDate: string) {
     const previous = entries;
@@ -174,77 +220,55 @@ export default function PortfolioView() {
   }
 
   async function handleModalSave(input: AddTradeEntryInput) {
-    if (modalState?.mode === "edit") {
-      const { entry } = modalState;
-      const previous = entries;
-      const pnl = calculateEntryPnl(input);
+    if (!editing) return;
+    const entry = editing;
+    const previous = entries;
+    const pnl = calculateEntryPnl(input);
 
-      setEntries((prev) =>
-        prev
-          ? prev.map((e) =>
-              e.id === entry.id
-                ? {
-                    ...e,
-                    entry_date: input.entryDate,
-                    instrument: input.instrument,
-                    strike_price: input.strikePrice ?? null,
-                    option_type: input.optionType ?? null,
-                    expiry_date: input.expiryDate ?? null,
-                    closing_date: input.closingDate ?? null,
-                    lots: input.lots,
-                    side: input.side,
-                    buy_price: input.buyPrice,
-                    sell_price: input.sellPrice,
-                    pnl,
-                    status: input.status,
-                    remarks: input.remarks ?? null,
-                  }
-                : e,
-            )
-          : prev,
-      );
+    setEntries((prev) =>
+      prev
+        ? prev.map((e) =>
+            e.id === entry.id
+              ? {
+                  ...e,
+                  entry_date: input.entryDate,
+                  instrument: input.instrument,
+                  strike_price: input.strikePrice ?? null,
+                  option_type: input.optionType ?? null,
+                  expiry_date: input.expiryDate ?? null,
+                  closing_date: input.closingDate ?? null,
+                  lots: input.lots,
+                  side: input.side,
+                  buy_price: input.buyPrice,
+                  sell_price: input.sellPrice,
+                  pnl,
+                  status: input.status,
+                  remarks: input.remarks ?? null,
+                }
+              : e,
+          )
+        : prev,
+    );
 
-      try {
-        await updateLivePortfolioEntry(entry.id, input);
-      } catch (err) {
-        setEntries(previous);
-        throw err;
-      }
-    } else {
-      await addLivePortfolioEntry(input);
+    try {
+      await updateLivePortfolioEntry(entry.id, input);
+    } catch (err) {
+      setEntries(previous);
+      throw err;
     }
-    setModalState(null);
-  }
-
-  /** Contracts picked on the option-chain ladder become open positions, entered at today's date and the market price. */
-  async function handleChainPicked(inst: Instrument, picked: PickedLeg[]) {
-    setChainOpen(false);
-    const inputs = picked
-      .map((p) => pickedLegToEntryInput(inst, p, todayISODate()))
-      .filter((i): i is AddTradeEntryInput => i !== null);
-    if (inputs.length === 0) {
-      showToast("None of the picked contracts had a price yet — try again in a moment.");
-      return;
-    }
-    const results = await Promise.allSettled(inputs.map((input) => addLivePortfolioEntry(input)));
-    const failed = results.filter((r) => r.status === "rejected").length;
-    const added = inputs.length - failed;
-    const unpriced = picked.length - inputs.length;
-    const skippedNote = unpriced > 0 ? ` ${unpriced} skipped — no price yet.` : "";
-    if (failed > 0) showToast(`Added ${added} of ${inputs.length} — ${failed} couldn't be saved. Try again.${skippedNote}`);
-    else showToast(`Added ${added} position${added === 1 ? "" : "s"} from the option chain.${skippedNote}`, "success");
+    setEditing(null);
   }
 
   function handleModalDelete() {
-    if (modalState?.mode !== "edit") return;
-    setPendingDelete(modalState.entry);
+    if (!editing) return;
+    setPendingDelete(editing);
   }
 
   function confirmDelete() {
     if (!pendingDelete) return;
     const entry = pendingDelete;
     setPendingDelete(null);
-    setModalState(null);
+    setEditing(null);
 
     const previous = entries;
     setEntries((prev) => (prev ? prev.filter((e) => e.id !== entry.id) : prev));
@@ -260,12 +284,12 @@ export default function PortfolioView() {
       return;
     }
 
-    // A "hold" entry's own buy_price/sell_price is just whatever was typed
-    // in at entry time — never updated as the market moves. For a row
-    // that's currently live-matched, substitute today's LTP into whichever
-    // leg hasn't executed yet, so an export → re-import into Trade Entries
-    // (or Paper Trade) carries a live mark-to-market snapshot instead of
-    // silently reproducing the stale entry price every time.
+    // A "hold" entry's own buy_price/sell_price is just its entry price —
+    // never updated as the market moves. For a row that's currently
+    // live-matched, substitute today's LTP into whichever leg hasn't executed
+    // yet, so an export → re-import into Trade Entries (or Paper Trade)
+    // carries a live mark-to-market snapshot instead of silently reproducing
+    // the stale entry price every time.
     const liveLtpByEntryId = new Map(
       (rows ?? []).filter((r) => r.status === "ok").map((r) => [r.entry.id, r.liveLtp as number]),
     );
@@ -279,27 +303,8 @@ export default function PortfolioView() {
     downloadJson(`live-portfolio-${todayISODate()}.json`, exportEntries);
   }
 
-  function handleImportClick() {
-    fileInputRef.current?.click();
-  }
-
-  async function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // reset so choosing the same file again still fires onChange
-    if (!file) return;
-
-    setImporting(true);
-    try {
-      const text = await file.text();
-      const parsed: unknown = JSON.parse(text);
-      const result = await importLivePortfolioEntries(parsed);
-      showToast(`Imported ${result.inserted} new, updated ${result.updated}.`, "success");
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Couldn't import — check the file is valid JSON.");
-    } finally {
-      setImporting(false);
-    }
-  }
+  // Until the first sync answers, an empty table means "not loaded yet", not "no positions".
+  const awaitingFirstSync = upstox.syncedAt === null && !anyTokenExpired && !anyOffline && upstox.error === null;
 
   return (
     <motion.div
@@ -312,27 +317,11 @@ export default function PortfolioView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Live Portfolio</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Its own independent positions — live LTP, Greeks, and brokerage-if-squared-off, polled every{" "}
-            {POLL_MS / 1000}s. Add, edit, or delete right here.
+            Your open Upstox positions, synced every minute — live LTP, Greeks, and brokerage-if-squared-off, polled
+            every {POLL_MS / 1000}s. For what-if positions, use Paper Trade.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            onChange={handleImportFile}
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={handleImportClick}
-            disabled={importing}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60 active:scale-95"
-          >
-            <UploadIcon className="size-4" />
-            {importing ? "Importing…" : "Import"}
-          </button>
           <button
             type="button"
             onClick={handleExport}
@@ -340,22 +329,6 @@ export default function PortfolioView() {
           >
             <DownloadIcon className="size-4" />
             Export
-          </button>
-          <button
-            type="button"
-            onClick={() => setChainOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-          >
-            <ListIcon className="size-4" />
-            Option Chain
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalState({ mode: "add" })}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
-          >
-            <PlusIcon className="size-4" />
-            Add Position
           </button>
         </div>
       </div>
@@ -389,6 +362,11 @@ export default function PortfolioView() {
             >
               {portfolioStats.todayPnl === null ? "—" : formatINR(portfolioStats.todayPnl)}
             </dd>
+            {portfolioStats.bookedToday !== 0 && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                incl. {formatINR(portfolioStats.bookedToday)} booked
+              </p>
+            )}
           </section>
         </div>
       )}
@@ -397,53 +375,69 @@ export default function PortfolioView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Open Positions</h2>
           <div className="flex items-center gap-2">
-            {stalePricesAsOf !== null ? (
+            {upstox.error ? (
+              <span className="text-xs font-medium text-loss">Couldn&apos;t sync with Upstox — {upstox.error}</span>
+            ) : stalePricesAsOf !== null ? (
               <span className="whitespace-nowrap text-xs font-medium text-warning">
                 Last prices {formatAsOf(stalePricesAsOf)}
               </span>
             ) : (
-              lastPolledAt &&
-              !tokenExpired &&
-              !offline && (
+              !anyTokenExpired &&
+              !anyOffline &&
+              (upstox.syncedAt || lastPolledAt) && (
                 <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}
+                  {upstox.syncedAt && `Synced ${new Date(upstox.syncedAt).toLocaleTimeString("en-IN")}`}
+                  {upstox.syncedAt && lastPolledAt && " · "}
+                  {lastPolledAt && `Prices ${new Date(lastPolledAt).toLocaleTimeString("en-IN")}`}
                 </span>
               )
             )}
-            {groupCount > 0 && (
-              <button
-                type="button"
-                onClick={handleManualRefresh}
-                disabled={manualRefreshing}
-                aria-label="Refresh now"
-                title="Refresh now"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
-              >
-                <RefreshIcon className={`size-4 ${manualRefreshing ? "animate-spin" : ""}`} />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              aria-label="Sync and refresh now"
+              title="Sync and refresh now"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+            >
+              <RefreshIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
           </div>
         </div>
 
-        <LivePricingBanners tokenExpired={tokenExpired} offline={offline} lastPricesAt={stalePricesAsOf} />
+        <LivePricingBanners tokenExpired={anyTokenExpired} offline={anyOffline} lastPricesAt={stalePricesAsOf} />
 
-        {rows === null ? (
-          <LoadingState className="h-40" label="Loading open positions…" />
+        {rows === null || (rows.length === 0 && awaitingFirstSync) ? (
+          <LoadingState className="h-40" label="Loading positions from Upstox…" />
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
             <InboxIcon className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              No open positions. Add one above with status &quot;Hold&quot; to track it live.
+              {anyTokenExpired
+                ? "Add today's Upstox token to load your positions."
+                : closedToday.length > 0
+                  ? `No open positions right now — ${closedToday.length} squared off today, below.`
+                  : "No open positions on your Upstox account right now."}
             </p>
           </div>
         ) : (
-          <LiveEntriesTable
-            rows={rows}
-            onSetExpiry={handleSetExpiry}
-            onRowClick={(row) => setModalState({ mode: "edit", entry: row.entry })}
-          />
+          <LiveEntriesTable rows={rows} onSetExpiry={handleSetExpiry} onRowClick={(row) => setEditing(row.entry)} />
+        )}
+
+        {upstox.otherCount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {upstox.otherCount} Upstox position{upstox.otherCount === 1 ? " isn't" : "s aren't"} shown — Live Portfolio
+            tracks Nifty, Bank Nifty and Sensex options only.
+          </p>
         )}
       </div>
+
+      {closedToday.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Closed Today</h2>
+          <ClosedTodayTable positions={closedToday} />
+        </div>
+      )}
 
       {rows && rows.some((r) => r.status !== "untracked") && (
         <RiskProbabilityPanel
@@ -454,25 +448,13 @@ export default function PortfolioView() {
       )}
 
       <AnimatePresence>
-        {chainOpen && (
-          <OptionChainPicker
-            key="chain"
-            initialInstrument="NIFTY"
-            doneLabel={(n) => `Add ${n} position${n === 1 ? "" : "s"}`}
-            onDone={handleChainPicked}
-            onClose={() => setChainOpen(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {modalState && (
+        {editing && (
           <TradeEntryModal
-            key={modalState.mode === "edit" ? modalState.entry.id : "new"}
-            entry={modalState.mode === "edit" ? modalState.entry : null}
+            key={editing.id}
+            entry={editing}
             live={editingLive}
             onSave={handleModalSave}
-            onClose={() => setModalState(null)}
+            onClose={() => setEditing(null)}
             onDelete={handleModalDelete}
             entityLabel="Live Position"
           />
@@ -483,7 +465,7 @@ export default function PortfolioView() {
         {pendingDelete && (
           <ConfirmDialog
             title="Delete this position?"
-            message={`${describeEntryContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — this can't be undone.`}
+            message={`${describeEntryContract(pendingDelete)} · ${SIDE_LABELS[pendingDelete.side]} — if it's still open on Upstox, the next sync adds it back.`}
             onConfirm={confirmDelete}
             onCancel={() => setPendingDelete(null)}
           />

@@ -8,6 +8,7 @@ import {
   DownloadIcon,
   InboxIcon,
   PlusIcon,
+  RefreshIcon,
   SearchIcon,
   UploadIcon,
 } from "@/components/icons";
@@ -36,6 +37,7 @@ import {
   type TradeEntryStatus,
 } from "@/lib/tradeEntriesStore";
 import TradeEntryModal from "@/components/TradeEntryModal";
+import UpstoxTradeSyncModal from "@/components/UpstoxTradeSyncModal";
 
 const badgeClass = "rounded-full border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground";
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
@@ -78,7 +80,7 @@ type SortField = "date" | "pnl" | "buyPrice" | "sellPrice" | "lots";
 type SortDir = "asc" | "desc";
 
 const SORT_FIELD_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "date", label: "Date" },
+  { value: "date", label: "Opening Date" },
   { value: "pnl", label: "P&L" },
   { value: "buyPrice", label: "Buy Price" },
   { value: "sellPrice", label: "Sell Price" },
@@ -165,6 +167,7 @@ export default function TradeEntriesView() {
   const [modalState, setModalState] = useState<ModalState>(null);
   const [pendingDelete, setPendingDelete] = useState<TradeEntry | null>(null);
   const [importing, setImporting] = useState(false);
+  const [upstoxSyncOpen, setUpstoxSyncOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -431,6 +434,14 @@ export default function TradeEntriesView() {
           />
           <button
             type="button"
+            onClick={() => setUpstoxSyncOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+          >
+            <RefreshIcon className="size-4" />
+            Sync Upstox
+          </button>
+          <button
+            type="button"
             onClick={handleImportClick}
             disabled={importing}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60 active:scale-95"
@@ -573,7 +584,7 @@ export default function TradeEntriesView() {
                 <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b border-border text-left">
                     <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>SL</th>
-                    <th className={`${tableHeadClass} px-2 py-3`}>Date</th>
+                    <th className={`${tableHeadClass} px-2 py-3`}>Opening Date</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Closing Date</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Instrument</th>
                     <th className={`${tableHeadClass} px-2 py-3`}>Side</th>
@@ -651,6 +662,10 @@ export default function TradeEntriesView() {
             onDelete={handleModalDelete}
           />
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {upstoxSyncOpen && <UpstoxTradeSyncModal key="upstox-sync" onClose={() => setUpstoxSyncOpen(false)} />}
       </AnimatePresence>
 
       <AnimatePresence>

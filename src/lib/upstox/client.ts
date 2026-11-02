@@ -1,7 +1,6 @@
 /**
- * Browser-side caller for this app's own /api/upstox/option-chain route —
- * never calls Upstox directly (see the route for why). One call per
- * (instrument, expiry) group; Live Portfolio is the only caller today.
+ * Browser-side callers for this app's own /api/upstox/* routes — never calls
+ * Upstox directly (see option-chain/route.ts for why).
  */
 
 import type { HeatmapRange } from "@/lib/heatmap/ranges";
@@ -14,6 +13,10 @@ import {
   type UpstoxMarginInstrumentRequest,
   type UpstoxMarginLine,
   type UpstoxOptionChainResult,
+  type UpstoxPnlReportResult,
+  type UpstoxPnlSegment,
+  type UpstoxPnlSummaryResult,
+  type UpstoxPositionsResult,
 } from "@/lib/upstox/types";
 
 export async function fetchOptionChain(instrument: Instrument, expiry: string): Promise<UpstoxOptionChainResult> {
@@ -106,6 +109,45 @@ export async function fetchExpiries(instrument: Instrument): Promise<ExpiriesFet
     if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
     if (!Array.isArray(body?.expiries)) return { error: "Expiry response was missing the expected data." };
     return { expiries: body.expiries };
+  } catch {
+    return { error: "network_error" };
+  }
+}
+
+/** The account's open (and squared-off-today) index option positions — feeds Live Portfolio's sync. */
+export async function fetchPositions(): Promise<UpstoxPositionsResult> {
+  try {
+    const res = await fetch("/api/upstox/positions", { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (!Array.isArray(body?.positions)) return { error: "Positions response was missing the expected data." };
+    return body;
+  } catch {
+    return { error: "network_error" };
+  }
+}
+
+/** Every closed round trip in the financial year starting April `fy` — feeds Trade Entries' "Sync Upstox". */
+export async function fetchPnlReport(fy: number): Promise<UpstoxPnlReportResult> {
+  try {
+    const res = await fetch(`/api/upstox/pnl-report?${new URLSearchParams({ fy: String(fy) })}`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (!Array.isArray(body?.trades)) return { error: "P&L report response was missing the expected data." };
+    return body;
+  } catch {
+    return { error: "network_error" };
+  }
+}
+
+/** Upstox's own trade summary (P&L, charges, ROI, win rate) for one segment's trades closed between two yyyy-mm-dd dates — feeds Reports. */
+export async function fetchPnlSummary(segment: UpstoxPnlSegment, from: string, to: string): Promise<UpstoxPnlSummaryResult> {
+  try {
+    const res = await fetch(`/api/upstox/pnl-summary?${new URLSearchParams({ segment, from, to })}`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (typeof body?.grossPnl !== "number") return { error: "Summary response was missing the expected data." };
+    return body;
   } catch {
     return { error: "network_error" };
   }

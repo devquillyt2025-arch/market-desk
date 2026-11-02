@@ -21,6 +21,7 @@ import {
   type TradeEntrySide,
   type TradeEntryStatus,
 } from "@/lib/types";
+import type { UpstoxClosedTrade } from "@/lib/upstox/types";
 
 export {
   TRADE_ENTRY_OPTION_TYPES,
@@ -290,6 +291,54 @@ export async function importTradeEntries(data: unknown): Promise<ImportTradeEntr
   const inserted = entries.length - updated;
   logEvent(`Imported trade entries: ${inserted} added, ${updated} updated`);
   return { inserted, updated };
+}
+
+export type UpstoxTradeWrite = {
+  trade: UpstoxClosedTrade;
+  /** The journal entry this trade replaces — null for a new one. */
+  entry: TradeEntry | null;
+};
+
+export type UpstoxImportResult = { added: number; updated: number; removed: number };
+
+/**
+ * Writes an approved "Sync Upstox" plan: each trade becomes (or overwrites)
+ * a squared-off entry, keeping any remarks it already had, and `removeIds`
+ * are deleted. P&L is Upstox's own figure rather than calculateEntryPnl's —
+ * an older trade's lot size can differ from today's DEFAULT_LOT_SIZES.
+ */
+export async function applyUpstoxTrades(writes: UpstoxTradeWrite[], removeIds: string[]): Promise<UpstoxImportResult> {
+  const now = new Date().toISOString();
+  if (writes.length > 0) {
+    const rows = writes.map(({ trade, entry }) => ({
+      id: entry?.id ?? crypto.randomUUID(),
+      entry_date: trade.entryDate,
+      instrument: trade.instrument,
+      strike_price: trade.strike,
+      option_type: trade.optionType,
+      expiry_date: trade.expiry,
+      closing_date: trade.closingDate,
+      lots: trade.lots,
+      side: trade.side,
+      buy_price: trade.buyPrice,
+      sell_price: trade.sellPrice,
+      pnl: trade.pnl,
+      status: "squared_off" as const,
+      remarks: entry?.remarks ?? null,
+      updated_at: now,
+    }));
+    const { error } = await supabase.from("trade_entries").upsert(rows, { onConflict: "id" });
+    if (error) throw error;
+  }
+  if (removeIds.length > 0) {
+    const { error } = await supabase.from("trade_entries").delete().in("id", removeIds);
+    if (error) throw error;
+  }
+
+  const updated = writes.filter((w) => w.entry !== null).length;
+  const result = { added: writes.length - updated, updated, removed: removeIds.length };
+  logEvent(`Synced trade entries from Upstox: ${result.added} added, ${result.updated} updated, ${result.removed} removed`);
+  return result;
 }
 
 /** Keeps every open session in sync via Supabase Realtime, same as notesStore.ts. */
