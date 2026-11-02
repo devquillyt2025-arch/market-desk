@@ -17,9 +17,19 @@ import {
 
 const inputClass =
   "w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
-const selectTriggerClass =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
+
+/**
+ * Pay In and Payout show different fields. Rather than swapping them in and
+ * out — which resized the card, and with it re-centred it, every time the
+ * type flipped — both versions sit stacked in one grid cell: the cell is
+ * always as tall as the taller one, so the card never moves, and only the
+ * contents cross-fade. The hidden version is `inert`, so it can't be tabbed
+ * into or clicked.
+ */
+const STACKED_CLASS = "[grid-area:1/1] transition-[opacity,transform] duration-200 ease-out";
+const SHOWN_CLASS = "translate-y-0 opacity-100";
+const HIDDEN_CLASS = "pointer-events-none -translate-y-1 opacity-0";
 
 const STATUS_LABELS: Record<PaymentStatus, string> = {
   pending: "Pending",
@@ -148,52 +158,93 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
                   key={t}
                   type="button"
                   onClick={() => setType(t)}
-                  className={
-                    t === type
-                      ? "rounded-md bg-card px-3.5 py-1.5 text-sm font-medium text-foreground shadow-sm"
-                      : "rounded-md px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  }
+                  aria-pressed={t === type}
+                  // Same weight either way — switching it made the labels (and the whole toggle) change width.
+                  className={`relative rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    t === type ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  {TYPE_LABELS[t]}
+                  {t === type && (
+                    <motion.span
+                      layoutId="payment-type-pill"
+                      className="absolute inset-0 rounded-md bg-card shadow-sm"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                  <span className="relative">{TYPE_LABELS[t]}</span>
                 </button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">{TYPE_DESCRIPTIONS[type]}</p>
+            <div className="grid">
+              {PAYMENT_TYPES.map((t) => (
+                <p
+                  key={t}
+                  aria-hidden={t !== type}
+                  className={`text-xs text-muted-foreground ${STACKED_CLASS} ${t === type ? SHOWN_CLASS : HIDDEN_CLASS}`}
+                >
+                  {TYPE_DESCRIPTIONS[t]}
+                </p>
+              ))}
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1 col-span-2">
-              <label htmlFor="payment-details" className={labelClass}>
-                Details
-              </label>
-              <input
-                id="payment-details"
-                value={details}
-                onChange={(e) => setDetails(e.target.value)}
-                placeholder={isPayIn ? "e.g. March funding" : "e.g. March payout"}
-                className={inputClass}
-              />
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1 col-span-2">
+                <label htmlFor="payment-details" className={labelClass}>
+                  Details
+                </label>
+                <input
+                  id="payment-details"
+                  value={details}
+                  onChange={(e) => setDetails(e.target.value)}
+                  placeholder={isPayIn ? "e.g. March funding" : "e.g. March payout"}
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="payment-date" className={labelClass}>
+                  Date
+                </label>
+                <DatePicker id="payment-date" value={entryDate} onChange={setEntryDate} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="payment-status" className={labelClass}>
+                  Status
+                </label>
+                <Select
+                  id="payment-status"
+                  value={status}
+                  onChange={setStatus}
+                  options={STATUS_OPTIONS}
+                  size="sm"
+                />
+              </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="payment-date" className={labelClass}>
-                Date
-              </label>
-              <DatePicker id="payment-date" value={entryDate} onChange={setEntryDate} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="payment-status" className={labelClass}>
-                Status
-              </label>
-              <Select
-                id="payment-status"
-                value={status}
-                onChange={setStatus}
-                options={STATUS_OPTIONS}
-                triggerClassName={selectTriggerClass}
-              />
-            </div>
-            {!isPayIn && (
-              <>
+
+            <div className="grid">
+              <div inert={!isPayIn} aria-hidden={!isPayIn} className={`${STACKED_CLASS} ${isPayIn ? SHOWN_CLASS : HIDDEN_CLASS}`}>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="payment-amount" className={labelClass}>
+                    Amount
+                  </label>
+                  <input
+                    id="payment-amount"
+                    type="number"
+                    step="0.01"
+                    value={payoutAmount}
+                    onChange={(e) => setPayoutAmount(e.target.value)}
+                    placeholder="e.g. 7500"
+                    className={`${inputClass} font-mono tabular-nums`}
+                  />
+                </div>
+              </div>
+
+              <div
+                inert={isPayIn}
+                aria-hidden={isPayIn}
+                className={`grid grid-cols-2 gap-3 ${STACKED_CLASS} ${isPayIn ? HIDDEN_CLASS : SHOWN_CLASS}`}
+              >
                 <div className="flex flex-col gap-1">
                   <label htmlFor="payment-initial-fund" className={labelClass}>
                     Initial Fund
@@ -222,21 +273,21 @@ export default function PaymentModal({ payment, onSave, onClose, onDelete }: Pay
                     className={`${inputClass} font-mono tabular-nums`}
                   />
                 </div>
-              </>
-            )}
-            <div className="flex flex-col gap-1 col-span-2">
-              <label htmlFor="payment-payout" className={labelClass}>
-                {isPayIn ? "Amount" : "Payout Amount"}
-              </label>
-              <input
-                id="payment-payout"
-                type="number"
-                step="0.01"
-                value={payoutAmount}
-                onChange={(e) => setPayoutAmount(e.target.value)}
-                placeholder="e.g. 7500"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
+                <div className="col-span-2 flex flex-col gap-1">
+                  <label htmlFor="payment-payout" className={labelClass}>
+                    Payout Amount
+                  </label>
+                  <input
+                    id="payment-payout"
+                    type="number"
+                    step="0.01"
+                    value={payoutAmount}
+                    onChange={(e) => setPayoutAmount(e.target.value)}
+                    placeholder="e.g. 7500"
+                    className={`${inputClass} font-mono tabular-nums`}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
