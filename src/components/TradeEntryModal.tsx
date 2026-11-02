@@ -23,8 +23,6 @@ import {
 
 const inputClass =
   "w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
-const selectTriggerClass =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 const STATUS_LABELS: Record<TradeEntryStatus, string> = {
@@ -242,7 +240,7 @@ export default function TradeEntryModal({
                 value={instrument}
                 onChange={setInstrument}
                 options={INSTRUMENT_OPTIONS}
-                triggerClassName={selectTriggerClass}
+                size="sm"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -268,7 +266,7 @@ export default function TradeEntryModal({
                 value={optionType}
                 onChange={setOptionType}
                 options={OPTION_TYPE_OPTIONS}
-                triggerClassName={selectTriggerClass}
+                size="sm"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -286,7 +284,7 @@ export default function TradeEntryModal({
                 value={side}
                 onChange={setSide}
                 options={SIDE_OPTIONS}
-                triggerClassName={selectTriggerClass}
+                size="sm"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -360,7 +358,7 @@ export default function TradeEntryModal({
                 value={status}
                 onChange={handleStatusChange}
                 options={STATUS_OPTIONS}
-                triggerClassName={selectTriggerClass}
+                size="sm"
               />
             </div>
             <div className="flex flex-col gap-1 sm:col-span-3">

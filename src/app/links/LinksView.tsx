@@ -320,14 +320,31 @@ export default function LinksView() {
                   value={group}
                   onChange={(e) => setGroup(e.target.value)}
                   placeholder="My Links"
-                  list="link-groups"
                   className={inputClass}
                 />
-                <datalist id="link-groups">
-                  {groupNames.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                {/* Existing groups as chips rather than a native <datalist>, whose popup is browser chrome that ignores the theme. */}
+                {groupNames.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {groupNames.map((name) => {
+                      const picked = group.trim() === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => setGroup(name)}
+                          aria-pressed={picked}
+                          className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                            picked
+                              ? "border-accent/40 bg-accent/10 text-accent"
+                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

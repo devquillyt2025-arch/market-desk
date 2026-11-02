@@ -396,13 +396,13 @@ export default function OptionChainPicker({
         {/* Header */}
         <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <div className="w-36">
-            <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} />
+            <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} size="sm" />
           </div>
           <div className="text-sm font-semibold">
             {spot !== null ? <span className="font-mono tabular-nums">{spot.toFixed(2)}</span> : <span className="text-muted-foreground">Spot —</span>}
           </div>
           <div className="w-28">
-            <Select value={expiry ?? ""} onChange={setPickedExpiry} options={expiryOptions} />
+            <Select value={expiry ?? ""} onChange={setPickedExpiry} options={expiryOptions} size="sm" />
           </div>
           <div role="tablist" className="flex overflow-hidden rounded-lg border border-border">
             {VIEWS.map((v) => (

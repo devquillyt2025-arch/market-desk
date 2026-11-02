@@ -701,7 +701,7 @@ export default function AnalysisView() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-36">
               <label className="mb-1 block text-xs text-muted-foreground">Underlying</label>
-              <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} />
+              <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} size="sm" />
             </div>
             <div className="w-36">
               <label htmlFor="spot" className="mb-1 block text-xs text-muted-foreground">
