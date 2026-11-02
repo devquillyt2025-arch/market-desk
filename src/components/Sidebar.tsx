@@ -31,6 +31,10 @@ import {
  * Trade, Analysis, Trade Entries, Reports, Payment). Notes and Logs are reference
  * utilities, so they sit in their own group after a divider (see
  * SECONDARY_GROUP_START) rather than interrupting the tabs above.
+ *
+ * Expanded and collapsed share one vertical rhythm — same header height, row
+ * height, gap and divider — so every icon stays at the same height when the
+ * rail is toggled and only the width changes.
  */
 const LINKS = [
   { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
@@ -49,7 +53,7 @@ const LINKS = [
 /** Pinned below the scrolling list, not part of it — settings isn't a workflow tab. */
 const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
 
-/** Everything from this index on (Notes/Logs) renders as a visually separate "secondary" group when collapsed. */
+/** Everything from this index on (Notes/Logs) renders as a visually separate "secondary" group, below a divider. */
 const SECONDARY_GROUP_START = 9;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
@@ -116,7 +120,7 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
       title={collapsed ? undefined : label}
       className={`group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-sm font-medium transition-colors ${
         active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
-      } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0 lg:py-3" : ""}`}
+      } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0" : ""}`}
     >
       {active && (
         <motion.span
@@ -125,7 +129,7 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
           transition={{ type: "spring", stiffness: 500, damping: 35 }}
         />
       )}
-      <Icon className={`relative z-10 size-5 shrink-0 ${collapsed ? "lg:size-6" : ""}`} />
+      <Icon className="relative z-10 size-5 shrink-0" />
       <CollapsibleLabel collapsed={collapsed} className="relative z-10">
         {label}
       </CollapsibleLabel>
@@ -225,8 +229,9 @@ export default function Sidebar() {
           open ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-[76px]" : "lg:w-64"}`}
       >
+        {/* Fixed height: the collapse button (size-8) and the logo that replaces it (size-7) would otherwise give the two states different header heights, shifting every nav item below. */}
         <div
-          className={`flex shrink-0 items-center justify-between gap-2 px-4 py-4 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          className={`flex h-16 shrink-0 items-center justify-between gap-2 px-4 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
             collapsed ? "lg:justify-center lg:px-2" : ""
           }`}
         >
@@ -269,14 +274,13 @@ export default function Sidebar() {
           tooltips below are absolutely positioned to escape the rail to the
           right, and any ancestor overflow clipping — including overflow-y
           alone, since an unset overflow-x computes to auto rather than
-          visible once overflow-y isn't visible — would cut them off. Safe
-          today because 8 items comfortably fit any realistic viewport
-          height; revisit (portal the tooltip, or scroll only when needed)
-          if the nav list grows enough to risk overflowing vertically.
+          visible once overflow-y isn't visible — would cut them off. The 11
+          items fit a laptop-height viewport in both states; revisit (portal
+          the tooltip, or scroll only when needed) if the list grows.
         */}
         <nav
           className={`flex flex-1 flex-col gap-1 px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:gap-1.5 lg:px-2" : ""
+            collapsed ? "lg:px-2" : ""
           }`}
         >
           {LINKS.flatMap((link, index) => {
@@ -292,24 +296,28 @@ export default function Sidebar() {
               />
             );
 
-            if (collapsed && index === SECONDARY_GROUP_START) {
-              return [
-                <div key={`divider-${link.href}`} className="mx-1 my-1.5 hidden border-t border-border/70 lg:block" />,
-                item,
-              ];
+            if (index === SECONDARY_GROUP_START) {
+              return [<div key={`divider-${link.href}`} className="mx-1 my-1.5 border-t border-border/70" />, item];
             }
             return [item];
           })}
         </nav>
 
         {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. Theme toggle rides alongside it so switching themes never requires opening Settings first. */}
+        {/*
+          Collapsed, three controls can't share one row of a 76px rail, so
+          Settings takes its own row with the theme toggle and lock side by
+          side beneath it — two rows, where stacking all three in a column
+          had pushed Settings off the bottom of shorter screens. px-1.5 there
+          leaves exactly the 64px the two 32px buttons need.
+        */}
         <div
           className={`shrink-0 border-t border-border px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:px-2" : ""
+            collapsed ? "lg:px-1.5" : ""
           }`}
         >
-          <div className={`flex items-center gap-1 ${collapsed ? "lg:flex-col lg:gap-1.5" : ""}`}>
-            <div className="min-w-0 flex-1">
+          <div className={`flex items-center gap-1 ${collapsed ? "lg:flex-col" : ""}`}>
+            <div className={`min-w-0 flex-1 ${collapsed ? "lg:w-full" : ""}`}>
               <NavItem
                 href={SETTINGS_LINK.href}
                 label={SETTINGS_LINK.label}
@@ -319,17 +327,19 @@ export default function Sidebar() {
                 onClick={() => setOpen(false)}
               />
             </div>
-            <ThemeToggle />
-            <form action={lock}>
-              <button
-                type="submit"
-                aria-label="Lock MarketDesk"
-                title="Lock"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <LockIcon className="size-[18px]" />
-              </button>
-            </form>
+            <div className={`flex items-center gap-1 ${collapsed ? "lg:gap-0" : ""}`}>
+              <ThemeToggle />
+              <form action={lock}>
+                <button
+                  type="submit"
+                  aria-label="Lock MarketDesk"
+                  title="Lock"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <LockIcon className="size-[18px]" />
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </aside>
