@@ -8,6 +8,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingState from "@/components/LoadingState";
 import Select from "@/components/Select";
 import { clearLogs, getCachedLogs, getLogs, subscribeToLogChanges, type LogEntry } from "@/lib/activityLog";
+import { PAGE_HEIGHT_LOCK_CLASS } from "@/lib/layout";
 import { showToast } from "@/lib/toast";
 
 type SortOrder = "newest" | "oldest";
@@ -68,9 +69,11 @@ export default function LogsView() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col gap-6"
+      // Locked to the viewport so the header and search stay put and only the
+      // log list scrolls — same arrangement as Trade Entries.
+      className={`flex flex-col gap-6 ${PAGE_HEIGHT_LOCK_CLASS}`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Logs</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -90,7 +93,7 @@ export default function LogsView() {
       </div>
 
       {logs !== null && logs.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -121,7 +124,9 @@ export default function LogsView() {
           <p className="text-sm text-muted-foreground">No log entries match &quot;{query}&quot;.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-background">
+        // Shrinks (min-h-0) into whatever height the header and search leave
+        // and scrolls inside it; a short log just keeps its own height.
+        <div className="min-h-0 overflow-y-auto rounded-xl border border-border bg-background">
           <ul>
             <AnimatePresence initial={false}>
               {(displayedLogs ?? []).map((entry, index) => (
