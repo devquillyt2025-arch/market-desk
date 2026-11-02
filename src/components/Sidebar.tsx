@@ -305,19 +305,20 @@ export default function Sidebar() {
 
         {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. Theme toggle rides alongside it so switching themes never requires opening Settings first. */}
         {/*
-          Collapsed, three controls can't share one row of a 76px rail, so
-          Settings takes its own row with the theme toggle and lock side by
-          side beneath it — two rows, where stacking all three in a column
-          had pushed Settings off the bottom of shorter screens. px-1.5 there
-          leaves exactly the 64px the two 32px buttons need.
+          Collapsed, only Settings stays: the theme toggle and lock fold away
+          with the labels (same max-width/opacity transition as
+          CollapsibleLabel, so they slide in step with the rail's width), which
+          keeps the footer one row high in both states. `invisible` takes them
+          out of the tab order while folded; listed in the transition, it only
+          flips once the fade-out has finished.
         */}
         <div
           className={`shrink-0 border-t border-border px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:px-1.5" : ""
+            collapsed ? "lg:px-2" : ""
           }`}
         >
-          <div className={`flex items-center gap-1 ${collapsed ? "lg:flex-col" : ""}`}>
-            <div className={`min-w-0 flex-1 ${collapsed ? "lg:w-full" : ""}`}>
+          <div className={`flex items-center gap-1 ${collapsed ? "lg:gap-0" : ""}`}>
+            <div className="min-w-0 flex-1">
               <NavItem
                 href={SETTINGS_LINK.href}
                 label={SETTINGS_LINK.label}
@@ -327,7 +328,11 @@ export default function Sidebar() {
                 onClick={() => setOpen(false)}
               />
             </div>
-            <div className={`flex items-center gap-1 ${collapsed ? "lg:gap-0" : ""}`}>
+            <div
+              className={`flex shrink-0 items-center gap-1 overflow-hidden transition-[max-width,opacity,visibility] ${COLLAPSE_TRANSITION} ${
+                collapsed ? "lg:invisible lg:max-w-0 lg:opacity-0" : "max-w-20 opacity-100"
+              }`}
+            >
               <ThemeToggle />
               <form action={lock}>
                 <button
