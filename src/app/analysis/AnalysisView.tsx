@@ -1283,8 +1283,10 @@ function PnlMatrix({
       { key: "exp", label: "Expiry", ms: expiryMs },
     ];
   } else {
-    const count = Math.min(totalDays, 5);
-    const days = [...new Set(Array.from({ length: count + 1 }, (_, i) => Math.round((i / count) * totalDays)))];
+    // Every day up to a week out, so a weekly expiry never skips a date (the
+    // slider above steps through each one); further out, 5 evenly spaced steps.
+    const count = totalDays <= 7 ? totalDays : 5;
+    const days =[...new Set(Array.from({ length: count + 1 }, (_, i) => Math.round((i / count) * totalDays)))];
     moments = days.map((d) => ({
       key: String(d),
       label: `${d === 0 ? "Today" : dayLabel(d)}${d === totalDays ? " (exp)" : ""}`,
@@ -1296,12 +1298,12 @@ function PnlMatrix({
 
   return (
     <div className="mt-4 overflow-x-auto">
-      <table className="w-full min-w-[480px] text-sm">
+      <table className="w-full text-sm" style={{ minWidth: 140 + moments.length * 88 }}>
         <thead>
           <tr className="border-b border-border text-xs text-muted-foreground">
             <th className="py-2 pr-3 text-left font-medium">Underlying</th>
             {moments.map((m) => (
-              <th key={m.key} className="px-2 py-2 text-right font-medium">
+              <th key={m.key} className="whitespace-nowrap px-2 py-2 text-right font-medium">
                 {m.label}
               </th>
             ))}
