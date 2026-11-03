@@ -288,7 +288,7 @@ export default function BrokerageCalculator() {
       className="flex h-full min-h-0 flex-col gap-3"
     >
       <section className="grid shrink-0 overflow-hidden rounded-xl border border-border sm:grid-cols-2">
-        <div className="grid grid-cols-2 gap-px bg-border sm:border-r sm:border-border">
+        <dl className="grid grid-cols-2 gap-px bg-border sm:border-r sm:border-border">
           {topStats.map((stat) => (
             <div key={stat.label} className="bg-background p-2.5">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
@@ -297,23 +297,25 @@ export default function BrokerageCalculator() {
               </dd>
             </div>
           ))}
-        </div>
+        </dl>
 
         <div className="flex flex-col justify-center gap-2 bg-background p-3 sm:p-4">
-          <div className="flex items-center justify-between">
+          <dl className="flex items-center justify-between">
             <dt className="text-sm text-muted-foreground">Gross P&amp;L</dt>
             <dd className="font-mono text-sm font-medium tabular-nums">{rupees(totalPnl)}</dd>
-          </div>
+          </dl>
           <div className="flex flex-col gap-1.5 border-t border-border pt-2">
             <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Trade Values</h2>
-            <div className="flex items-center justify-between">
-              <dt className="text-sm text-muted-foreground">Net Buy Value</dt>
-              <dd className="font-mono text-sm font-medium tabular-nums">{rupees(charges.netBuyValue)}</dd>
-            </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-sm text-muted-foreground">Net Sell Value</dt>
-              <dd className="font-mono text-sm font-medium tabular-nums">{rupees(charges.netSellValue)}</dd>
-            </div>
+            <dl className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <dt className="text-sm text-muted-foreground">Net Buy Value</dt>
+                <dd className="font-mono text-sm font-medium tabular-nums">{rupees(charges.netBuyValue)}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-sm text-muted-foreground">Net Sell Value</dt>
+                <dd className="font-mono text-sm font-medium tabular-nums">{rupees(charges.netSellValue)}</dd>
+              </div>
+            </dl>
           </div>
         </div>
       </section>
@@ -362,7 +364,9 @@ export default function BrokerageCalculator() {
                     <th className="w-[110px] px-2 py-2 font-medium">Buy Price</th>
                     <th className="w-[110px] px-2 py-2 font-medium">Sell Price</th>
                     <th className="w-[110px] px-2 py-2 font-medium">Qty</th>
-                    <th className="w-12 py-3 pr-4" />
+                    <th className="w-12 py-3 pr-4">
+                      <span className="sr-only">Remove leg</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -390,6 +394,7 @@ export default function BrokerageCalculator() {
                               type="number"
                               step="0.05"
                               inputMode="decimal"
+                              aria-label={`Leg ${index + 1} buy price`}
                               value={leg.buyPrice}
                               onChange={(e) => handleLegPriceChange(leg.key, "buyPrice", e.target.value)}
                               placeholder="0.00"
@@ -401,6 +406,7 @@ export default function BrokerageCalculator() {
                               type="number"
                               step="0.05"
                               inputMode="decimal"
+                              aria-label={`Leg ${index + 1} sell price`}
                               value={leg.sellPrice}
                               onChange={(e) => handleLegPriceChange(leg.key, "sellPrice", e.target.value)}
                               placeholder="0.00"
@@ -412,6 +418,7 @@ export default function BrokerageCalculator() {
                               type="number"
                               min={lotSize ?? 1}
                               step={lotSize ?? 1}
+                              aria-label={`Leg ${index + 1} quantity`}
                               value={leg.qty}
                               onChange={(e) =>
                                 handleLegQtyChange(leg.key, Math.max(1, Math.trunc(toNumber(e.target.value)) || 1))
@@ -431,7 +438,7 @@ export default function BrokerageCalculator() {
                               type="button"
                               onClick={() => removeLeg(leg.key)}
                               disabled={legs.length === 1}
-                              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent active:scale-90"
+                              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-danger-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent active:scale-90"
                               aria-label={`Remove leg ${index + 1}`}
                             >
                               <TrashIcon className="size-4" />
@@ -457,7 +464,7 @@ export default function BrokerageCalculator() {
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="flex items-center gap-1.5 border-l border-dashed border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss active:scale-[0.98]"
+                className="flex items-center gap-1.5 border-l border-dashed border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-loss/10 hover:text-danger-fg active:scale-[0.98]"
               >
                 <TrashIcon className="size-4" />
                 Clear
@@ -487,10 +494,10 @@ export default function BrokerageCalculator() {
               ))}
             </dl>
 
-            <div className="flex items-center justify-between border-t border-border pt-3">
+            <dl className="flex items-center justify-between border-t border-border pt-3">
               <dt className="text-sm font-medium">Total taxes and charges</dt>
               <dd className="font-mono text-base font-semibold tabular-nums">{rupees(charges.totalCharges)}</dd>
-            </div>
+            </dl>
           </section>
         </div>
       </div>

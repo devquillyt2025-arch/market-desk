@@ -254,7 +254,7 @@ export default function LinksView() {
                 setShowForm(true);
               }
             }}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+            className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
             <PlusIcon className="size-4" />
             Add Link
@@ -348,13 +348,13 @@ export default function LinksView() {
               </div>
             </div>
 
-            {formError && <p className="text-sm text-loss">{formError}</p>}
+            {formError && <p className="text-sm text-danger-fg">{formError}</p>}
 
             <div className="flex gap-3">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
+                className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
               >
                 {saving ? "Saving…" : editingId ? "Save Changes" : "Save Link"}
               </button>
@@ -452,7 +452,7 @@ export default function LinksView() {
                               type="button"
                               onClick={() => requestDelete(link)}
                               aria-label={`Delete ${link.label}`}
-                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-loss active:scale-90"
+                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-danger-fg active:scale-90"
                             >
                               <XIcon className="size-3.5" />
                             </button>
@@ -466,7 +466,7 @@ export default function LinksView() {
                             if (editMode) e.preventDefault();
                             else logEvent(`Opened link: ${link.label}`);
                           }}
-                          className={`flex flex-col gap-1 ${editMode ? "pr-16" : ""}`}
+                          className={`flex flex-col gap-1 ${editMode ? "pr-16" : "after:absolute after:inset-0 after:rounded-xl"}`}
                         >
                           <span className="flex items-center gap-1.5 font-medium">
                             {link.label}

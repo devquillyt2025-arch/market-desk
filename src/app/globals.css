@@ -15,7 +15,10 @@
   --bg-surface-alt: #1c1c1f;
   --border-subtle: #242426;
   --border-strong: #2e2e30;
-  --accent: #7869fc;
+  /* Text, borders, rings — lightened in dark so it reads on near-black and on its own tints (4.5:1). */
+  --accent: #9185ff;
+  /* Solid fills (buttons, active pills, the logo) — deep enough for white text on top (4.8:1). Same in both themes. */
+  --accent-solid: #6a5cf0;
   --accent-tint-bg: #24223b;
   --accent-soft: #c084fc;
   --text-primary: #f5f5f5;
@@ -36,7 +39,7 @@
   --muted: var(--bg-surface-alt);
   --muted-foreground: var(--text-secondary);
   --border: var(--border-subtle);
-  --accent-foreground: var(--text-primary);
+  --accent-foreground: #ffffff;
   --profit: var(--success);
   --loss: var(--danger);
   color-scheme: dark;
@@ -51,6 +54,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-accent: var(--accent);
+  --color-accent-solid: var(--accent-solid);
   --color-accent-foreground: var(--accent-foreground);
   --color-profit: var(--profit);
   --color-loss: var(--loss);
@@ -84,7 +88,7 @@
     --muted: var(--bg-surface-alt);
     --muted-foreground: var(--text-secondary);
     --border: var(--border-subtle);
-    --accent-foreground: var(--text-primary);
+    --accent-foreground: #ffffff;
     --profit: var(--success);
     --loss: var(--danger);
     --glass-border: #313133 #292929 #252527 #292929;
@@ -100,7 +104,7 @@
   --muted: var(--bg-surface-alt);
   --muted-foreground: var(--text-secondary);
   --border: var(--border-subtle);
-  --accent-foreground: var(--text-primary);
+  --accent-foreground: #ffffff;
   --profit: var(--success);
   --loss: var(--danger);
   --glass-border: #313133 #292929 #252527 #292929;
@@ -121,12 +125,12 @@
     --bg-surface-alt: #eee9f8;
     --border-subtle: #e2dcef;
     --border-strong: #cec3e6;
-    --accent: #6a5cf0;
+    --accent: #5243d3;
     --accent-tint-bg: #ece4ff;
     --accent-soft: #9333ea;
     --text-primary: #18141f;
     --text-secondary: #5c5668;
-    --success: #178a5f;
+    --success: #0a6a45;
     --danger: #c22323;
     --info: #2f6690;
     --warning: #a86a00;
@@ -153,12 +157,12 @@
   --bg-surface-alt: #eee9f8;
   --border-subtle: #e2dcef;
   --border-strong: #cec3e6;
-  --accent: #6a5cf0;
+  --accent: #5243d3;
   --accent-tint-bg: #ece4ff;
   --accent-soft: #9333ea;
   --text-primary: #18141f;
   --text-secondary: #5c5668;
-  --success: #178a5f;
+  --success: #0a6a45;
   --danger: #c22323;
   --info: #2f6690;
   --warning: #a86a00;
@@ -259,6 +263,80 @@ body {
       background-color 0.2s ease,
       border-color 0.2s ease,
       color 0.2s ease;
+  }
+}
+
+@layer base {
+  /* Tailwind v4 leaves buttons on the arrow cursor; anything clickable should say so. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /*
+   * One keyboard focus ring for everything that doesn't draw its own (links,
+   * nav items, icon buttons). :focus-visible, so a mouse click never shows it.
+   * Inputs and the dropdown triggers set `outline-none` and paint their own
+   * accent ring instead, which still wins over this.
+   */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /*
+   * Focus is parked on these programmatically (the skip link's target, and a dialog's
+   * panel when it opens — see useDialogFocus) so a screen reader announces them. A ring
+   * around the whole page body or dialog card would only be noise; the controls inside
+   * still get theirs.
+   */
+  #main-content:focus,
+  [role="dialog"]:focus,
+  [role="alertdialog"]:focus {
+    outline: none;
+  }
+}
+
+/*
+ * Reduce Motion: CSS transitions snap instead of animating (framer-motion's own
+ * animations are handled by MotionProvider). Spinners are left alone on
+ * purpose — a loading indicator that stops turning reads as a frozen page.
+ */
+/*
+ * Touch screens only (a mouse keeps the compact desktop sizing): a thumb needs
+ * 44px (Apple HIG; WCAG 2.5.5), and most controls here are 32–38px. Fields and
+ * text buttons grow in height; the 28–36px icon buttons (size-7/8/9 — close,
+ * refresh, menu, theme, lock) grow both ways. Smaller icon-only buttons
+ * (size-6 swatches and the like) stay at the 24px WCAG 2.2 minimum so dense
+ * clusters don't overlap, and underlined text-links-as-buttons keep their line.
+ * min-* rather than height/width: Tailwind's size-* utilities would otherwise win.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea,
+  button:not([class*="size-"]):not([class*="underline"]) {
+    min-height: 44px;
+  }
+  button[class*="size-7"],
+  button[class*="size-8"],
+  button[class*="size-9"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
 }
 

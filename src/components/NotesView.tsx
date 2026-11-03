@@ -179,7 +179,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
         <button
           type="button"
           onClick={openNew}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+          className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
         >
           <PlusIcon className="size-4" />
           New Note
@@ -233,7 +233,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
             onClick={() => setViewMode("grid")}
             title="Grid view"
             className={`flex size-8 items-center justify-center transition-colors ${
-              viewMode === "grid" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"
+              viewMode === "grid" ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <GridIcon className="size-3.5" />
@@ -243,7 +243,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
             onClick={() => setViewMode("list")}
             title="List view"
             className={`flex size-8 items-center justify-center transition-colors ${
-              viewMode === "list" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"
+              viewMode === "list" ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <ListIcon className="size-3.5" />
@@ -269,7 +269,7 @@ export default function NotesView({ onOpenNoteEditor }: NotesViewProps) {
           <button
             type="button"
             onClick={openNew}
-            className="mt-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+            className="mt-1 rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
           >
             New Note
           </button>

@@ -12,6 +12,7 @@ import { motion } from "framer-motion";
 import { useEffect } from "react";
 
 import { AlertCircleIcon } from "@/components/icons";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 
 type ConfirmDialogProps = {
   title: string;
@@ -30,6 +31,7 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const dialogRef = useDialogFocus();
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
@@ -55,13 +57,14 @@ export default function ConfirmDialog({
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         className="glass-panel w-full max-w-sm p-5"
       >
         <div className="flex items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-loss/10 text-loss">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-loss/10 text-danger-fg">
             <AlertCircleIcon className="size-5" />
           </div>
           <div className="flex flex-col gap-1 pt-0.5">
@@ -76,7 +79,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            autoFocus
+            data-autofocus=""
             className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
           >
             {cancelLabel}
@@ -84,7 +87,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-lg bg-loss/15 px-4 py-2 text-sm font-medium text-loss transition-colors hover:bg-loss/25 active:scale-95"
+            className="rounded-lg bg-loss/15 px-4 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-loss/25 active:scale-95"
           >
             {confirmLabel}
           </button>

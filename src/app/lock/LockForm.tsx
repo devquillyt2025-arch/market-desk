@@ -43,7 +43,7 @@ export default function LockForm({ next }: { next: string }) {
         <button
           type="submit"
           disabled={pending}
-          className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          className="mt-4 w-full rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
         >
           {pending ? "Checking…" : "Unlock"}
         </button>

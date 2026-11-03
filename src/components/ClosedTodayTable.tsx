@@ -1,5 +1,9 @@
 "use client";
 
+import { AnimatePresence } from "framer-motion";
+import { useState } from "react";
+
+import ClosedPositionDetailModal from "@/components/ClosedPositionDetailModal";
 import { calculateBrokerage } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { formatINR, pnlColorClass } from "@/lib/format";
@@ -29,6 +33,7 @@ type ClosedTodayTableProps = {
  * and they drop off once Upstox stops reporting them the next day.
  */
 export default function ClosedTodayTable({ positions }: ClosedTodayTableProps) {
+  const [selected, setSelected] = useState<UpstoxPosition | null>(null);
   const rows = positions.map((p) => {
     const buyAvg = average(p.buyValue, p.buyQuantity);
     const sellAvg = average(p.sellValue, p.sellQuantity);
@@ -42,7 +47,8 @@ export default function ClosedTodayTable({ positions }: ClosedTodayTableProps) {
   const totalCharges = rows.reduce((sum, r) => sum + (r.charges ?? 0), 0);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-background">
+    <>
+      <section className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead>
@@ -59,8 +65,21 @@ export default function ClosedTodayTable({ positions }: ClosedTodayTableProps) {
           </thead>
           <tbody>
             {rows.map(({ p, buyAvg, sellAvg, pnl, charges }) => (
-              <tr key={p.instrumentKey} className="border-b border-border last:border-0">
-                <td className="whitespace-nowrap py-2.5 pl-5 pr-2 font-medium">
+              <tr
+                key={p.instrumentKey}
+                onClick={() => setSelected(p)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelected(p);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                title="Click to view full instrument details, money invested & return %"
+                className="group cursor-pointer border-b border-border last:border-0 transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
+              >
+                <td className="whitespace-nowrap py-2.5 pl-5 pr-2 font-medium transition-colors group-hover:text-accent">
                   {describeEntryContract({ instrument: p.instrument, strike_price: p.strike, option_type: p.optionType })}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2.5 text-muted-foreground">{formatCellDate(p.expiry)}</td>
@@ -102,6 +121,17 @@ export default function ClosedTodayTable({ positions }: ClosedTodayTableProps) {
           )}
         </table>
       </div>
-    </section>
+      </section>
+
+      <AnimatePresence>
+        {selected && (
+          <ClosedPositionDetailModal
+            key={selected.instrumentKey}
+            position={selected}
+            onClose={() => setSelected(null)}
+          />
+        )}
+      </AnimatePresence>
+    </>
   );
 }

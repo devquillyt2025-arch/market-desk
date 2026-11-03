@@ -7,6 +7,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import { CheckIcon, CopyIcon, TrashIcon, XIcon } from "@/components/icons";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_LABELS } from "@/lib/noteColors";
 import type { Note, NoteColor } from "@/lib/notesStore";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 
 const PICKABLE_COLORS = Object.keys(NOTE_COLOR_CLASSES) as Exclude<NoteColor, "default">[];
 
@@ -19,6 +20,7 @@ type NoteModalProps = {
 };
 
 export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: NoteModalProps) {
+  const dialogRef = useDialogFocus(handleSave);
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [color, setColor] = useState<NoteColor>(note.color);
@@ -117,6 +119,10 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isNew ? "New note" : "Edit note"}
         className={`glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto ${colorClasses ? colorClasses.border : ""}`}
       >
         {colorClasses && <div className={`h-1 shrink-0 rounded-t-xl ${colorClasses.swatch}`} />}
@@ -241,7 +247,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
                 title="Delete note"
-                className="flex size-8 items-center justify-center rounded-md text-loss transition-colors hover:bg-loss/10"
+                className="flex size-8 items-center justify-center rounded-md text-danger-fg transition-colors hover:bg-loss/10"
               >
                 <TrashIcon className="size-4" />
               </button>
@@ -250,7 +256,7 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
           <button
             type="button"
             onClick={handleSave}
-            className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+            className="rounded-lg bg-accent-solid px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
           >
             Done
           </button>

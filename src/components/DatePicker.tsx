@@ -202,6 +202,8 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
             {open && coords && (
               <motion.div
                 ref={popupRef}
+                // Lets a surrounding popover (Reports' custom range) tell a click on this calendar from one outside it.
+                data-picker-popup=""
                 initial={{ opacity: 0, y: -4, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
@@ -251,7 +253,7 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
                       className={`mx-auto flex size-8 items-center justify-center rounded-md text-sm transition-colors ${
                         isSelected
                           ? // Still marks today when it's also the chosen date — an outer ring around the solid fill.
-                            `bg-accent font-medium text-accent-foreground ${isToday ? "ring-2 ring-accent/40 ring-offset-2 ring-offset-card" : ""}`
+                            `bg-accent-solid font-medium text-accent-foreground ${isToday ? "ring-2 ring-accent/40 ring-offset-2 ring-offset-card" : ""}`
                           : isToday
                             ? "bg-accent/15 font-semibold text-accent ring-1 ring-inset ring-accent/60 hover:bg-accent/25"
                             : inMonth

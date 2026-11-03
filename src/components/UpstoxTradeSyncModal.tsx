@@ -31,6 +31,7 @@ import {
 import { fetchPnlReport } from "@/lib/upstox/client";
 import { isUpstoxPnlReportError, type UpstoxPnlReportResult } from "@/lib/upstox/types";
 import { planTradeImport } from "@/lib/upstoxSync";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 
 function todayISODate(): string {
   const now = new Date();
@@ -100,6 +101,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function UpstoxTradeSyncModal({ onClose }: { onClose: () => void }) {
+  const dialogRef = useDialogFocus();
   const [fy, setFy] = useState(currentFyStart);
   const [report, setReport] = useState<UpstoxPnlReportResult | null>(null);
   const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
@@ -200,6 +202,7 @@ export default function UpstoxTradeSyncModal({ onClose }: { onClose: () => void 
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Sync trades from Upstox"
@@ -394,7 +397,7 @@ export default function UpstoxTradeSyncModal({ onClose }: { onClose: () => void 
             type="button"
             disabled={!plan || changeCount === 0 || applying}
             onClick={handleApply}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
+            className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
           >
             {applying ? "Syncing…" : changeCount === 0 ? "Nothing to sync" : `Apply ${changeCount} change${changeCount === 1 ? "" : "s"}`}
           </button>

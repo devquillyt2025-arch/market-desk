@@ -243,7 +243,7 @@ export default function PaperTradeView() {
           <button
             type="button"
             onClick={() => setModalState({ mode: "add" })}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+            className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
             <PlusIcon className="size-4" />
             Add Paper Trade

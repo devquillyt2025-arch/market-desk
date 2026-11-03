@@ -11,13 +11,14 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { XIcon } from "@/components/icons";
 import LoadingState from "@/components/LoadingState";
 import Select from "@/components/Select";
 import { pnlColorClass } from "@/lib/format";
 import { fetchPnlSummary } from "@/lib/upstox/client";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 import {
   isUpstoxPnlSummaryError,
   UPSTOX_PNL_SEGMENT_LABELS,
@@ -70,6 +71,7 @@ type ChargesDialogProps = {
 
 /** "Charges and Breakdown" popup, like the one behind Upstox's own "Charges & taxes" link. */
 function ChargesDialog({ charges, caption, onClose }: ChargesDialogProps) {
+  const dialogRef = useDialogFocus();
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -93,6 +95,7 @@ function ChargesDialog({ charges, caption, onClose }: ChargesDialogProps) {
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="charges-dialog-title"
@@ -118,8 +121,9 @@ function ChargesDialog({ charges, caption, onClose }: ChargesDialogProps) {
           {CHARGE_LINES.filter((line) => line.always || charges[line.key] !== 0).map((line) => (
             <Row key={line.key} label={line.label} value={inrPaise.format(charges[line.key])} />
           ))}
-          <div className="mt-1 border-t border-border pt-1">
-            <Row label="Total" value={inrPaise.format(charges.total)} strong />
+          <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-2 pb-1.5 text-sm font-semibold">
+            <dt>Total</dt>
+            <dd className="font-mono tabular-nums">{inrPaise.format(charges.total)}</dd>
           </div>
         </dl>
       </motion.div>
@@ -146,6 +150,24 @@ export default function UpstoxTradeSummary({ from, to }: { from: string; to: str
   }, [segment, from, to, key]);
 
   const result = loaded?.key === key ? loaded.result : null;
+
+  // While the next figures load, the body holds the height of the last ones.
+  // Otherwise it shrinks to a spinner on every range or segment change and
+  // everything below jumps up, then back down when the figures arrive. Done on
+  // the DOM, before paint, rather than through state: it only needs to keep the
+  // box from collapsing, not to re-render anything.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const lastBodyHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    if (result === null) {
+      el.style.minHeight = `${lastBodyHeight.current}px`;
+    } else {
+      el.style.minHeight = "";
+      lastBodyHeight.current = el.offsetHeight;
+    }
+  }, [result]);
 
   let body: React.ReactNode;
   if (result === null) {
@@ -184,7 +206,7 @@ export default function UpstoxTradeSummary({ from, to }: { from: string; to: str
     const winPct = Math.round((result.winningCount / result.tradeCount) * 100);
 
     body = (
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <dl className="rounded-lg border border-border bg-card px-4 py-2">
           <Row label="Gross P&L" value={inrPaise.format(result.grossPnl)} className={pnlColorClass(result.grossPnl)} strong />
           <Row label="Net P&L" value={inrPaise.format(netPnl)} className={pnlColorClass(netPnl)} />
@@ -232,7 +254,9 @@ export default function UpstoxTradeSummary({ from, to }: { from: string; to: str
           <Select value={segment} onChange={setSegment} options={SEGMENT_OPTIONS} align="right" />
         </div>
       </div>
-      {body}
+      <div ref={bodyRef} className="mt-3">
+        {body}
+      </div>
 
       <AnimatePresence>
         {showCharges && result && !isUpstoxPnlSummaryError(result) && (

@@ -46,6 +46,14 @@ export default function LogsView() {
     return subscribeToLogChanges(load);
   }, []);
 
+  // Serial numbers count up from the oldest entry, so an entry keeps its number
+  // whatever the sort order or search term. `logs` arrives newest-first.
+  const serials = useMemo(() => {
+    const map = new Map<string, number>();
+    logs?.forEach((entry, i) => map.set(entry.id, logs.length - i));
+    return map;
+  }, [logs]);
+
   const displayedLogs = useMemo(() => {
     if (!logs) return null;
     const q = query.trim().toLowerCase();
@@ -84,7 +92,7 @@ export default function LogsView() {
           <button
             type="button"
             onClick={() => setConfirmingClear(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-loss/40 hover:bg-loss/10 hover:text-loss active:scale-95"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-loss/40 hover:bg-loss/10 hover:text-danger-fg active:scale-95"
           >
             <TrashIcon className="size-4" />
             Clear Logs
@@ -126,7 +134,7 @@ export default function LogsView() {
       ) : (
         // Shrinks (min-h-0) into whatever height the header and search leave
         // and scrolls inside it; a short log just keeps its own height.
-        <div className="min-h-0 overflow-y-auto rounded-xl border border-border bg-background">
+        <div tabIndex={0} role="region" aria-label="Activity log" className="focus-visible:outline-offset-[-2px] min-h-0 overflow-y-auto rounded-xl border border-border bg-background">
           <ul>
             <AnimatePresence initial={false}>
               {(displayedLogs ?? []).map((entry, index) => (
@@ -141,7 +149,13 @@ export default function LogsView() {
                     index === 0 ? "" : "border-t border-border"
                   }`}
                 >
-                  <span>{entry.message}</span>
+                  <div className="flex items-baseline gap-3">
+                    {/* 3ch fits the 500-entry cap, keeping messages aligned. */}
+                    <span className="w-[3ch] shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                      {serials.get(entry.id)}
+                    </span>
+                    <span>{entry.message}</span>
+                  </div>
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {formatTimestamp(entry.timestamp)}
                   </span>

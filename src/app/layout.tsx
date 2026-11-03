@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
+import MotionProvider from "@/components/MotionProvider";
 import Sidebar from "@/components/Sidebar";
 import ToastHost from "@/components/ToastHost";
 import { getSiteUrl } from "@/lib/siteUrl";
@@ -73,15 +74,28 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Script id="theme-init" strategy="beforeInteractive">
           {THEME_INIT_SCRIPT}
         </Script>
-        <ToastHost />
-        <div className="flex min-h-screen flex-col lg:flex-row">
-          <div className="print:hidden">
-            <Sidebar />
+        {/* First tab stop on every page: jumps past the 12 sidebar links straight to the content. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[600] focus:rounded-lg focus:bg-accent-solid focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-foreground print:hidden"
+        >
+          Skip to main content
+        </a>
+        <MotionProvider>
+          <ToastHost />
+          <div className="flex min-h-screen flex-col lg:flex-row">
+            <div className="print:hidden">
+              <Sidebar />
+            </div>
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10 print:p-0"
+            >
+              <div className="mx-auto w-full max-w-6xl print:max-w-none">{children}</div>
+            </main>
           </div>
-          <main className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10 print:p-0">
-            <div className="mx-auto w-full max-w-6xl print:max-w-none">{children}</div>
-          </main>
-        </div>
+        </MotionProvider>
       </body>
     </html>
   );

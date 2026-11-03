@@ -1,5 +1,11 @@
+import type { Metadata } from "next";
+
 import BrokerageCalculator from "@/components/BrokerageCalculator";
 import { PAGE_HEIGHT_LOCK_CLASS } from "@/lib/layout";
+
+export const metadata: Metadata = {
+  title: "Brokerage",
+};
 
 export default function Home() {
   return (

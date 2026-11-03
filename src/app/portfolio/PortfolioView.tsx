@@ -334,41 +334,43 @@ export default function PortfolioView() {
       </div>
 
       {portfolioStats && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <section className="rounded-xl border border-border bg-background p-4">
+        <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Total Invested (Margin)</dt>
             <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">
               {totalMargin === null ? "—" : formatINR(totalMargin)}
             </dd>
-          </section>
-          <section className="rounded-xl border border-border bg-background p-4">
+          </div>
+          <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Total Value</dt>
             <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatINR(portfolioStats.value)}</dd>
-          </section>
-          <section className="rounded-xl border border-border bg-background p-4">
+          </div>
+          <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Unrealized P&amp;L</dt>
             <dd
               className={`mt-1 font-mono text-xl font-semibold tabular-nums ${pnlColorClass(portfolioStats.unrealizedPnl)}`}
             >
               {formatINR(portfolioStats.unrealizedPnl)}
             </dd>
-          </section>
-          <section className="rounded-xl border border-border bg-background p-4">
+          </div>
+          <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Today&apos;s P&amp;L</dt>
-            <dd
-              className={`mt-1 font-mono text-xl font-semibold tabular-nums ${
-                portfolioStats.todayPnl === null ? "" : pnlColorClass(portfolioStats.todayPnl)
-              }`}
-            >
-              {portfolioStats.todayPnl === null ? "—" : formatINR(portfolioStats.todayPnl)}
+            <dd className="mt-1">
+              <span
+                className={`block font-mono text-xl font-semibold tabular-nums ${
+                  portfolioStats.todayPnl === null ? "" : pnlColorClass(portfolioStats.todayPnl)
+                }`}
+              >
+                {portfolioStats.todayPnl === null ? "—" : formatINR(portfolioStats.todayPnl)}
+              </span>
+              {portfolioStats.bookedToday !== 0 && (
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  incl. {formatINR(portfolioStats.bookedToday)} booked
+                </span>
+              )}
             </dd>
-            {portfolioStats.bookedToday !== 0 && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                incl. {formatINR(portfolioStats.bookedToday)} booked
-              </p>
-            )}
-          </section>
-        </div>
+          </div>
+        </dl>
       )}
 
       <div className="flex flex-col gap-3">
@@ -376,7 +378,7 @@ export default function PortfolioView() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Open Positions</h2>
           <div className="flex items-center gap-2">
             {upstox.error ? (
-              <span className="text-xs font-medium text-loss">Couldn&apos;t sync with Upstox — {upstox.error}</span>
+              <span className="text-xs font-medium text-danger-fg">Couldn&apos;t sync with Upstox — {upstox.error}</span>
             ) : stalePricesAsOf !== null ? (
               <span className="whitespace-nowrap text-xs font-medium text-warning">
                 Last prices {formatAsOf(stalePricesAsOf)}

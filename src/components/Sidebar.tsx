@@ -154,8 +154,8 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
  */
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link href="/portfolio" className={`flex items-center gap-2 ${collapsed ? "lg:hidden" : ""}`}>
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground">
+    <Link href="/portfolio" className={`flex items-center gap-2 pointer-coarse:min-h-11 ${collapsed ? "lg:hidden" : ""}`}>
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground">
         M
       </span>
       <CollapsibleLabel collapsed={collapsed} className="font-semibold tracking-tight">
@@ -198,7 +198,7 @@ export default function Sidebar() {
 
   return (
     <>
-      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/80 px-4 py-3 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/80 px-4 py-3 backdrop-blur pointer-coarse:py-2 lg:hidden">
         <Brand collapsed={false} />
         <button
           type="button"
@@ -208,7 +208,7 @@ export default function Sidebar() {
         >
           <MenuIcon className="size-5" />
         </button>
-      </div>
+      </header>
 
       <AnimatePresence>
         {open && (
@@ -242,7 +242,7 @@ export default function Sidebar() {
             onClick={toggleCollapsed}
             aria-label="Expand sidebar"
             title="Expand sidebar"
-            className={`hidden size-7 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 active:scale-90 ${
+            className={`hidden size-7 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 active:scale-90 ${
               collapsed ? "lg:flex" : ""
             }`}
           >

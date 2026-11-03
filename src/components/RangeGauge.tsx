@@ -200,7 +200,7 @@ export default function RangeGauge({ gauge }: { gauge: RangeGaugeData }) {
             {hover && hoverPnl !== null && (
               <>
                 <div
-                  className="pointer-events-none absolute -bottom-1.5 -top-2 w-px -translate-x-1/2 bg-accent"
+                  className="pointer-events-none absolute -bottom-1.5 -top-2 w-px -translate-x-1/2 bg-accent-solid"
                   style={{ left: `${hover.ratio * 100}%` }}
                 />
                 <div

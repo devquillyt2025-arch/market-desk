@@ -9,6 +9,18 @@ export function formatINR(amount: number): string {
   return inr.format(Math.round(amount));
 }
 
+const inrExact = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Exact to the paisa with Indian digit grouping, e.g. ₹5,00,000.00 — for ledger amounts that must not be rounded. */
+export function formatINRExact(amount: number): string {
+  return inrExact.format(amount);
+}
+
 const level = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** An index level or a point move to the paisa with Indian digit grouping, e.g. 22,421.95 or -198.50. */
@@ -30,7 +42,7 @@ export function formatAsOf(ms: number, now: number = Date.now()): string {
 /** Text color token for a P&L figure — green above zero, red below, neutral at zero. */
 export function pnlColorClass(pnl: number): string {
   if (pnl > 0) return "text-profit";
-  if (pnl < 0) return "text-loss";
+  if (pnl < 0) return "text-danger-fg";
   return "text-foreground";
 }
 

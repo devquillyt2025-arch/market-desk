@@ -16,6 +16,7 @@ import { getCachedLivePortfolioEntries, getLivePortfolioEntries } from "@/lib/li
 import { getCachedPaperTradeEntries, getPaperTradeEntries } from "@/lib/paperTradeEntriesStore";
 import { isImportableEntry, type PriceMode } from "@/lib/strategyTransfer";
 import { INSTRUMENTS, INSTRUMENT_LABELS, type Instrument, type TradeEntry } from "@/lib/types";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 
 export type ImportSource = "live" | "paper";
 export type ImportMode = "replace" | "add";
@@ -65,6 +66,7 @@ function Radio<T extends string>({
 }
 
 export default function ImportPositionsModal({ source, currentInstrument, today, hasLegs, onImport, onClose }: Props) {
+  const dialogRef = useDialogFocus();
   const [entries, setEntries] = useState<TradeEntry[] | null>(
     source === "live" ? getCachedLivePortfolioEntries() : getCachedPaperTradeEntries(),
   );
@@ -146,6 +148,7 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Import from ${SOURCE_LABELS[source]}`}
@@ -292,7 +295,7 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
             type="button"
             disabled={chosen.length === 0}
             onClick={() => onImport(instrument, chosen, { mode: effectiveMode, priceMode })}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
+            className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
           >
             Import {chosen.length} leg{chosen.length === 1 ? "" : "s"}
           </button>

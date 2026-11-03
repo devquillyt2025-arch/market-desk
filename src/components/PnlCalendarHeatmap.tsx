@@ -44,7 +44,7 @@ function isSameDay(a: Date, b: Date): boolean {
 
 function formatCompactPnl(value: number): string {
   const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
+  const sign = value < 0 ? "-" : "+";
   if (abs >= 100000) return `${sign}${(abs / 100000).toFixed(1)}L`;
   if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(1)}k`;
   return `${sign}${Math.round(abs)}`;
@@ -137,11 +137,11 @@ function MonthGrid({ month, dailyPnl, today }: MonthGridProps) {
               cell.inMonth ? heatCellClass(cell.pnl, maxAbs) : "bg-muted/10"
             } ${cell.inMonth && isSameDay(cell.date, today) ? "ring-1 ring-accent" : ""}`}
           >
-            <span className={`text-sm ${cell.inMonth ? "font-bold text-foreground" : "text-muted-foreground/30"}`}>
+            <span aria-hidden={!cell.inMonth || undefined} className={`text-sm ${cell.inMonth ? "font-bold text-foreground" : "text-muted-foreground"}`}>
               {cell.date.getDate()}
             </span>
             {cell.inMonth && cell.pnl !== 0 && (
-              <span className={`text-[10px] font-mono font-semibold tabular-nums ${pnlColorClass(cell.pnl)}`}>
+              <span className="text-[10px] font-mono font-semibold tabular-nums text-foreground">
                 {formatCompactPnl(cell.pnl)}
               </span>
             )}

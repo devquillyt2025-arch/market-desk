@@ -131,7 +131,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                       // "ok" cells with every value null, indistinguishable
                       // from no_match and with no explanation at all.
                       <td colSpan={3} className="px-2 py-2.5 text-center">
-                        <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-loss">
+                        <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-danger-fg">
                           {row.errorMessage === "token_expired"
                             ? "Paused — token expired"
                             : row.errorMessage === "network_error"
@@ -146,7 +146,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                       // isn't an actual trading date, so offer to fix it
                       // right here rather than a silent dash.
                       <td colSpan={3} className="px-2 py-2.5 text-center">
-                        <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-loss">
+                        <span className="whitespace-nowrap rounded-full bg-loss/10 px-2.5 py-1 text-xs font-medium text-danger-fg">
                           No live data for {entry.expiry_date} — check the expiry
                         </span>
                       </td>

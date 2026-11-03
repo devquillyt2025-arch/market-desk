@@ -767,7 +767,7 @@ export default function AnalysisView() {
             <button
               type="button"
               onClick={() => setChainOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+              className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
             >
               <PlusIcon className="size-4" />
               Add Leg
@@ -988,7 +988,7 @@ export default function AnalysisView() {
                     <span className="h-0.5 w-5 rounded bg-gradient-to-r from-profit to-danger-fg" /> On Expiry
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-0.5 w-5 rounded bg-accent" /> On Target Date
+                    <span className="h-0.5 w-5 rounded bg-accent-solid" /> On Target Date
                   </span>
                 </div>
 
@@ -1003,7 +1003,7 @@ export default function AnalysisView() {
 
                 <div className="mt-1 flex justify-center">
                   <span
-                    className={`rounded-md px-3 py-1 text-xs font-semibold text-white ${targetPnl >= 0 ? "bg-profit" : "bg-danger"}`}
+                    className={`rounded-md px-3 py-1 text-xs font-semibold ${targetPnl >= 0 ? "bg-profit text-bg-base" : "bg-danger text-white"}`}
                   >
                     Projected {targetPnl >= 0 ? "profit" : "loss"}: {signed(targetPnl)}
                     {pctBase && pctBase > 0 ? ` (${pctText((targetPnl / pctBase) * 100)})` : ""}

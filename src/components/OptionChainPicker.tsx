@@ -21,6 +21,7 @@ import type { PickedLeg } from "@/lib/strategyTransfer";
 import { INSTRUMENTS, INSTRUMENT_LABELS, type Instrument } from "@/lib/types";
 import { fetchExpiries, fetchOptionChain } from "@/lib/upstox/client";
 import { isUpstoxOptionChainError, type UpstoxOptionChainStrike, type UpstoxOptionLeg } from "@/lib/upstox/types";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 
 const POLL_MS = 10_000;
 const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
@@ -70,6 +71,7 @@ export default function OptionChainPicker({
   onDone,
   onClose,
 }: Props) {
+  const dialogRef = useDialogFocus();
   const [instrument, setInstrument] = useState<Instrument>(initialInstrument);
   const [pickedExpiry, setPickedExpiry] = useState<string | null>(initialExpiry ?? null);
   const [view, setView] = useState<View>("ltp");
@@ -344,7 +346,7 @@ export default function OptionChainPicker({
                 chosen === side
                   ? side === "buy"
                     ? "border-info bg-info text-white"
-                    : "border-danger-fg bg-danger-fg text-white"
+                    : "border-danger bg-danger text-white"
                   : `border-border bg-card hover:bg-muted ${side === "buy" ? "text-info" : "text-danger-fg"}`
               }`}
             >
@@ -388,6 +390,7 @@ export default function OptionChainPicker({
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Option chain"
@@ -413,7 +416,7 @@ export default function OptionChainPicker({
                 aria-selected={view === v.id}
                 onClick={() => setView(v.id)}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  view === v.id ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  view === v.id ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
                 {v.label}
@@ -483,7 +486,7 @@ export default function OptionChainPicker({
                     <div className="flex items-center justify-center bg-muted/50">
                       <span
                         className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${
-                          isAtm ? "bg-accent text-accent-foreground" : ""
+                          isAtm ? "bg-accent-solid text-accent-foreground" : ""
                         }`}
                       >
                         {strike}
@@ -565,7 +568,7 @@ export default function OptionChainPicker({
               type="button"
               onClick={handleDone}
               disabled={selectedList.length === 0}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
+              className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
             >
               {doneLabel(selectedList.length)}
             </button>

@@ -230,7 +230,7 @@ export default function StrategyPayoffChart({ points, spot, targetSpot, sdPct, t
             </span>
           </div>
           <div className="flex items-center gap-1.5 whitespace-nowrap">
-            <span className="size-2 rounded-full bg-accent" />
+            <span className="size-2 rounded-full bg-accent-solid" />
             On target date
             <span className={`font-mono tabular-nums ${hoverPoint.target >= 0 ? "text-profit" : "text-danger-fg"}`}>
               {formatCompactINR(hoverPoint.target)}

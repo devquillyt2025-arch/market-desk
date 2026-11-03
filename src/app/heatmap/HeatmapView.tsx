@@ -21,18 +21,19 @@ import { HEATMAP_POLL_MS, useHeatmap } from "@/lib/useHeatmap";
 
 /**
  * Tile and legend fills, sampled from the reference design. Deliberately
- * fixed colors, not the app's --profit/--loss tokens: white text sits on all
- * of them in both themes, and the soft / solid / deep three-step on each side
- * is what makes the grid scannable at a glance.
+ * fixed colors, not the app's --profit/--loss tokens: the soft / solid / deep
+ * three-step on each side is what makes the grid scannable at a glance. Each
+ * carries its own text color — white on the deep fills, near-black on the three
+ * lighter ones, where white drops to 2.2–3.4:1 — so every label clears 4.5:1.
  */
 const SHADES = {
-  strongUp: "bg-[#027a2e]",
-  up: "bg-[#119f57]",
-  softUp: "bg-[#77bf8a]",
-  flat: "bg-[#6b7080]",
-  softDown: "bg-[#f5808b]",
-  down: "bg-[#c91e2d]",
-  strongDown: "bg-[#a11212]",
+  strongUp: "bg-[#027a2e] text-white",
+  up: "bg-[#119f57] text-[#0a0a0a]",
+  softUp: "bg-[#77bf8a] text-[#0a0a0a]",
+  flat: "bg-[#6b7080] text-white",
+  softDown: "bg-[#f5808b] text-[#0a0a0a]",
+  down: "bg-[#c91e2d] text-white",
+  strongDown: "bg-[#a11212] text-white",
 } as const;
 
 type Band = (typeof RANGE_BANDS)[HeatmapRange];
@@ -67,7 +68,7 @@ function formatPrice(price: number): string {
 
 function pillClass(active: boolean, padding = "px-4"): string {
   return `rounded-lg ${padding} py-2 text-sm font-medium transition-colors active:scale-95 ${
-    active ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground hover:text-foreground"
+    active ? "bg-accent-solid text-accent-foreground" : "bg-muted text-muted-foreground hover:text-foreground"
   }`;
 }
 
@@ -103,7 +104,7 @@ function StockTile({ stock, quote, band }: { stock: HeatmapStock; quote: Heatmap
   return (
     <div
       title={stock.name}
-      className={`relative flex h-[92px] flex-col justify-between rounded-xl p-3 text-white shadow-md transition-colors duration-500 ${shadeFor(pct, band)}`}
+      className={`relative flex h-[92px] flex-col justify-between rounded-xl p-3 shadow-md transition-colors duration-500 ${shadeFor(pct, band)}`}
     >
       <span className="self-end text-xl font-bold leading-none tabular-nums">
         {pct === null ? "—" : formatPct(pct, 2)}
@@ -249,7 +250,7 @@ export default function HeatmapView() {
       <LivePricingBanners tokenExpired={tokenExpired} offline={offline} lastPricesAt={lastPolledAt} />
 
       {loadError && !tokenExpired && !offline && (
-        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
+        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-danger-fg">
           <AlertCircleIcon className="size-4 shrink-0" />
           <span className="flex-1">Couldn&apos;t refresh prices — {loadError}. Retrying automatically.</span>
         </div>
@@ -294,7 +295,7 @@ export default function HeatmapView() {
           {legendFor(band).map(({ shade, label }) => (
             <li
               key={label}
-              className={`rounded-xl px-2 py-2 text-center text-xs font-medium text-white sm:text-sm ${shade}`}
+              className={`rounded-xl px-2 py-2 text-center text-xs font-medium sm:text-sm ${shade}`}
             >
               {label}
             </li>

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -18,8 +18,8 @@ import {
   type TooltipContentProps,
 } from "recharts";
 
-import DatePicker from "@/components/DatePicker";
-import { DownloadIcon, InboxIcon, PrinterIcon, RefreshIcon } from "@/components/icons";
+import CustomRangePanel from "@/components/CustomRangePanel";
+import { DownloadIcon, InboxIcon, RefreshIcon } from "@/components/icons";
 import LoadingState from "@/components/LoadingState";
 import PnlCalendarHeatmap from "@/components/PnlCalendarHeatmap";
 import Select from "@/components/Select";
@@ -221,7 +221,7 @@ function ValueModeToggle({
             title={disabled ? "Add a Pay In on the Payment tab to see % of capital" : undefined}
             aria-pressed={active}
             className={`relative shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors active:scale-95 ${
-              active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              active ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
             } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
           >
             {opt.label}
@@ -259,7 +259,7 @@ function AccountGrowthTooltip({ active, payload }: TooltipContentProps) {
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-4">
         <span className="flex items-center gap-1.5 text-muted-foreground">
-          <span className="size-2 rounded-full bg-accent" /> Equity
+          <span className="size-2 rounded-full bg-accent-solid" /> Equity
         </span>
         <span className={`font-mono font-semibold ${pnlColorClass(point.equity - point.capital)}`}>
           {formatINR(point.equity)}
@@ -315,6 +315,8 @@ export default function ReportsView() {
   const [range, setRange] = useState<DateRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState(todayISODate());
+  // Whether the floating From/To panel is showing — separate from `range`, so it can be dismissed and the range kept.
+  const [customOpen, setCustomOpen] = useState(false);
   const [breakdownBy, setBreakdownBy] = useState<CategoryBreakdown>("instrument");
   const [cumulativeRange, setCumulativeRange] = useState<CumulativeRange>("7d");
   const [categoryValueMode, setCategoryValueMode] = useState<ValueMode>("amount");
@@ -407,7 +409,8 @@ export default function ReportsView() {
     return new Date(y, m - 1, 1);
   }, [entries]);
 
-  const statTiles = useMemo(
+  // The headline figures that open the Performance card.
+  const statTiles = useMemo<{ label: string; value: string; color: string; sub?: string }[] | null>(
     () =>
       summary
         ? [
@@ -417,7 +420,16 @@ export default function ReportsView() {
               value: returnPct === null ? "—" : formatPct(returnPct, 2),
               color: returnPct === null ? "" : pnlColorClass(returnPct),
             },
-            { label: "Win Rate", value: `${summary.winRatePct.toFixed(0)}%`, color: "" },
+            {
+              label: "Win Rate",
+              value: `${summary.winRatePct.toFixed(0)}%`,
+              color: "",
+              sub: `${summary.winCount}W / ${summary.lossCount}L${
+                summary.totalTrades - summary.winCount - summary.lossCount > 0
+                  ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount}F`
+                  : ""
+              }`,
+            },
             { label: "Total Trades", value: String(summary.totalTrades), color: "" },
             { label: "Avg P&L / Trade", value: formatINR(summary.avgPnl), color: pnlColorClass(summary.avgPnl) },
           ]
@@ -425,16 +437,19 @@ export default function ReportsView() {
     [summary, returnPct],
   );
 
+  // Picking "Custom" (again, too) opens the date panel; any other range dismisses it.
+  function handleRangeChange(next: DateRange) {
+    setRange(next);
+    setCustomOpen(next === "custom");
+  }
+  const closeCustom = useCallback(() => setCustomOpen(false), []);
+
   function handleExportCsv() {
     if (!filtered || filtered.length === 0) {
       showToast("No trade entries in this range to export.");
       return;
     }
     downloadCsv(`reports-${range}-${todayISODate()}.csv`, buildReportCsv(filtered));
-  }
-
-  function handlePrint() {
-    window.print();
   }
 
   return (
@@ -455,21 +470,22 @@ export default function ReportsView() {
             Full analysis of your Trade Entries — P&amp;L trend, breakdowns, streaks, and drawdown.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {range === "custom" && (
-            <>
-              <div className="w-32">
-                <DatePicker value={customFrom} onChange={setCustomFrom} clearable />
-              </div>
-              <span className="text-xs text-muted-foreground">to</span>
-              <div className="w-32">
-                <DatePicker value={customTo} onChange={setCustomTo} clearable />
-              </div>
-            </>
-          )}
+        {/* `relative` anchors the custom-range panel: it floats under this row instead of sitting in it, so choosing Custom never reflows the header. */}
+        <div className="relative flex flex-wrap items-center gap-2 print:hidden">
           <div className="w-28">
-            <Select value={range} onChange={setRange} options={RANGE_OPTIONS} align="right" />
+            <Select value={range} onChange={handleRangeChange} options={RANGE_OPTIONS} align="right" />
           </div>
+          <AnimatePresence>
+            {customOpen && range === "custom" && (
+              <CustomRangePanel
+                from={customFrom}
+                to={customTo}
+                onFromChange={setCustomFrom}
+                onToChange={setCustomTo}
+                onClose={closeCustom}
+              />
+            )}
+          </AnimatePresence>
           <button
             type="button"
             onClick={() => setUpstoxSyncOpen(true)}
@@ -486,14 +502,6 @@ export default function ReportsView() {
             <DownloadIcon className="size-4" />
             CSV
           </button>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-          >
-            <PrinterIcon className="size-4" />
-            Print
-          </button>
         </div>
       </div>
 
@@ -507,16 +515,7 @@ export default function ReportsView() {
               No trade entries in this range. Log some in Trade Entries to see reports here.
             </p>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {statTiles?.map((stat) => (
-              <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
-                <dt className="text-xs text-muted-foreground">{stat.label}</dt>
-                <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums ${stat.color}`}>{stat.value}</dd>
-              </section>
-            ))}
-          </div>
-        )}
+        ) : null}
 
         {/* Straight from Upstox, so it shows whatever the journal holds for this range. */}
         <UpstoxTradeSummary {...upstoxSummaryRange(range, customFrom, customTo)} />
@@ -526,52 +525,63 @@ export default function ReportsView() {
             {summary && (
               <section className="rounded-xl border border-border bg-background p-4 sm:p-5">
                 <h2 className="text-sm font-medium">Performance</h2>
-                {/* Four tiles across, two rows — same tile look as the stat row above. */}
+                {/* Four tiles across, three rows: the headline figures first, then the trade-level ones. */}
                 <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {statTiles?.map((stat) => (
+                    <div key={stat.label} className="rounded-lg border border-border bg-card p-3">
+                      <dt className="text-sm text-muted-foreground">{stat.label}</dt>
+                      <dd className="mt-1">
+                        <span className={`block font-mono text-lg font-semibold tabular-nums ${stat.color}`}>{stat.value}</span>
+                        {stat.sub && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{stat.sub}</span>}
+                      </dd>
+                    </div>
+                  ))}
                   <div className="rounded-lg border border-border bg-card p-3">
                     <dt className="text-sm text-muted-foreground">Best Trade</dt>
-                    <dd
-                      className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
-                    >
-                      {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                    <dd className="mt-1">
+                      <span
+                        className={`block font-mono text-lg font-semibold tabular-nums ${summary.bestTrade ? pnlColorClass(summary.bestTrade.pnl) : "text-muted-foreground"}`}
+                      >
+                        {summary.bestTrade ? formatINR(summary.bestTrade.pnl) : "—"}
+                      </span>
+                      {summary.bestTrade && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{summary.bestTrade.label}</span>}
                     </dd>
-                    {summary.bestTrade && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.bestTrade.label}</p>
-                    )}
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <dt className="text-sm text-muted-foreground">Worst Trade</dt>
-                    <dd
-                      className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
-                    >
-                      {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                    <dd className="mt-1">
+                      <span
+                        className={`block font-mono text-lg font-semibold tabular-nums ${summary.worstTrade ? pnlColorClass(summary.worstTrade.pnl) : "text-muted-foreground"}`}
+                      >
+                        {summary.worstTrade ? formatINR(summary.worstTrade.pnl) : "—"}
+                      </span>
+                      {summary.worstTrade && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{summary.worstTrade.label}</span>}
                     </dd>
-                    {summary.worstTrade && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary.worstTrade.label}</p>
-                    )}
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <dt className="text-sm text-muted-foreground">Max Drawdown</dt>
                     <dd
-                      className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-loss" : "text-muted-foreground"}`}
+                      className={`mt-1 font-mono text-lg font-semibold tabular-nums ${summary.maxDrawdown > 0 ? "text-danger-fg" : "text-muted-foreground"}`}
                     >
                       {summary.maxDrawdown > 0 ? `-${formatINR(summary.maxDrawdown)}` : "—"}
                     </dd>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <dt className="text-sm text-muted-foreground">Current Streak</dt>
-                    <dd
-                      className={`mt-1 font-mono text-lg font-semibold tabular-nums ${
-                        summary.currentStreak.type === "win"
-                          ? "text-profit"
-                          : summary.currentStreak.type === "loss"
-                            ? "text-loss"
-                            : "text-muted-foreground"
-                      }`}
-                    >
-                      {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                    <dd className="mt-1">
+                      <span
+                        className={`block font-mono text-lg font-semibold tabular-nums ${
+                          summary.currentStreak.type === "win"
+                            ? "text-profit"
+                            : summary.currentStreak.type === "loss"
+                              ? "text-danger-fg"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {summary.currentStreak.type === "none" ? "—" : summary.currentStreak.count}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</span>
                     </dd>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{STREAK_LABELS[summary.currentStreak.type]}</p>
                   </div>
 
                   <div className="rounded-lg border border-border bg-card p-3">
@@ -588,17 +598,8 @@ export default function ReportsView() {
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <dt className="text-sm text-muted-foreground">Avg Loss</dt>
-                    <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-loss">
+                    <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-danger-fg">
                       {formatINR(summary.avgLoss)}
-                    </dd>
-                  </div>
-                  <div className="rounded-lg border border-border bg-card p-3">
-                    <dt className="text-sm text-muted-foreground">Win Rate</dt>
-                    <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
-                      {summary.winCount}W / {summary.lossCount}L
-                      {summary.totalTrades - summary.winCount - summary.lossCount > 0
-                        ? ` / ${summary.totalTrades - summary.winCount - summary.lossCount}F`
-                        : ""}
                     </dd>
                   </div>
                 </dl>
@@ -625,7 +626,7 @@ export default function ReportsView() {
                           {active && (
                             <motion.span
                               layoutId="cumulative-range-pill-active"
-                              className="absolute inset-0 rounded-full bg-accent"
+                              className="absolute inset-0 rounded-full bg-accent-solid"
                               transition={{ type: "spring", stiffness: 500, damping: 35 }}
                             />
                           )}
@@ -689,7 +690,7 @@ export default function ReportsView() {
                     <span className="size-2 rounded-full bg-info" /> Capital (Pay Ins − Payouts)
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="size-2 rounded-full bg-accent" /> Equity (Capital + P&amp;L)
+                    <span className="size-2 rounded-full bg-accent-solid" /> Equity (Capital + P&amp;L)
                   </span>
                 </div>
               </div>
@@ -786,7 +787,7 @@ export default function ReportsView() {
                           {active && (
                             <motion.span
                               layoutId="category-breakdown-pill-active"
-                              className="absolute inset-0 rounded-full bg-accent"
+                              className="absolute inset-0 rounded-full bg-accent-solid"
                               transition={{ type: "spring", stiffness: 500, damping: 35 }}
                             />
                           )}

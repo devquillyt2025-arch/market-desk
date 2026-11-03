@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
@@ -9,6 +9,7 @@ import Select from "@/components/Select";
 import type { LivePositionInfo } from "@/lib/calculatePortfolio";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 import {
   calculateEntryPnl,
   TRADE_ENTRY_OPTION_TYPES,
@@ -94,6 +95,8 @@ export default function TradeEntryModal({
   entityLabel = "Trade Entry",
   live,
 }: TradeEntryModalProps) {
+  const dialogRef = useDialogFocus(onClose);
+  const titleId = useId();
   const [entryDate, setEntryDate] = useState(entry?.entry_date ?? todayISODate());
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
   const [strikePrice, setStrikePrice] = useState(entry?.strike_price != null ? String(entry.strike_price) : "");
@@ -213,10 +216,14 @@ export default function TradeEntryModal({
         exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
         transition={{ duration: 0.18, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-semibold tracking-tight">
+          <h2 id={titleId} className="text-lg font-semibold tracking-tight">
             {entry ? `Edit ${entityLabel}` : `Add ${entityLabel}`}
           </h2>
           <button
@@ -445,7 +452,7 @@ export default function TradeEntryModal({
             </div>
           )}
 
-          {formError && <p className="text-sm text-loss">{formError}</p>}
+          {formError && <p className="text-sm text-danger-fg">{formError}</p>}
         </div>
 
         <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
@@ -453,7 +460,7 @@ export default function TradeEntryModal({
             <button
               type="button"
               onClick={onDelete}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-loss transition-colors hover:bg-loss/10"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-loss/10"
             >
               <TrashIcon className="size-4" />
               Delete
@@ -473,7 +480,7 @@ export default function TradeEntryModal({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
+              className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
             >
               {saving ? "Saving…" : entry ? "Save Changes" : "Save Entry"}
             </button>

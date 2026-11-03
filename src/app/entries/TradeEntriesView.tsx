@@ -460,7 +460,7 @@ export default function TradeEntriesView() {
           <button
             type="button"
             onClick={() => setModalState({ mode: "add" })}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
+            className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3.5 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
           >
             <PlusIcon className="size-4" />
             Add Entry
@@ -469,14 +469,14 @@ export default function TradeEntriesView() {
       </div>
 
       {statTiles && (
-        <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <dl className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {statTiles.map((stat) => (
-            <section key={stat.label} className="rounded-xl border border-border bg-background p-4">
+            <div key={stat.label} className="rounded-xl border border-border bg-background p-4">
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
               <dd className={`mt-1 font-mono text-xl font-semibold tabular-nums ${stat.color}`}>{stat.value}</dd>
-            </section>
+            </div>
           ))}
-        </div>
+        </dl>
       )}
 
       {rows !== null && rows.length > 0 && (
@@ -507,14 +507,14 @@ export default function TradeEntriesView() {
                   {active && (
                     <motion.span
                       layoutId="status-pill-active"
-                      className="absolute inset-0 rounded-full bg-accent"
+                      className="absolute inset-0 rounded-full bg-accent-solid"
                       transition={{ type: "spring", stiffness: 500, damping: 35 }}
                     />
                   )}
                   <span className="relative z-10">{opt.label}</span>
                   <span
                     className={`relative z-10 font-mono text-xs tabular-nums ${
-                      active ? "text-accent-foreground/80" : "text-muted-foreground/70"
+                      active ? "text-accent-foreground" : "text-muted-foreground"
                     }`}
                   >
                     {count}
@@ -579,7 +579,7 @@ export default function TradeEntriesView() {
           </div>
         ) : (
           <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-background">
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div tabIndex={0} role="region" aria-label="Trade entries" className="focus-visible:outline-offset-[-2px] min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[1020px] border-collapse text-sm">
                 <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b border-border text-left">

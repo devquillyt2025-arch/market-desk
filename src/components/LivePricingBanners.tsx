@@ -23,7 +23,7 @@ export default function LivePricingBanners({ tokenExpired, offline, lastPricesAt
   return (
     <>
       {tokenExpired && (
-        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
+        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-danger-fg">
           <AlertCircleIcon className="size-4 shrink-0" />
           <span className="flex-1">
             Your Upstox token has expired — add a new one to resume live pricing.{showingLast}
@@ -38,7 +38,7 @@ export default function LivePricingBanners({ tokenExpired, offline, lastPricesAt
       )}
 
       {offline && !tokenExpired && (
-        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
+        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-danger-fg">
           <AlertCircleIcon className="size-4 shrink-0" />
           <span className="flex-1">
             No internet connection. Live pricing is paused — it&apos;ll resume automatically once you&apos;re back

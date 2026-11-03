@@ -265,6 +265,15 @@ export function TrendingUpIcon({ className }: IconProps) {
   );
 }
 
+export function TrendingDownIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M3 7 9 13 13 9 21 17" />
+      <path d="M21 10v7h-7" />
+    </svg>
+  );
+}
+
 export function KeyIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

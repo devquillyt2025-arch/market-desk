@@ -85,7 +85,7 @@ export default function SettingsView() {
       <section className={sectionClass}>
         <h2 className="text-sm font-medium">Profile</h2>
         <div className="mt-4 flex items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-sm font-bold text-accent-foreground">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground">
             M
           </span>
           <div>
@@ -177,7 +177,7 @@ export default function SettingsView() {
           type="button"
           onClick={handleSaveToken}
           disabled={saving}
-          className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95 sm:w-auto"
+          className="mt-4 w-full rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95 sm:w-auto"
         >
           {saving ? "Saving…" : "Save Token"}
         </button>

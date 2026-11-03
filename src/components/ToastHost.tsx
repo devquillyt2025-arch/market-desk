@@ -27,7 +27,7 @@ export default function ToastHost() {
             }`}
           >
             {toast.variant === "error" ? (
-              <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-loss" />
+              <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-danger-fg" />
             ) : (
               <CheckCircleIcon className="mt-0.5 size-4 shrink-0 text-profit" />
             )}

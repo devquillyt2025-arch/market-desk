@@ -52,7 +52,7 @@ export default function NoteCard({ note, viewMode, onOpen, onPin, onDelete, onCo
       <span
         aria-hidden="true"
         className={`absolute inset-x-0 top-0 h-[3px] opacity-70 transition-opacity group-hover:opacity-100 ${
-          colorClasses ? colorClasses.swatch : "bg-accent"
+          colorClasses ? colorClasses.swatch : "bg-accent-solid"
         }`}
       />
 
@@ -125,7 +125,7 @@ export default function NoteCard({ note, viewMode, onOpen, onPin, onDelete, onCo
                   onDelete(note.id);
                 }}
                 aria-label="Delete note"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-loss"
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-loss/10 hover:text-danger-fg"
               >
                 <TrashIcon className="size-3.5" />
               </button>

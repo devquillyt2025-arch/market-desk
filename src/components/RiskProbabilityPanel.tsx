@@ -32,14 +32,14 @@ function formatDte(dte: number): string {
 }
 
 function dteColorClass(dte: number): string {
-  if (dte <= 0) return "text-loss";
+  if (dte <= 0) return "text-danger-fg";
   if (dte <= 2) return "text-warning";
   return "text-foreground";
 }
 
 function popColorClass(pop: number): string {
   if (pop >= 0.5) return "text-profit";
-  if (pop < 0.3) return "text-loss";
+  if (pop < 0.3) return "text-danger-fg";
   return "text-warning";
 }
 
@@ -84,7 +84,7 @@ function PositionRow({ p }: { p: PositionRisk }) {
   const { entry } = p.row;
   const isShort = entry.side === "sell";
   const itmLabel = p.itmPct > 0 ? `ITM ${p.itmPct.toFixed(1)}%` : `OTM ${Math.abs(p.itmPct).toFixed(1)}%`;
-  const itmClass = p.itmPct > 0 ? (isShort ? "text-loss" : "text-profit") : "text-muted-foreground";
+  const itmClass = p.itmPct > 0 ? (isShort ? "text-danger-fg" : "text-profit") : "text-muted-foreground";
 
   return (
     <tr className="border-b border-border last:border-0">
@@ -124,7 +124,7 @@ function PositionRow({ p }: { p: PositionRisk }) {
         ±{p.expectedMovePct.toFixed(1)}%
       </td>
       <td
-        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${p.maxLoss === null ? "text-loss" : ""}`}
+        className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${p.maxLoss === null ? "text-danger-fg" : ""}`}
       >
         {p.maxLoss === null ? "Unlimited" : formatINR(p.maxLoss)}
       </td>
@@ -235,7 +235,7 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
         <Tile
           label="Max Drawdown"
           value={analysis.maxLoss === null ? "Unlimited" : `−${formatINR(analysis.maxLoss)}`}
-          valueClass="text-loss"
+          valueClass="text-danger-fg"
           hint={
             analysis.drawdownUsedPct !== null
               ? `${Math.round(analysis.drawdownUsedPct)}% of the worst case already used`
