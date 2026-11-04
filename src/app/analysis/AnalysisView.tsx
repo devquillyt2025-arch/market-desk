@@ -9,6 +9,7 @@ import OptionChainPicker from "@/components/OptionChainPicker";
 import ImportPositionsModal, { type ImportMode, type ImportSource } from "@/components/ImportPositionsModal";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import Select from "@/components/Select";
+import Stepper from "@/components/Stepper";
 import StrategyPayoffChart from "@/components/StrategyPayoffChart";
 import {
   addDays,
@@ -165,57 +166,6 @@ function ImportMenu({ onPick }: { onPick: (source: ImportSource | "file") => voi
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function Stepper({
-  value,
-  onChange,
-  step,
-  min = 0,
-  width = "w-20",
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  step: number;
-  min?: number;
-  width?: string;
-}) {
-  // What's typed is held as text until the field loses focus, so it can be
-  // emptied or half-typed without the parent snapping it back mid-keystroke.
-  // Only a complete, in-range number is passed up.
-  const [draft, setDraft] = useState<string | null>(null);
-  const shown = draft ?? (Number.isFinite(value) ? String(value) : "");
-
-  function handleType(text: string) {
-    setDraft(text);
-    const n = Number(text);
-    if (text.trim() !== "" && Number.isFinite(n) && n >= min) onChange(n);
-  }
-  function nudge(delta: number) {
-    setDraft(null);
-    onChange(Math.max(min, value + delta));
-  }
-
-  const btn =
-    "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95";
-  return (
-    <div className="flex min-w-0 items-center gap-1">
-      <button type="button" className={btn} onClick={() => nudge(-step)} aria-label="Decrease">
-        −
-      </button>
-      <input
-        type="number"
-        inputMode="decimal"
-        value={shown}
-        onChange={(e) => handleType(e.target.value)}
-        onBlur={() => setDraft(null)}
-        className={`${INPUT_CLASS} ${width} text-center font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none`}
-      />
-      <button type="button" className={btn} onClick={() => nudge(step)} aria-label="Increase">
-        +
-      </button>
     </div>
   );
 }

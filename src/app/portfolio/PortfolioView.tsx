@@ -1,22 +1,25 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { SimulatorCandidate } from "@/components/AveragingSimulator";
 import ClosedTodayTable from "@/components/ClosedTodayTable";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingState from "@/components/LoadingState";
 import { DownloadIcon, InboxIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
-import RiskProbabilityPanel from "@/components/RiskProbabilityPanel";
+import PortfolioInsights, { type InsightsTab } from "@/components/PortfolioInsights";
 import TradeEntryModal from "@/components/TradeEntryModal";
+import { simulationInputs } from "@/lib/averaging";
 import {
   calculateTodayPnl,
   isTrackableEntry,
   legSnapshotKey,
   syntheticPrices,
   toLivePositionInfo,
+  type PortfolioRow,
 } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
@@ -76,6 +79,9 @@ export default function PortfolioView() {
   const [entries, setEntries] = useState<LivePortfolioEntry[] | null>(getCachedLivePortfolioEntries);
   const [editing, setEditing] = useState<LivePortfolioEntry | null>(null);
   const [pendingDelete, setPendingDelete] = useState<LivePortfolioEntry | null>(null);
+  const [simulatingId, setSimulatingId] = useState<string | null>(null);
+  const [insightsTab, setInsightsTab] = useState<InsightsTab>("risk");
+  const insightsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -189,6 +195,37 @@ export default function PortfolioView() {
     setHeldRisk({ analysis: riskAnalysis, at: riskAsOf });
   }
   const riskPaused = (riskAnalysis === null && heldRisk !== null) || stalePricesAsOf !== null;
+
+  // The averaging simulator is fed from the latest poll on every render, so it re-simulates as prices
+  // move. A position drops out of the list once it can't be simulated any more (closed, expired, or its
+  // live price gone), and the simulator falls back to the next one.
+  const simulatorCandidates = useMemo<SimulatorCandidate[]>(() => {
+    if (!rows || riskAsOf === null) return [];
+    return rows.flatMap((row) => {
+      const inputs = simulationInputs(row, riskAsOf);
+      return inputs
+        ? [
+            {
+              id: row.entry.id,
+              contract: describeEntryContract(row.entry),
+              position: inputs.position,
+              spot: inputs.market.spot,
+              ltp: inputs.market.ltp,
+              stale: row.stale,
+            },
+          ]
+        : [];
+    });
+  }, [rows, riskAsOf]);
+  const simulatableIds = useMemo(() => new Set(simulatorCandidates.map((c) => c.id)), [simulatorCandidates]);
+
+  /** The row's "Simulate averaging" button: pick that position, open its tab and bring the tab into view. */
+  function handleSimulate(row: PortfolioRow) {
+    setSimulatingId(row.entry.id);
+    setInsightsTab("simulate");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    insightsRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  }
 
   // The popup's live figures come from the latest poll on every render — not
   // a copy taken when the row was clicked — so they keep matching the row
@@ -423,7 +460,13 @@ export default function PortfolioView() {
             </p>
           </div>
         ) : (
-          <LiveEntriesTable rows={rows} onSetExpiry={handleSetExpiry} onRowClick={(row) => setEditing(row.entry)} />
+          <LiveEntriesTable
+            rows={rows}
+            onSetExpiry={handleSetExpiry}
+            onRowClick={(row) => setEditing(row.entry)}
+            onSimulate={handleSimulate}
+            canSimulate={(row) => simulatableIds.has(row.entry.id)}
+          />
         )}
 
         {upstox.otherCount > 0 && (
@@ -442,11 +485,19 @@ export default function PortfolioView() {
       )}
 
       {rows && rows.some((r) => r.status !== "untracked") && (
-        <RiskProbabilityPanel
-          analysis={riskAnalysis ?? heldRisk?.analysis ?? null}
-          asOf={riskAnalysis ? riskAsOf : (heldRisk?.at ?? null)}
-          paused={riskPaused}
-        />
+        <div ref={insightsRef} className="scroll-mt-4">
+          <PortfolioInsights
+            tab={insightsTab}
+            onTabChange={setInsightsTab}
+            analysis={riskAnalysis ?? heldRisk?.analysis ?? null}
+            asOf={riskAnalysis ? riskAsOf : (heldRisk?.at ?? null)}
+            paused={riskPaused}
+            candidates={simulatorCandidates}
+            selectedId={simulatingId}
+            onSelectCandidate={setSimulatingId}
+            nowMs={riskAsOf}
+          />
+        </div>
       )}
 
       <AnimatePresence>

@@ -15,7 +15,7 @@ const VERDICT_STYLES: Record<RiskVerdict, { label: string; pill: string }> = {
   comfortable: { label: "Comfortable", pill: "bg-profit/10 text-profit" },
 };
 
-const SEVERITY_STYLES: Record<RiskSeverity, { label: string; box: string; text: string; dot: string }> = {
+export const SEVERITY_STYLES: Record<RiskSeverity, { label: string; box: string; text: string; dot: string }> = {
   critical: { label: "Critical", box: "border-loss/40 bg-loss/10", text: "text-danger-fg", dot: "bg-danger-fg" },
   warning: { label: "Warning", box: "border-warning/30 bg-warning/5", text: "text-warning", dot: "bg-warning" },
   info: { label: "Note", box: "border-border bg-muted/30", text: "text-muted-foreground", dot: "bg-muted-foreground" },
@@ -139,6 +139,50 @@ function PositionRow({ p }: { p: PositionRisk }) {
   );
 }
 
+/** The verdict pill and "1 critical · 1 warning" count that sit beside the panel's title. */
+export function RiskHeaderBadges({ analysis }: { analysis: RiskAnalysis }) {
+  const verdict = VERDICT_STYLES[analysis.verdict];
+  const critical = analysis.warnings.filter((w) => w.severity === "critical").length;
+  const warning = analysis.warnings.filter((w) => w.severity === "warning").length;
+  return (
+    <>
+      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${verdict.pill}`}>{verdict.label}</span>
+      {(critical > 0 || warning > 0) && (
+        <span className="text-xs text-muted-foreground">
+          {critical > 0 && `${critical} critical`}
+          {critical > 0 && warning > 0 && " · "}
+          {warning > 0 && `${warning} warning${warning === 1 ? "" : "s"}`}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** "● Live · 2 of 2 positions analysed · 10:00:03" — or "Paused" while the last good read is being held. */
+export function RiskLiveStatus({
+  analysis,
+  asOf,
+  paused,
+}: {
+  analysis: RiskAnalysis;
+  asOf: number | null;
+  paused: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span
+        className={`size-2 shrink-0 rounded-full ${paused ? "bg-warning" : "animate-pulse bg-profit"}`}
+        aria-hidden="true"
+      />
+      <span className={`font-semibold ${paused ? "text-warning" : "text-profit"}`}>{paused ? "Paused" : "Live"}</span>
+      <span>
+        · {analysis.analysedCount} of {analysis.openCount} position{analysis.openCount === 1 ? "" : "s"} analysed
+        {asOf ? ` · ${new Date(asOf).toLocaleTimeString("en-IN")}` : ""}
+      </span>
+    </span>
+  );
+}
+
 type RiskProbabilityPanelProps = {
   /** null while there's nothing live-priced to analyse yet. */
   analysis: RiskAnalysis | null;
@@ -146,6 +190,8 @@ type RiskProbabilityPanelProps = {
   asOf: number | null;
   /** True when polling has stopped (token expired / offline) and `analysis` is the last good read, not a current one. */
   paused?: boolean;
+  /** False when a parent draws the title row itself (the Live Portfolio tab strip) from RiskHeaderBadges / RiskLiveStatus. */
+  showHeader?: boolean;
 };
 
 /**
@@ -154,11 +200,13 @@ type RiskProbabilityPanelProps = {
  * a ranked list of warning signs, and a per-position breakdown. All numbers
  * come from calculateRisk.ts (market-implied, at expiry, before brokerage).
  */
-export default function RiskProbabilityPanel({ analysis, asOf, paused = false }: RiskProbabilityPanelProps) {
+export default function RiskProbabilityPanel({ analysis, asOf, paused = false, showHeader = true }: RiskProbabilityPanelProps) {
   if (!analysis) {
     return (
       <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Risk &amp; Probability</h2>
+        {showHeader && (
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Risk &amp; Probability</h2>
+        )}
         <div className="rounded-xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
           Waiting for live prices and IV — the risk read appears as soon as your positions are priced.
         </div>
@@ -166,9 +214,6 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
     );
   }
 
-  const verdict = VERDICT_STYLES[analysis.verdict];
-  const critical = analysis.warnings.filter((w) => w.severity === "critical").length;
-  const warning = analysis.warnings.filter((w) => w.severity === "warning").length;
   const riskPerReward = analysis.rewardToRisk && analysis.rewardToRisk > 0 ? 1 / analysis.rewardToRisk : null;
   // pnlPer1PctMove is delta-only, so a 1% fall is its exact mirror. `|| 0` keeps a flat book from showing "-₹0".
   const pnlIfRise = analysis.pnlPer1PctMove;
@@ -176,30 +221,15 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false }:
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Risk &amp; Probability</h2>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${verdict.pill}`}>{verdict.label}</span>
-          {(critical > 0 || warning > 0) && (
-            <span className="text-xs text-muted-foreground">
-              {critical > 0 && `${critical} critical`}
-              {critical > 0 && warning > 0 && " · "}
-              {warning > 0 && `${warning} warning${warning === 1 ? "" : "s"}`}
-            </span>
-          )}
+      {showHeader && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Risk &amp; Probability</h2>
+            <RiskHeaderBadges analysis={analysis} />
+          </div>
+          <RiskLiveStatus analysis={analysis} asOf={asOf} paused={paused} />
         </div>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span
-            className={`size-2 shrink-0 rounded-full ${paused ? "bg-warning" : "animate-pulse bg-profit"}`}
-            aria-hidden="true"
-          />
-          <span className={`font-semibold ${paused ? "text-warning" : "text-profit"}`}>{paused ? "Paused" : "Live"}</span>
-          <span>
-            · {analysis.analysedCount} of {analysis.openCount} position{analysis.openCount === 1 ? "" : "s"} analysed
-            {asOf ? ` · ${new Date(asOf).toLocaleTimeString("en-IN")}` : ""}
-          </span>
-        </span>
-      </div>
+      )}
 
       {paused && (
         <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm text-muted-foreground">

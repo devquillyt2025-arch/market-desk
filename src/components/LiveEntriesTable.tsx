@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 
 import DatePicker from "@/components/DatePicker";
+import { FlaskIcon } from "@/components/icons";
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract, type TradeEntrySide } from "@/lib/tradeEntriesStore";
@@ -29,6 +30,12 @@ type LiveEntriesTableProps = {
    * this table no longer shows them itself.
    */
   onRowClick: (row: PortfolioRow) => void;
+  /**
+   * Adds a "Simulate averaging" button to the rows `canSimulate` accepts (Live Portfolio only —
+   * Paper Trade shares this table and passes neither). Read-only: it opens a what-if drawer.
+   */
+  onSimulate?: (row: PortfolioRow) => void;
+  canSimulate?: (row: PortfolioRow) => boolean;
 };
 
 /**
@@ -38,7 +45,7 @@ type LiveEntriesTableProps = {
  * every row with live data. Delta/Gamma/Theta/Vega/OI aren't shown here —
  * they're still computed per row and available in the edit popup.
  */
-export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: LiveEntriesTableProps) {
+export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimulate, canSimulate }: LiveEntriesTableProps) {
   const liveRows = rows.filter((row) => row.status === "ok");
   // Plain column sums. Lots counts every row so it matches the column above
   // it; the price, P&L and brokerage sums need a live price, so they only
@@ -62,7 +69,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-sm">
+        <table className={`w-full border-collapse text-sm ${onSimulate ? "min-w-[980px]" : "min-w-[820px]"}`}>
           <thead>
             <tr className="border-b border-border text-left">
               <th className={`${tableHeadClass} py-3 pl-5 pr-2`}>Date</th>
@@ -74,6 +81,11 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Live LTP</th>
               <th className={`${tableHeadClass} px-2 py-3 text-right`}>Live P&amp;L</th>
               <th className={`${tableHeadClass} px-2 py-3 pr-5 text-right`}>Brokerage if Closed</th>
+              {onSimulate && (
+                <th className={`${tableHeadClass} px-2 py-3 pr-5 text-right`}>
+                  <span className="sr-only">Simulate</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -172,6 +184,20 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                         </td>
                       </>
                     )}
+                    {onSimulate && (
+                      <td className="px-2 py-2.5 pr-5 text-right" onClick={(e) => e.stopPropagation()}>
+                        {canSimulate?.(row) && (
+                          <button
+                            type="button"
+                            onClick={() => onSimulate(row)}
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                          >
+                            <FlaskIcon className="size-3.5" />
+                            Simulate averaging
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </motion.tr>
                 );
               })}
@@ -198,6 +224,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick }: Live
                 <td className="whitespace-nowrap px-2 py-2.5 pr-5 text-right font-mono tabular-nums">
                   {formatINR(totals.brokerage)}
                 </td>
+                {onSimulate && <td />}
               </tr>
             </tfoot>
           )}
