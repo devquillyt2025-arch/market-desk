@@ -2,8 +2,9 @@
 
 /**
  * Averaging Simulator — the "Simulate averaging" tab beside Risk & Probability on
- * Live Portfolio. Pick an open long option and ask "what if I bought N more lots
- * here?". Read-only: it never places an order.
+ * Live Portfolio, and the matching tab on the Analysis page (where the bought legs
+ * of the strategy on screen are the positions). Pick a long option and ask "what
+ * if I bought N more lots here?". Read-only: it never places an order.
  *
  * Reads top to bottom as the questions a trader asks: what am I trying (your
  * what-if), what does it do (what changes), what does it look like (the chart),
@@ -16,21 +17,23 @@
 
 import { AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import BeforeAfterChart from "@/components/averaging/BeforeAfterChart";
 import BreakevenCards from "@/components/averaging/BreakevenCards";
 import LadderTable from "@/components/averaging/LadderTable";
+import LiveStrip from "@/components/averaging/LiveStrip";
 import LotsTable from "@/components/averaging/LotsTable";
-import { pillButton, ScenarioSwitch, Section } from "@/components/averaging/ui";
+import PositionHeader from "@/components/averaging/PositionHeader";
+import { Reveal, ScenarioSwitch, scenarioName, Section } from "@/components/averaging/ui";
 import VerdictCard from "@/components/averaging/VerdictCard";
 import WhatIfBuilder, { type QuickPick } from "@/components/averaging/WhatIfBuilder";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { ExternalLinkIcon } from "@/components/icons";
 import {
   buildLadder,
   buildLotsTable,
   buildPayoffCurve,
+  lotsWithinRiskLimit,
   MAX_TABLE_LOTS,
   priceMoved,
   simulateAveraging,
@@ -41,7 +44,6 @@ import {
   type ScenarioKey,
 } from "@/lib/averaging";
 import { loadAveragingPrefs, saveAveragingPrefs, type AveragingPrefs } from "@/lib/averagingPrefs";
-import { formatAsOf, formatLevel } from "@/lib/format";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
 import { INSTRUMENT_LABELS } from "@/lib/types";
 
@@ -56,6 +58,21 @@ export type SimulatorCandidate = {
   ltp: number;
   /** True when these are last-known prices rather than a current poll. */
   stale: boolean;
+  /** When the last-known prices are from, if that isn't the time the simulation is run at. */
+  pricesAt?: number;
+};
+
+/**
+ * What the main button does where "hand it to the Analysis page" doesn't fit — on the Analysis page
+ * itself it adds the simulated lots to the strategy on screen instead.
+ */
+export type SimulatorApply = {
+  label: string;
+  /** The line under the button while it's ready. */
+  hint: string;
+  run: (candidate: SimulatorCandidate, extraLots: number, buyPrice: number) => void;
+  /** Said for a few seconds after it has run, e.g. "Added 1 lot at 150.00 to your strategy". */
+  doneText: (extraLots: number, buyPrice: number) => string;
 };
 
 type AveragingSimulatorProps = {
@@ -65,21 +82,45 @@ type AveragingSimulatorProps = {
   onSelect: (id: string) => void;
   /** When the prices are from — the poll time, or the last-known time while the feed is down. */
   nowMs: number | null;
+  /** Replaces the default "Open in Analysis" hand-off. */
+  apply?: SimulatorApply;
+  /** Shown when there is nothing to simulate. */
+  emptyMessage?: string;
+  /** The "simulation only" line at the foot of the position header. */
+  note?: string;
 };
 
-export default function AveragingSimulator({ candidates, selectedId, onSelect, nowMs }: AveragingSimulatorProps) {
+const DEFAULT_EMPTY =
+  "Nothing to simulate yet. This works on open long (bought) calls and puts that have a live price — short positions and rows still waiting for prices are skipped.";
+
+export default function AveragingSimulator({
+  candidates,
+  selectedId,
+  onSelect,
+  nowMs,
+  apply,
+  emptyMessage = DEFAULT_EMPTY,
+  note,
+}: AveragingSimulatorProps) {
   const selected = candidates.find((c) => c.id === selectedId) ?? candidates[0];
   if (!selected || nowMs === null) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
-        Nothing to simulate yet. This works on open long (bought) calls and puts that have a live price — short
-        positions and rows still waiting for prices are skipped.
+        {emptyMessage}
       </div>
     );
   }
   // Keyed by position, so switching positions starts from a clean lots / price rather than carrying them over.
   return (
-    <SimulatorBody key={selected.id} candidate={selected} candidates={candidates} onSelect={onSelect} nowMs={nowMs} />
+    <SimulatorBody
+      key={selected.id}
+      candidate={selected}
+      candidates={candidates}
+      onSelect={onSelect}
+      nowMs={nowMs}
+      apply={apply}
+      note={note}
+    />
   );
 }
 
@@ -88,11 +129,15 @@ function SimulatorBody({
   candidates,
   onSelect,
   nowMs,
+  apply,
+  note,
 }: {
   candidate: SimulatorCandidate;
   candidates: SimulatorCandidate[];
   onSelect: (id: string) => void;
   nowMs: number;
+  apply?: SimulatorApply;
+  note?: string;
 }) {
   const { position, spot, ltp, stale } = candidate;
   const router = useRouter();
@@ -105,6 +150,10 @@ function SimulatorBody({
   const [lockedPrice, setLockedPrice] = useState<number | null>(null);
   const [scenarioKey, setScenarioKey] = useState<ScenarioKey>("today");
   const [confirmReplace, setConfirmReplace] = useState(false);
+  /** What the button just did, said for a few seconds — see SimulatorApply.doneText. */
+  const [appliedText, setAppliedText] = useState<string | null>(null);
+  const appliedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(appliedTimer.current), []);
 
   function updatePrefs(patch: Partial<AveragingPrefs>) {
     const next = { ...prefs, ...patch };
@@ -136,21 +185,31 @@ function SimulatorBody({
 
   const scenarios = result.scenarios.after;
   const activeKey = scenarios.some((s) => s.key === scenarioKey) ? scenarioKey : "today";
-  const activeLabel = scenarios.find((s) => s.key === activeKey)?.label ?? "Today";
+  const activeScenario = scenarios.find((s) => s.key === activeKey) ?? scenarios[0];
+  /** "Expiry · Tue, 10 Nov" — the date is always spelled out, even for Today and Expiry. */
+  const activeLabel = activeScenario ? scenarioName(activeScenario) : "Today";
   const curve = useMemo(
     () => buildPayoffCurve(position, market, result.extraLots, result.buyPrice, activeKey),
     [position, market, result.extraLots, result.buyPrice, activeKey],
   );
 
-  const sliderMax = Math.min(Math.max(tableLots, extraLots, 1), MAX_TABLE_LOTS);
+  // The slider's scale follows what you can afford, not what's typed in — otherwise typing 15 into the
+  // box would silently re-scale it and slide the thumb out from under you. Typed values past the end
+  // pin the thumb to the right edge; the box still takes them.
+  const sliderMax = Math.min(Math.max(tableLots, 1), MAX_TABLE_LOTS);
   const quickPicks = useMemo<QuickPick[]>(() => {
     const picks: QuickPick[] = [{ key: "one", label: "1 lot", lots: 1 }];
-    const sweet = lotsTable.sweetSpot;
-    if (sweet !== null && sweet > 1) picks.push({ key: "sweet", label: `Sweet spot · ${sweet}`, lots: sweet });
-    const max = prefs.funds === null ? 0 : result.maxAffordableLots;
-    if (max > 1 && max !== sweet) picks.push({ key: "max", label: `Max · ${max}`, lots: max });
+    // A pick that lands on a lot count already offered is dropped, so no two pills do the same thing.
+    const add = (key: string, label: string, lots: number | null) => {
+      if (lots !== null && lots > 1 && !picks.some((p) => p.lots === lots)) picks.push({ key, label: `${label} · ${lots}`, lots });
+    };
+    add("sweet", "Sweet spot", lotsTable.sweetSpot);
+    if (prefs.funds !== null) {
+      add("limit", "Within limit", lotsWithinRiskLimit(prefs.funds, prefs.riskLimitPct, result.before.capitalAtRisk, position.lotSize, result.buyPrice));
+      add("max", "Max", result.maxAffordableLots);
+    }
     return picks;
-  }, [lotsTable.sweetSpot, prefs.funds, result.maxAffordableLots]);
+  }, [lotsTable.sweetSpot, prefs.funds, prefs.riskLimitPct, result.before.capitalAtRisk, result.buyPrice, result.maxAffordableLots, position.lotSize]);
 
   const canOpenAnalysis = result.buyPrice !== null && result.extraLots >= 1;
 
@@ -162,75 +221,45 @@ function SimulatorBody({
 
   function handleOpenInAnalysis() {
     if (!canOpenAnalysis) return;
+    if (apply) {
+      if (result.buyPrice === null) return;
+      apply.run(candidate, result.extraLots, result.buyPrice);
+      setAppliedText(apply.doneText(result.extraLots, result.buyPrice));
+      window.clearTimeout(appliedTimer.current);
+      appliedTimer.current = window.setTimeout(() => setAppliedText(null), 4000);
+      return;
+    }
     // Analysis keeps one working strategy; don't silently throw away a non-empty one.
     const saved = loadSavedAnalysis();
     if (saved && saved.legs.length > 0) setConfirmReplace(true);
     else goToAnalysis();
   }
 
-  const dteTone = result.dte <= 5 ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground";
-
   return (
     <div className="flex flex-col gap-6">
       {/* Which position, and how it's priced right now */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-3">
-          <div role="group" aria-label="Position to simulate" className="flex flex-wrap gap-2">
-            {candidates.map((c) => {
-              const active = c.id === candidate.id;
-              return (
-                <button key={c.id} type="button" aria-pressed={active} onClick={() => onSelect(c.id)} className={pillButton(active)}>
-                  {c.contract}
-                  <span className="font-mono text-xs opacity-70">
-                    {c.position.lots} lot{c.position.lots === 1 ? "" : "s"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
-            <span>
-              Long {position.type === "CE" ? "call" : "put"} · LTP <span className="font-mono font-semibold tabular-nums text-foreground">{ltp.toFixed(2)}</span>
-            </span>
-            <span>
-              {indexName} <span className="font-mono font-semibold tabular-nums text-foreground">{formatLevel(spot)}</span>
-            </span>
-            <span>
-              Your average <span className="font-mono font-semibold tabular-nums text-foreground">{position.avgPrice.toFixed(2)}</span>
-            </span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${dteTone}`}>
-              {result.dte <= 0 ? "Expires today" : `${result.dte} day${result.dte === 1 ? "" : "s"} to expiry`}
-            </span>
-            <span className={`text-xs ${stale ? "font-medium text-warning" : ""}`}>
-              {stale ? `Last prices ${formatAsOf(nowMs)}` : `Updated ${new Date(nowMs).toLocaleTimeString("en-IN")}`}
-            </span>
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            type="button"
-            onClick={handleOpenInAnalysis}
-            disabled={!canOpenAnalysis}
-            className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-4 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-10"
-          >
-            <ExternalLinkIcon className="size-4" />
-            Open in Analysis
-          </button>
-          <p className="text-xs text-muted-foreground">
-            {canOpenAnalysis ? "Loads this position plus the simulated lots." : "Add a lot and a buy price first."}
-          </p>
-        </div>
-      </div>
-
-      <p className="-mt-3 text-xs text-muted-foreground">
-        Simulation only — this never places an order. Treats this as a naked long leg; hedges in other rows are
-        ignored.
-      </p>
+      <Reveal index={0}>
+        <PositionHeader
+          candidates={candidates}
+          candidate={candidate}
+          onSelect={onSelect}
+          dte={result.dte}
+          nowMs={nowMs}
+          pricesAtMs={candidate.pricesAt}
+          canOpenAnalysis={canOpenAnalysis}
+          onOpenAnalysis={handleOpenInAnalysis}
+          actionLabel={apply?.label}
+          actionHint={apply?.hint}
+          actionAdds={apply !== undefined}
+          appliedText={appliedText}
+          note={note}
+        />
+      </Reveal>
 
       {/* Decide, then see the result beside it */}
-      <div className="grid items-start gap-6 xl:grid-cols-12">
+      <Reveal index={1} className="flex flex-col gap-6">
         <WhatIfBuilder
-          className="xl:col-span-5"
+          liveSummary={<LiveStrip verdict={verdict} result={result} />}
           lots={extraLots}
           onLots={setExtraLots}
           sliderMax={sliderMax}
@@ -255,41 +284,45 @@ function SimulatorBody({
           capitalAfter={result.after.capitalAtRisk}
         />
         <VerdictCard
-          className="xl:col-span-7"
           verdict={verdict}
           result={result}
           position={position}
           funds={prefs.funds}
           indexName={indexName}
         />
-      </div>
+      </Reveal>
 
       {/* What it looks like */}
-      <Section
-        title="Profit or loss, before vs after"
-        subtitle={`${activeLabel}${activeKey === "today" ? "" : ", theta-adjusted"} — hover or touch the chart for exact figures.`}
-        action={<ScenarioSwitch scenarios={scenarios} value={activeKey} onChange={setScenarioKey} />}
-      >
-        <div className="rounded-2xl border border-border bg-background p-3 sm:p-4">
-          {curve ? (
-            <BeforeAfterChart curve={curve} spot={spot} indexName={indexName} />
-          ) : (
-            <p className="p-6 text-center text-sm text-muted-foreground">Nothing to chart yet.</p>
-          )}
-        </div>
-      </Section>
+      <Reveal index={2}>
+        <Section
+          step={3}
+          title="Profit or loss, before vs after"
+          subtitle={`${activeLabel}${activeKey === "today" ? "" : ", theta-adjusted"} — hover or touch the chart for exact figures.`}
+          action={<ScenarioSwitch scenarios={scenarios} value={activeKey} onChange={setScenarioKey} />}
+        >
+          <div className="rounded-2xl border border-border bg-background p-3 shadow-sm sm:p-4">
+            {curve ? (
+              <BeforeAfterChart curve={curve} spot={spot} indexName={indexName} />
+            ) : (
+              <p className="p-6 text-center text-sm text-muted-foreground">Nothing to chart yet.</p>
+            )}
+          </div>
+        </Section>
+      </Reveal>
 
       {/* How far must it move */}
-      <BreakevenCards
-        after={result.scenarios.after}
-        before={result.scenarios.before}
-        active={activeKey}
-        onSelect={setScenarioKey}
-        indexName={indexName}
-      />
+      <Reveal index={3}>
+        <BreakevenCards
+          after={result.scenarios.after}
+          before={result.scenarios.before}
+          active={activeKey}
+          onSelect={setScenarioKey}
+          indexName={indexName}
+        />
+      </Reveal>
 
       {/* How many lots, and the exact numbers */}
-      <div className="grid items-start gap-6 xl:grid-cols-2">
+      <Reveal index={4} className="grid items-start gap-6 xl:grid-cols-2">
         <LotsTable
           table={lotsTable}
           selected={result.extraLots}
@@ -299,7 +332,7 @@ function SimulatorBody({
           truncated={prefs.funds !== null && result.maxAffordableLots > MAX_TABLE_LOTS}
         />
         <LadderTable rows={ladder} scenarioKey={activeKey} scenarioLabel={activeLabel} indexName={indexName} />
-      </div>
+      </Reveal>
 
       <AnimatePresence>
         {confirmReplace && (

@@ -3,7 +3,7 @@
 /**
  * Profit and loss at every index level, before versus after the new lots, on
  * one chosen date. After is the solid line (green above zero, red below, with
- * the profit/loss tint); Before is dashed grey. The dots on the zero line are
+ * the profit/loss glow); Before is dashed grey. The dots on the zero line are
  * the two break-evens. Hand-drawn SVG in the app's colour tokens, like the
  * Analysis chart, but sized to its own width so the text stays readable on a
  * phone. The table beside it carries the same numbers for anyone who can't
@@ -97,8 +97,10 @@ export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { widt
 
   const hovered = hover === null ? null : curve.points[Math.min(hover, curve.points.length - 1)];
   const { breakevenBefore: beB, breakevenAfter: beA } = curve;
+  // "today" / "expiry" read naturally in lower case; a date ("Fri, 6 Nov") doesn't.
+  const when = curve.scenario.key.startsWith("date:") ? `on ${curve.scenario.label}` : curve.scenario.label.toLowerCase();
   const label =
-    `Profit and loss ${curve.scenario.label.toLowerCase()} across ${indexName} levels ${formatLevel(geo.xMin)} to ${formatLevel(geo.xMax)}, ` +
+    `Profit and loss ${when} across ${indexName} levels ${formatLevel(geo.xMin)} to ${formatLevel(geo.xMax)}, ` +
     `before and after the new lots.` +
     (beB !== null && beA !== null ? ` Break-even moves from ${formatLevel(beB)} to ${formatLevel(beA)}.` : "") +
     ` The exact figures are in the table.`;
@@ -113,6 +115,15 @@ export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { widt
           <clipPath id={`${uid}-below`}>
             <rect x={0} y={Math.max(zeroY, 0)} width={W} height={H} />
           </clipPath>
+          {/* The tints fade towards the zero line, so the area reads as depth of profit / loss rather than a flat block. */}
+          <linearGradient id={`${uid}-gain`} gradientUnits="userSpaceOnUse" x1={0} x2={0} y1={zeroY} y2={M.t}>
+            <stop offset="0" style={{ stopColor: "var(--profit)", stopOpacity: 0.03 }} />
+            <stop offset="1" style={{ stopColor: "var(--profit)", stopOpacity: 0.3 }} />
+          </linearGradient>
+          <linearGradient id={`${uid}-pain`} gradientUnits="userSpaceOnUse" x1={0} x2={0} y1={zeroY} y2={H - M.b}>
+            <stop offset="0" style={{ stopColor: "var(--loss)", stopOpacity: 0.03 }} />
+            <stop offset="1" style={{ stopColor: "var(--loss)", stopOpacity: 0.34 }} />
+          </linearGradient>
         </defs>
 
         {geo.yTicks.map((t) => (
@@ -131,8 +142,8 @@ export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { widt
 
         {geo.area && (
           <>
-            <path d={geo.area} clipPath={`url(#${uid}-above)`} className="fill-profit/15" />
-            <path d={geo.area} clipPath={`url(#${uid}-below)`} className="fill-loss/20" />
+            <path d={geo.area} clipPath={`url(#${uid}-above)`} fill={`url(#${uid}-gain)`} />
+            <path d={geo.area} clipPath={`url(#${uid}-below)`} fill={`url(#${uid}-pain)`} />
           </>
         )}
         <line x1={M.l} x2={W - M.r} y1={zeroY} y2={zeroY} className="stroke-muted-foreground/60" />
@@ -263,7 +274,8 @@ export default function BeforeAfterChart(props: ChartProps) {
         </span>
       </div>
 
-      <div ref={wrap} className="w-full" style={{ minHeight: width < 520 ? 250 : 330 }}>
+      {/* Space is held before the width is measured (phone-height below sm, full height above) so the page doesn't jump when the chart appears. */}
+      <div ref={wrap} className="min-h-[250px] w-full sm:min-h-[330px]" style={width > 0 ? { minHeight: width < 520 ? 250 : 330 } : undefined}>
         {width > 0 && <ChartPlot {...props} width={width} />}
       </div>
     </div>

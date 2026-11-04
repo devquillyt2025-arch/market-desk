@@ -20,6 +20,7 @@
 
 import type { RiskWarning } from "@/lib/calculateRisk";
 import {
+  addDays,
   analyzeStrategy,
   chartDomain,
   daysBetween,
@@ -104,8 +105,18 @@ export type AveragingPlan = {
   riskLimitPct: number;
 };
 
-export type ScenarioKey = "today" | "tomorrow" | "expiry";
-export type Scenario = { key: ScenarioKey; label: string; atMs: number };
+/** "today", "tomorrow", "expiry", or `date:YYYY-MM-DD` for a day in between — dates, so a chosen day stays put as the clock rolls over. */
+export type ScenarioKey = string;
+export type Scenario = {
+  key: ScenarioKey;
+  /** Short name: "Today", "Tomorrow", a date such as "Fri, 6 Nov", or "Expiry". */
+  label: string;
+  /** The date it falls on — always a date, even for Today and Expiry. */
+  dateLabel: string;
+  /** Calendar days from today. */
+  daysOut: number;
+  atMs: number;
+};
 
 /** Where a set of Greeks came from. `broker` and `estimated` are the labelled fallbacks for a missing IV. */
 export type GreeksSource = "engine" | "broker" | "estimated";
@@ -133,6 +144,8 @@ export type PositionSnapshot = {
 export type ScenarioResult = {
   key: ScenarioKey;
   label: string;
+  dateLabel: string;
+  daysOut: number;
   atMs: number;
   /** ₹ per unit of time value lost between now and then if the underlying doesn't move. */
   thetaDrag: number;
@@ -222,6 +235,24 @@ export function maxAffordableLots(funds: number | null, lotSize: number, buyPric
   return Math.floor(funds / (lotSize * buyPrice) + 1e-9);
 }
 
+/**
+ * Whole lots that can be added before the premium paid — what's already in, plus the new lots —
+ * passes the risk limit, `riskLimitPct` percent of `funds`. 0 when there's no room left or the
+ * inputs aren't usable.
+ */
+export function lotsWithinRiskLimit(
+  funds: number | null,
+  riskLimitPct: number,
+  alreadyIn: number,
+  lotSize: number,
+  buyPrice: number | null,
+): number {
+  if (funds === null || !(funds > 0) || buyPrice === null || !(buyPrice > 0) || !(lotSize > 0)) return 0;
+  const room = (funds * riskLimitPct) / 100 - alreadyIn;
+  if (!(room > 0)) return 0;
+  return Math.floor(room / (lotSize * buyPrice) + 1e-9);
+}
+
 /** ₹ and % the premium has to climb from `ltp` to reach `target`. Negative = already above it. */
 export function premiumRiseNeeded(target: number, ltp: number): { rupees: number; pct: number | null } {
   return { rupees: target - ltp, pct: ltp > 0 ? ((target - ltp) / ltp) * 100 : null };
@@ -271,19 +302,49 @@ function unitValue(priced: PricedLeg[], spot: number, atMs: number): number {
 
 // --- Scenarios ------------------------------------------------------------------
 
+/** Most dates offered at once — Today, Tomorrow, the days between and Expiry. Past this the days in between are spread out evenly. */
+export const MAX_SCENARIOS = 14;
+
+/** Which days strictly between today and expiry to offer: every one while they fit, otherwise tomorrow plus an even spread. */
+function daysBetweenToExpiry(totalDays: number): number[] {
+  const between = totalDays - 1;
+  if (between <= 0) return [];
+  if (between <= MAX_SCENARIOS - 2) return Array.from({ length: between }, (_, i) => i + 1);
+  const slots = MAX_SCENARIOS - 3; // Today, Tomorrow and Expiry are always there
+  const spread = Array.from({ length: slots }, (_, i) => Math.round(2 + ((i + 1) / (slots + 1)) * (totalDays - 2)));
+  return [...new Set([1, ...spread])].filter((d) => d < totalDays).sort((a, b) => a - b);
+}
+
+/** "Fri, 6 Nov" for an ISO date, read as a calendar date (no timezone shift). */
+function dateText(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 /**
- * Today (right now), Tomorrow (15:30 IST next day) and Expiry (the 15:30 close).
- * Tomorrow is left out when the contract expires today, and folded into Expiry
- * when it expires tomorrow — there it is the same moment.
+ * Every day from Today (right now) to Expiry (the 15:30 close), each at 15:30 IST like the Analysis
+ * payoff table, so the cards show how the break-even drifts as time decay bites. Up to
+ * MAX_SCENARIOS dates; a longer expiry keeps Today, Tomorrow and Expiry and spreads the rest.
+ * Tomorrow is left out when the contract expires today, and folded into Expiry when it expires
+ * tomorrow — there it is the same moment.
  */
 export function buildScenarios(expiry: string, nowMs: number): Scenario[] {
   const expiryMs = expiryCloseMs(expiry);
-  const totalDays = Math.max(daysBetween(istDateString(nowMs), istDateString(expiryMs)), 0);
-  const out: Scenario[] = [{ key: "today", label: "Today", atMs: nowMs }];
-  if (totalDays >= 2) {
-    out.push({ key: "tomorrow", label: "Tomorrow", atMs: targetMomentMs(1, totalDays, nowMs, expiryMs) });
+  const today = istDateString(nowMs);
+  const totalDays = Math.max(daysBetween(today, istDateString(expiryMs)), 0);
+  const out: Scenario[] = [{ key: "today", label: "Today", dateLabel: dateText(today), daysOut: 0, atMs: nowMs }];
+  for (const d of daysBetweenToExpiry(totalDays)) {
+    const date = addDays(today, d);
+    out.push({
+      key: d === 1 ? "tomorrow" : `date:${date}`,
+      label: d === 1 ? "Tomorrow" : dateText(date),
+      dateLabel: dateText(date),
+      daysOut: d,
+      atMs: targetMomentMs(d, totalDays, nowMs, expiryMs),
+    });
   }
-  if (expiryMs > nowMs) out.push({ key: "expiry", label: "Expiry", atMs: expiryMs });
+  if (expiryMs > nowMs) {
+    out.push({ key: "expiry", label: "Expiry", dateLabel: dateText(istDateString(expiryMs)), daysOut: totalDays, atMs: expiryMs });
+  }
   return out;
 }
 
@@ -394,6 +455,8 @@ function scenarioResult(
   return {
     key: scenario.key,
     label: scenario.label,
+    dateLabel: scenario.dateLabel,
+    daysOut: scenario.daysOut,
     atMs: scenario.atMs,
     thetaDrag,
     premiumRise,
@@ -585,6 +648,53 @@ export type Verdict = {
   /** Index points the expiry break-even moved toward the current price (positive = closer, better); null when unknown. */
   breakevenCloserPts: number | null;
 };
+
+// --- Where the position stands today --------------------------------------------
+
+export type PositionOverview = {
+  qty: number;
+  /** Total premium paid (₹). */
+  invested: number;
+  /** What the lots would fetch at the live price (₹). */
+  worth: number;
+  /** worth − invested (₹); negative is a loss. */
+  pnl: number;
+  /** pnl as a percent of invested; null with nothing invested. */
+  pnlPct: number | null;
+  /** Per unit: the part of the live premium that is real value today (how far in the money)… */
+  intrinsic: number;
+  /** …and the rest, which time decay takes to zero by expiry. */
+  timeValue: number;
+  /** timeValue as a share (0–1) of the live premium; null when there is no premium. */
+  timeValueShare: number | null;
+  /** Index points the strike is in the money (positive) or out of it (negative). */
+  moneynessPts: number;
+};
+
+/**
+ * The long position as it stands right now, before any averaging: what was paid, what it's worth,
+ * and how much of today's premium is time value — the part that is certain to melt. The intrinsic
+ * part is capped at the premium itself, so a stale quote can't produce a negative time value.
+ */
+export function positionOverview(position: AveragingPosition, spot: number, ltp: number): PositionOverview {
+  const qty = position.lots * position.lotSize;
+  const invested = position.avgPrice * qty;
+  const worth = Math.max(ltp, 0) * qty;
+  const moneynessPts = position.type === "CE" ? spot - position.strike : position.strike - spot;
+  const intrinsic = Math.min(Math.max(moneynessPts, 0), Math.max(ltp, 0));
+  const timeValue = Math.max(ltp - intrinsic, 0);
+  return {
+    qty,
+    invested,
+    worth,
+    pnl: worth - invested,
+    pnlPct: invested > 0 ? ((worth - invested) / invested) * 100 : null,
+    intrinsic,
+    timeValue,
+    timeValueShare: ltp > 0 ? timeValue / ltp : null,
+    moneynessPts,
+  };
+}
 
 /** The one-sentence read of a simulation, plus how it should be coloured. */
 export function summarizeAveraging(position: AveragingPosition, result: AveragingResult, funds: number | null): Verdict {
@@ -817,6 +927,70 @@ export function simulationInputs(
     },
     market: { spot: row.underlyingSpot, ltp: row.liveLtp },
   };
+}
+
+// --- Inputs from the Analysis page's legs ----------------------------------------
+
+/** The part of a leg's live quote the simulator needs. */
+export type LegQuote = {
+  ltp: number | null;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+};
+
+export type LegSimulationInput = { id: string; position: AveragingPosition; ltp: number };
+
+/**
+ * The simulator's inputs from the legs on the Analysis page: every enabled, priced, bought call or
+ * put that has a live quote and time left, with legs of the same contract combined into one
+ * position (lots added up, price averaged by quantity). That is also what adding the simulated lots
+ * to the strategy leaves behind, so the next simulation starts from the new average. Sold legs are
+ * left out — this models a naked long leg, and hedges are ignored.
+ */
+export function simulationInputsFromLegs(
+  instrument: Instrument,
+  legs: DraftLeg[],
+  quoteFor: (leg: Pick<DraftLeg, "expiry" | "strike" | "type">) => LegQuote,
+  nowMs: number,
+): LegSimulationInput[] {
+  const groups = new Map<string, { type: LegType; strike: number; expiry: string; lots: number; cost: number }>();
+  for (const leg of legs) {
+    const price = Number(leg.price);
+    if (!leg.enabled || leg.side !== "buy" || !(leg.lots > 0) || leg.price.trim() === "" || !(price > 0)) continue;
+    if (!(expiryCloseMs(leg.expiry) > nowMs)) continue;
+    const id = `${leg.type}-${leg.strike}-${leg.expiry}`;
+    const group = groups.get(id) ?? { type: leg.type, strike: leg.strike, expiry: leg.expiry, lots: 0, cost: 0 };
+    group.lots += leg.lots;
+    group.cost += leg.lots * price;
+    groups.set(id, group);
+  }
+
+  const out: LegSimulationInput[] = [];
+  for (const [id, g] of groups) {
+    const quote = quoteFor(g);
+    if (quote.ltp === null || !(quote.ltp > 0)) continue;
+    out.push({
+      id,
+      ltp: quote.ltp,
+      position: {
+        instrument,
+        type: g.type,
+        strike: g.strike,
+        expiry: g.expiry,
+        lots: g.lots,
+        lotSize: DEFAULT_LOT_SIZES[instrument],
+        avgPrice: g.cost / g.lots,
+        iv: quote.iv,
+        brokerGreeks: { delta: quote.delta, gamma: quote.gamma, theta: quote.theta },
+      },
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      a.position.expiry.localeCompare(b.position.expiry) || a.position.strike - b.position.strike || a.position.type.localeCompare(b.position.type),
+  );
 }
 
 // --- Hand-off to Analysis -------------------------------------------------------

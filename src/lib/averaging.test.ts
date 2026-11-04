@@ -8,6 +8,11 @@ import {
   buildLegs,
   buildLotsTable,
   buildScenarios,
+  lotsWithinRiskLimit,
+  simulationInputsFromLegs,
+  type LegQuote,
+  MAX_SCENARIOS,
+  positionOverview,
   deltaGammaMove,
   isMarketOpen,
   LADDER_STEP,
@@ -34,6 +39,7 @@ import {
   strategyPnl,
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
+import type { DraftLeg } from "@/lib/strategyTransfer";
 import type { TradeEntry } from "@/lib/types";
 
 // Wednesday 4 Nov 2026, 10:00 IST — market open. Expiry is six days out (a Tuesday).
@@ -165,15 +171,57 @@ describe("pnlAt", () => {
 });
 
 describe("buildScenarios", () => {
-  it("offers Today, Tomorrow and Expiry when expiry is two or more days away", () => {
+  it("offers every day from Today to Expiry, each at the 15:30 close", () => {
     const s = buildScenarios(EXPIRY, NOW);
     assert.deepEqual(
       s.map((x) => x.key),
-      ["today", "tomorrow", "expiry"],
+      ["today", "tomorrow", "date:2026-11-06", "date:2026-11-07", "date:2026-11-08", "date:2026-11-09", "expiry"],
+    );
+    assert.deepEqual(
+      s.map((x) => x.daysOut),
+      [0, 1, 2, 3, 4, 5, 6],
     );
     assert.equal(s[0].atMs, NOW);
     assert.equal(s[1].atMs, Date.parse("2026-11-05T15:30:00+05:30"));
-    assert.equal(s[2].atMs, expiryCloseMs(EXPIRY));
+    assert.equal(s[2].atMs, Date.parse("2026-11-06T15:30:00+05:30"));
+    assert.equal(s[6].atMs, expiryCloseMs(EXPIRY));
+  });
+
+  it("names each day by its date, and says which date Today and Expiry are", () => {
+    const s = buildScenarios(EXPIRY, NOW);
+    assert.deepEqual(
+      s.map((x) => x.label),
+      ["Today", "Tomorrow", "Fri, 6 Nov", "Sat, 7 Nov", "Sun, 8 Nov", "Mon, 9 Nov", "Expiry"],
+    );
+    assert.equal(s[0].dateLabel, "Wed, 4 Nov");
+    assert.equal(s[6].dateLabel, "Tue, 10 Nov");
+  });
+
+  it("is just Today, Tomorrow and Expiry when expiry is two days away", () => {
+    assert.deepEqual(
+      buildScenarios("2026-11-06", NOW).map((x) => x.key),
+      ["today", "tomorrow", "expiry"],
+    );
+  });
+
+  it("keeps a long expiry to a row of cards: Today, Tomorrow and Expiry stay, the rest are spread out", () => {
+    const s = buildScenarios("2026-12-31", NOW); // 57 days out
+    assert.equal(s.length, MAX_SCENARIOS);
+    assert.equal(s[0].key, "today");
+    assert.equal(s[1].key, "tomorrow");
+    assert.equal(s.at(-1)?.key, "expiry");
+    assert.equal(new Set(s.map((x) => x.key)).size, s.length, "no duplicate keys");
+    for (let i = 1; i < s.length; i++) assert.ok(s[i].atMs > s[i - 1].atMs, "strictly later each time");
+    assert.ok(s.slice(1, -1).every((x) => x.daysOut >= 1 && x.daysOut < 57));
+  });
+
+  it("lists every day up to the point where they still fit", () => {
+    // 13 days out → 11 days in between, so Today + 11 + Expiry = 13 cards, none skipped.
+    const s = buildScenarios("2026-11-17", NOW);
+    assert.deepEqual(
+      s.map((x) => x.daysOut),
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    );
   });
 
   it("hides Tomorrow when the contract expires today", () => {
@@ -202,15 +250,12 @@ describe("buildScenarios", () => {
 
 describe("Nifty move needed", () => {
   for (const type of ["CE", "PE"] as const) {
-    it(`gives zero P&L at the break-even for Today, Tomorrow and Expiry (${type})`, () => {
+    it(`gives zero P&L at the break-even on every day to expiry (${type})`, () => {
       const p = position({ type });
       const result = simulateAveraging(p, marketOf({ ltp: modelValue(p) }), planOf());
       const { after } = buildLegs(p, result.extraLots, result.buyPrice as number);
 
-      assert.deepEqual(
-        result.scenarios.after.map((s) => s.key),
-        ["today", "tomorrow", "expiry"],
-      );
+      assert.equal(result.scenarios.after.length, 7, "every day from Today to Expiry");
       for (const s of result.scenarios.after) {
         assert.ok(s.move !== null && s.level !== null, `${s.label} has a break-even`);
         near(s.level, SPOT + s.move, 1e-9);
@@ -238,7 +283,9 @@ describe("Nifty move needed", () => {
 
   it("needs more points the later you check, because theta eats the premium", () => {
     const p = position();
-    const [today, tomorrow, expiry] = simulateAveraging(p, marketOf(), planOf()).scenarios.after;
+    const days = simulateAveraging(p, marketOf(), planOf()).scenarios.after;
+    const [today, tomorrow] = days;
+    const expiry = days[days.length - 1];
     assert.ok((today.move as number) < (tomorrow.move as number));
     assert.ok((tomorrow.move as number) < (expiry.move as number));
     assert.equal(today.thetaDrag, 0);
@@ -246,6 +293,17 @@ describe("Nifty move needed", () => {
     assert.ok(expiry.thetaDrag > tomorrow.thetaDrag);
     assert.ok(tomorrow.premiumRise > today.premiumRise);
     assert.ok(expiry.premiumRise > tomorrow.premiumRise);
+  });
+
+  it("needs more points every single day, with time decay never reversing", () => {
+    for (const type of ["CE", "PE"] as const) {
+      const days = simulateAveraging(position({ type }), marketOf(), planOf()).scenarios.after;
+      for (let i = 1; i < days.length; i++) {
+        const sign = type === "CE" ? 1 : -1; // a call must rise further, a put must fall further
+        assert.ok(sign * (days[i].move as number) > sign * (days[i - 1].move as number), `${days[i].label} is further than ${days[i - 1].label}`);
+        assert.ok(days[i].thetaDrag >= days[i - 1].thetaDrag, "decay only accumulates");
+      }
+    }
   });
 
   it("is exactly the new strike-plus-average at expiry for a call, strike-minus for a put", () => {
@@ -694,6 +752,84 @@ describe("simulationInputs", () => {
   });
 });
 
+describe("lotsWithinRiskLimit", () => {
+  it("counts the lots that fit between what's already in and the limit", () => {
+    // 25% of ₹1,00,000 = ₹25,000; ₹10,000 already in; a lot costs 65 × 100 = ₹6,500 → 2 lots.
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 10_000, 65, 100), 2);
+  });
+
+  it("lets an exact fit through rather than rounding it down", () => {
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 12_000, 65, 100), 2); // room is exactly 2 × ₹6,500
+  });
+
+  it("is 0 when the premium already passes the limit, or the inputs can't be used", () => {
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 30_000, 65, 100), 0);
+    assert.equal(lotsWithinRiskLimit(null, 25, 0, 65, 100), 0);
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 0, 65, null), 0);
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 0, 65, 0), 0);
+    assert.equal(lotsWithinRiskLimit(100_000, 25, 0, 0, 100), 0);
+  });
+
+  it("agrees with the warning: that many lots stay within the limit and one more does not", () => {
+    const p = position();
+    const m = marketOf();
+    const funds = 200_000;
+    const base = simulateAveraging(p, m, planOf({ extraLots: 0, funds }));
+    const n = lotsWithinRiskLimit(funds, 25, base.before.capitalAtRisk, LOT, 170);
+    assert.ok(n > 0);
+    const at = simulateAveraging(p, m, planOf({ extraLots: n, buyPrice: 170, funds }));
+    const over = simulateAveraging(p, m, planOf({ extraLots: n + 1, buyPrice: 170, funds }));
+    assert.ok(!at.warnings.some((w) => w.id === "capital-at-risk"), "n lots: no warning");
+    assert.ok(over.warnings.some((w) => w.id === "capital-at-risk"), "n + 1 lots: warning");
+  });
+});
+
+describe("positionOverview", () => {
+  it("works out what was paid, what it's worth and the loss, for a long put in the money", () => {
+    const o = positionOverview(position({ type: "PE", lots: 4, avgPrice: 403.54 }), 23960.6, 217.45);
+    assert.equal(o.qty, 260);
+    near(o.invested, 403.54 * 260, 1e-6);
+    near(o.worth, 217.45 * 260, 1e-6);
+    near(o.pnl, (217.45 - 403.54) * 260, 1e-6);
+    near(o.pnlPct, ((217.45 - 403.54) / 403.54) * 100, 1e-9);
+    near(o.moneynessPts, 24000 - 23960.6, 1e-9);
+  });
+
+  it("splits the premium into what it's worth today and what time decay will take", () => {
+    const o = positionOverview(position({ type: "PE" }), 23960.6, 217.45);
+    near(o.intrinsic, 39.4, 1e-9);
+    near(o.timeValue, 217.45 - 39.4, 1e-9);
+    near(o.timeValueShare, (217.45 - 39.4) / 217.45, 1e-9);
+    near(o.intrinsic + o.timeValue, 217.45, 1e-9);
+  });
+
+  it("is all time value out of the money, with a negative distance", () => {
+    const o = positionOverview(position({ type: "CE" }), 23900, 80);
+    assert.equal(o.intrinsic, 0);
+    assert.equal(o.timeValue, 80);
+    assert.equal(o.timeValueShare, 1);
+    near(o.moneynessPts, -100, 1e-9);
+  });
+
+  it("measures a call's moneyness upwards from the strike", () => {
+    near(positionOverview(position({ type: "CE" }), 24100, 150).moneynessPts, 100, 1e-9);
+  });
+
+  it("never lets the intrinsic part exceed the premium, so a stale quote can't give a negative time value", () => {
+    const o = positionOverview(position({ type: "CE" }), 24200, 150);
+    assert.equal(o.intrinsic, 150);
+    assert.equal(o.timeValue, 0);
+  });
+
+  it("reports a gain as positive and copes with no premium", () => {
+    const up = positionOverview(position({ avgPrice: 100 }), SPOT, 150);
+    assert.ok(up.pnl > 0 && (up.pnlPct as number) > 0);
+    const none = positionOverview(position({ avgPrice: 0 }), SPOT, 0);
+    assert.equal(none.pnlPct, null);
+    assert.equal(none.timeValueShare, null);
+  });
+});
+
 describe("summarizeAveraging", () => {
   const run = (over: Partial<AveragingPlan> = {}, p = position(), m = marketOf()) => {
     const plan = planOf(over);
@@ -814,6 +950,85 @@ describe("buildPayoffCurve", () => {
   it("falls back to Today for a scenario the contract doesn't have, and to nothing when nothing is held", () => {
     assert.equal(buildPayoffCurve(position({ expiry: "2026-11-04", avgPrice: 60 }), m, 1, 40, "tomorrow")?.scenario.key, "today");
     assert.equal(buildPayoffCurve(position({ lots: 0 }), m, 0, 170, "today"), null);
+  });
+});
+
+describe("simulationInputsFromLegs", () => {
+  const leg = (over: Partial<DraftLeg> = {}): DraftLeg => ({
+    id: "l1",
+    enabled: true,
+    side: "buy",
+    type: "CE",
+    strike: 24000,
+    expiry: EXPIRY,
+    lots: 2,
+    price: "200",
+    ...over,
+  });
+  const quote = (over: Partial<LegQuote> = {}): LegQuote => ({ ltp: 170, iv: 14, delta: 0.5, gamma: 0.0005, theta: -12, ...over });
+  const run = (legs: DraftLeg[], q: (l: Pick<DraftLeg, "expiry" | "strike" | "type">) => LegQuote = () => quote()) =>
+    simulationInputsFromLegs("NIFTY", legs, q, NOW);
+
+  it("turns a bought, priced leg with a live quote into a position", () => {
+    const [one, ...rest] = run([leg()]);
+    assert.equal(rest.length, 0);
+    assert.equal(one.id, `CE-24000-${EXPIRY}`);
+    assert.equal(one.ltp, 170);
+    assert.deepEqual(one.position, {
+      instrument: "NIFTY",
+      type: "CE",
+      strike: 24000,
+      expiry: EXPIRY,
+      lots: 2,
+      lotSize: 65,
+      avgPrice: 200,
+      iv: 14,
+      brokerGreeks: { delta: 0.5, gamma: 0.0005, theta: -12 },
+    });
+  });
+
+  it("combines legs of one contract: lots add up and the price is averaged by quantity", () => {
+    const [one, ...rest] = run([leg({ id: "a", lots: 2, price: "200" }), leg({ id: "b", lots: 1, price: "170" })]);
+    assert.equal(rest.length, 0);
+    assert.equal(one.position.lots, 3);
+    near(one.position.avgPrice, (2 * 200 + 1 * 170) / 3, 1e-9);
+  });
+
+  it("leaves a different strike, type or expiry as its own position, in a steady order", () => {
+    const out = run([
+      leg({ id: "a", type: "PE", strike: 24000 }),
+      leg({ id: "b", type: "CE", strike: 24100 }),
+      leg({ id: "c", type: "CE", strike: 24000 }),
+    ]);
+    assert.deepEqual(
+      out.map((x) => x.id),
+      // by expiry, then strike, then call before put
+      [`CE-24000-${EXPIRY}`, `PE-24000-${EXPIRY}`, `CE-24100-${EXPIRY}`],
+    );
+  });
+
+  it("skips sold, switched-off, empty, unpriced and expired legs", () => {
+    assert.equal(run([leg({ side: "sell" })]).length, 0, "sold");
+    assert.equal(run([leg({ enabled: false })]).length, 0, "off");
+    assert.equal(run([leg({ lots: 0 })]).length, 0, "no lots");
+    assert.equal(run([leg({ price: "" })]).length, 0, "no price");
+    assert.equal(run([leg({ price: "abc" })]).length, 0, "bad price");
+    assert.equal(run([leg({ price: "0" })]).length, 0, "zero price");
+    assert.equal(run([leg({ expiry: "2026-11-03" })]).length, 0, "expired");
+  });
+
+  it("skips a contract with no live price, and passes a missing IV through", () => {
+    assert.equal(run([leg()], () => quote({ ltp: null })).length, 0);
+    assert.equal(run([leg()], () => quote({ ltp: 0 })).length, 0);
+    assert.equal(run([leg()], () => quote({ iv: null }))[0].position.iv, null);
+  });
+
+  it("starts from the new average once the simulated lots have been added as a leg", () => {
+    const before = run([leg({ id: "a", lots: 2, price: "200" })])[0];
+    const result = simulateAveraging(before.position, marketOf(), planOf({ extraLots: 1, buyPrice: 170 }));
+    const after = run([leg({ id: "a", lots: 2, price: "200" }), leg({ id: "b", lots: 1, price: "170" })])[0];
+    near(after.position.avgPrice, result.after.avgPrice, 1e-9);
+    assert.equal(after.position.lots, 3);
   });
 });
 

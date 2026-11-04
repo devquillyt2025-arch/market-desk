@@ -21,6 +21,8 @@ type StepperProps = {
   id?: string;
   /** Touch-sized controls (44px) on phones, shrinking to the usual 32px from `sm` up. */
   large?: boolean;
+  /** Shown when the field is empty — which is what a non-finite `value` (e.g. NaN) renders as. */
+  placeholder?: string;
 };
 
 /** A number field with − / + buttons, shared by the Analysis leg editor and the averaging simulator. */
@@ -35,6 +37,7 @@ export default function Stepper({
   label,
   id,
   large = false,
+  placeholder,
 }: StepperProps) {
   // What's typed is held as text until the field loses focus, so it can be
   // emptied or half-typed without the parent snapping it back mid-keystroke.
@@ -50,7 +53,8 @@ export default function Stepper({
   }
   function nudge(delta: number) {
     setDraft(null);
-    const next = value + delta;
+    // An empty field (non-finite value) steps from zero rather than going NaN.
+    const next = (Number.isFinite(value) ? value : 0) + delta;
     const rounded = precision === undefined ? next : Number(next.toFixed(precision));
     onChange(Math.min(max ?? Infinity, Math.max(min, rounded)));
   }
@@ -68,6 +72,7 @@ export default function Stepper({
         inputMode="decimal"
         id={id}
         value={shown}
+        placeholder={placeholder}
         aria-label={label}
         onChange={(e) => handleType(e.target.value)}
         onBlur={() => setDraft(null)}

@@ -6,15 +6,18 @@
  * after the new lots, and what the lots change at that level.
  */
 
-import { Section, signedPts, signedRupee, tableHead } from "@/components/averaging/ui";
+import { Section, signedPts, signedRupee, tableHead, thinScroll } from "@/components/averaging/ui";
 import type { LadderRow, ScenarioKey } from "@/lib/averaging";
 import { formatINR, formatLevel, pnlColorClass } from "@/lib/format";
 
+/** The shared header style, with the narrow-card padding the body cells use below, so the columns line up. */
+const head = tableHead.replace("px-2.5", "px-1.5 @min-[30rem]:px-2.5");
+
 function PnlCell({ value, strong = false }: { value: number | null; strong?: boolean }) {
-  if (value === null) return <td className="px-2.5 py-1.5 text-right text-muted-foreground">—</td>;
+  if (value === null) return <td className="px-1.5 py-1.5 @min-[30rem]:px-2.5 text-right text-muted-foreground">—</td>;
   const tint = value > 0 ? "bg-profit/10" : value < 0 ? "bg-loss/10" : "";
   return (
-    <td className={`whitespace-nowrap px-2.5 py-1.5 text-right font-mono tabular-nums ${tint} ${pnlColorClass(value)} ${strong ? "font-semibold" : ""}`}>
+    <td className={`whitespace-nowrap px-1.5 py-1.5 @min-[30rem]:px-2.5 text-right font-mono tabular-nums ${tint} ${pnlColorClass(value)} ${strong ? "font-semibold" : ""}`}>
       {formatINR(value)}
     </td>
   );
@@ -32,19 +35,20 @@ export default function LadderTable({
   indexName: string;
 }) {
   return (
-    <Section title="Profit or loss at each level" subtitle={`${scenarioLabel} — the exact numbers behind the chart.`}>
-      <div className="overflow-x-auto rounded-xl border border-border bg-background">
-        <table className="w-full min-w-[420px] border-collapse text-sm">
+    <Section step={6} title="Profit or loss at each level" subtitle={`${scenarioLabel} — the exact numbers behind the chart.`}>
+      {/* A container query, like the lots table: the derived Change column drops out on a narrow card instead of forcing a sideways scroll. */}
+      <div className={`@container relative overflow-x-auto rounded-xl border border-border bg-background ${thinScroll}`}>
+        <table className="w-full border-collapse text-xs @min-[30rem]:text-sm">
           <caption className="sr-only">
-            Profit or loss {scenarioLabel.toLowerCase()} at {indexName} levels around the current price, before and after the new lots
+            Profit or loss, {scenarioLabel}, at {indexName} levels around the current price, before and after the new lots
           </caption>
           <thead>
             <tr className="border-b border-border text-right">
-              <th scope="col" className={`${tableHead} text-left`}>Move</th>
-              <th scope="col" className={tableHead}>{indexName}</th>
-              <th scope="col" className={tableHead}>Before</th>
-              <th scope="col" className={tableHead}>After</th>
-              <th scope="col" className={tableHead}>Change</th>
+              <th scope="col" className={`${head} text-left`}>Move</th>
+              <th scope="col" className={head}>{indexName}</th>
+              <th scope="col" className={head}>Before</th>
+              <th scope="col" className={head}>After</th>
+              <th scope="col" className={`${head} hidden @min-[30rem]:table-cell`}>Change</th>
             </tr>
           </thead>
           <tbody>
@@ -55,13 +59,13 @@ export default function LadderTable({
               const isSpot = row.offset === 0;
               return (
                 <tr key={row.offset} className={`border-b border-border text-right last:border-0 ${isSpot ? "bg-muted/50 font-semibold" : ""}`}>
-                  <th scope="row" className="whitespace-nowrap px-2.5 py-1.5 text-left font-mono font-normal tabular-nums text-muted-foreground">
+                  <th scope="row" className="whitespace-nowrap px-1.5 py-1.5 @min-[30rem]:px-2.5 text-left font-mono font-normal tabular-nums text-muted-foreground">
                     {isSpot ? "Now" : signedPts(row.offset)}
                   </th>
-                  <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-muted-foreground">{formatLevel(row.level)}</td>
+                  <td className="whitespace-nowrap px-1.5 py-1.5 @min-[30rem]:px-2.5 font-mono tabular-nums text-muted-foreground">{formatLevel(row.level)}</td>
                   <PnlCell value={before} />
                   <PnlCell value={after} strong />
-                  <td className={`whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums ${change === null ? "text-muted-foreground" : change > 0 ? "text-profit" : change < 0 ? "text-danger-fg" : "text-muted-foreground"}`}>
+                  <td className={`hidden whitespace-nowrap px-1.5 py-1.5 @min-[30rem]:px-2.5 font-mono tabular-nums @min-[30rem]:table-cell ${change === null ? "text-muted-foreground" : change > 0 ? "text-profit" : change < 0 ? "text-danger-fg" : "text-muted-foreground"}`}>
                     {change === null ? "—" : signedRupee(change)}
                   </td>
                 </tr>

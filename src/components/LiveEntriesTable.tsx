@@ -68,7 +68,9 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimu
 
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-background">
-      <div className="overflow-x-auto">
+      {/* relative: the sr-only label in the last header cell is absolutely positioned, and without a positioned
+          ancestor in here it escapes this scroller and widens the whole page. */}
+      <div className="relative overflow-x-auto">
         <table className={`w-full border-collapse text-sm ${onSimulate ? "min-w-[980px]" : "min-w-[820px]"}`}>
           <thead>
             <tr className="border-b border-border text-left">

@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
+import AveragingSimulator, { type SimulatorApply, type SimulatorCandidate } from "@/components/AveragingSimulator";
 import DatePicker from "@/components/DatePicker";
 import { ChevronDownIcon, DownloadIcon, InboxIcon, PlusIcon, RefreshIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import OptionChainPicker from "@/components/OptionChainPicker";
@@ -28,6 +29,7 @@ import {
   type LegType,
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
+import { simulationInputsFromLegs } from "@/lib/averaging";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { loadLastSpots, saveLastSpot, type StoredSpot } from "@/lib/lastKnownPrices";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
@@ -57,13 +59,14 @@ const CHAIN_POLL_MS = 20_000;
 const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
 
 type ChainStatus = "ok" | "token_expired" | "offline" | "error";
-type Tab = "chart" | "payoff" | "pnl" | "greeks";
+type Tab = "chart" | "payoff" | "pnl" | "greeks" | "averaging";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chart", label: "Payoff Chart" },
   { id: "payoff", label: "Payoff Table" },
   { id: "pnl", label: "P&L Table" },
   { id: "greeks", label: "Greeks" },
+  { id: "averaging", label: "Simulate averaging" },
 ];
 
 /** crypto.randomUUID only exists in secure contexts — plain-http LAN access has no such luxury. */
@@ -80,6 +83,9 @@ function findQuote(rows: UpstoxOptionChainStrike[] | undefined, strike: number, 
   return {
     ltp: ltp != null && ltp > 0 ? ltp : null,
     iv: leg?.option_greeks?.iv ?? null,
+    delta: leg?.option_greeks?.delta ?? null,
+    gamma: leg?.option_greeks?.gamma ?? null,
+    theta: leg?.option_greeks?.theta ?? null,
     key: leg?.instrument_key ?? null,
   };
 }
@@ -188,6 +194,11 @@ export default function AnalysisView() {
   const [refreshing, setRefreshing] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [tab, setTab] = useState<Tab>("chart");
+  // The averaging simulator is only built once its tab has been opened, then kept mounted so the lots and
+  // price typed there survive a look at the other tabs.
+  const [averagingOpened, setAveragingOpened] = useState(false);
+  if (tab === "averaging" && !averagingOpened) setAveragingOpened(true);
+  const [simulatingId, setSimulatingId] = useState<string | null>(null);
   const [dayIndex, setDayIndex] = useState(0);
   const [targetSpotInput, setTargetSpotInput] = useState<number | null>(null);
   const [invertRR, setInvertRR] = useState(false);
@@ -623,6 +634,44 @@ export default function AnalysisView() {
     ? `${metrics.netPremium >= 0 ? "Get" : "Pay"} ${formatINR(Math.abs(metrics.netPremium))}`
     : "—";
 
+  // --- Simulate averaging: the bought legs, as positions the simulator can work on ---------------------
+  const averagingCandidates = useMemo<SimulatorCandidate[]>(() => {
+    if (!spot) return [];
+    return simulationInputsFromLegs(instrument, legs, quoteFor, nowMs).map((input) => ({
+      id: input.id,
+      contract: `${INSTRUMENT_LABELS[instrument]} ${input.position.strike} ${input.position.type}`,
+      position: input.position,
+      spot,
+      ltp: input.ltp,
+      stale: chainsDown,
+      pricesAt: spotIsLast && lastSeenSpot ? lastSeenSpot.at : undefined,
+    }));
+  }, [spot, instrument, legs, quoteFor, nowMs, chainsDown, spotIsLast, lastSeenSpot]);
+
+  // Here the main button doesn't leave the page — it adds the simulated lots to this strategy as a new bought leg.
+  const averagingApply = useMemo<SimulatorApply>(
+    () => ({
+      label: "Add to my strategy",
+      hint: "Adds these lots as a new leg — see it in the other tabs.",
+      run: (candidate, extraLots, buyPrice) =>
+        setLegs((prev) => [
+          ...prev,
+          {
+            id: newId(),
+            enabled: true,
+            side: "buy",
+            type: candidate.position.type,
+            strike: candidate.position.strike,
+            expiry: candidate.position.expiry,
+            lots: extraLots,
+            price: String(buyPrice),
+          },
+        ]),
+      doneText: (lots, price) => `Added ${lots} lot${lots === 1 ? "" : "s"} at ${price.toFixed(2)} to your strategy`,
+    }),
+    [],
+  );
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -912,7 +961,7 @@ export default function AnalysisView() {
               <Tile label="Days to expiry">{totalDays}D</Tile>
             </dl>
 
-            <div role="tablist" className="mt-5 flex gap-5 overflow-x-auto border-b border-border">
+            <div role="tablist" className="mt-5 flex gap-5 overflow-x-auto overflow-y-hidden border-b border-border">
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -1119,6 +1168,21 @@ export default function AnalysisView() {
                   means you earn it. Vega is the P&amp;L for a 1-point rise in implied volatility. Each leg&apos;s IV is
                   solved from the price you entered.
                 </p>
+              </div>
+            )}
+
+            {/* Kept mounted once opened (hidden, not removed), so the lots and price typed there survive a look at another tab. */}
+            {(tab === "averaging" || averagingOpened) && (
+              <div hidden={tab !== "averaging"} className="mt-4">
+                <AveragingSimulator
+                  candidates={averagingCandidates}
+                  selectedId={simulatingId}
+                  onSelect={setSimulatingId}
+                  nowMs={nowMs}
+                  apply={averagingApply}
+                  emptyMessage="Nothing to simulate yet. Add a bought (B) call or put leg with a price and a live quote — sold legs, switched-off legs and expired contracts are skipped."
+                  note="Simulation only — nothing is placed; the button just adds a leg to this strategy. Treats this as a naked long leg; your other legs are ignored."
+                />
               </div>
             )}
           </>

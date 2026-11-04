@@ -10,16 +10,17 @@ import type { ReactNode } from "react";
 
 import { AlertCircleIcon, CheckCircleIcon, ChevronDownIcon } from "@/components/icons";
 import { SEVERITY_STYLES } from "@/components/RiskProbabilityPanel";
-import { DeltaChip, num, pct, plainPts, Section, signedPct, signedRupee, type Quality } from "@/components/averaging/ui";
-import type { AveragingPosition, AveragingResult, GreeksSource, Verdict, VerdictTone } from "@/lib/averaging";
+import AnimatedNumber from "@/components/averaging/AnimatedNumber";
+import AveragePriceCard from "@/components/averaging/AverageShift";
+import { DeltaChip, num, pct, plainPts, Section, signedPct, signedRupee, VERDICT_TONE, type Quality } from "@/components/averaging/ui";
+import type { AveragingPosition, AveragingResult, GreeksSource, Verdict } from "@/lib/averaging";
 import { formatINR, formatLevel } from "@/lib/format";
 
-const TONE: Record<VerdictTone, { pill: string; edge: string; glow: string; icon: "ok" | "alert" }> = {
-  good: { pill: "bg-profit/10 text-profit", edge: "border-l-profit", glow: "from-profit/10", icon: "ok" },
-  caution: { pill: "bg-warning/10 text-warning", edge: "border-l-warning", glow: "from-warning/10", icon: "alert" },
-  bad: { pill: "bg-loss/15 text-danger-fg", edge: "border-l-danger-fg", glow: "from-loss/15", icon: "alert" },
-  neutral: { pill: "bg-muted text-muted-foreground", edge: "border-l-border", glow: "from-muted", icon: "ok" },
-};
+// Number formatters for the rolling figures — declared once so the animation can call them every frame cheaply.
+const fmtPrice = (n: number) => num(n);
+const fmtLevel = (n: number) => formatLevel(n);
+const fmtPct = (n: number) => pct(n);
+const fmtRupee = (n: number) => formatINR(n);
 
 const GREEKS_SOURCE_LABEL: Record<GreeksSource, string | null> = {
   engine: null,
@@ -36,24 +37,27 @@ function Tile({
   from,
   chip,
   hint,
+  className = "",
 }: {
   label: string;
   value: ReactNode;
   from: ReactNode;
   chip?: ReactNode;
   hint?: string;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-border bg-background p-3.5">
+    <div className={`@container flex min-w-0 flex-col rounded-xl border border-border bg-background p-3.5 ${className}`}>
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 truncate font-mono text-2xl font-semibold tabular-nums">{value}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-        {chip}
-        <span className="text-xs text-muted-foreground">
-          was <span className="font-mono tabular-nums">{from}</span>
-        </span>
-      </div>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      {/* Never truncated — a clipped price is a wrong price — so the size steps down with the tile's own width instead. */}
+      <p className="mt-1 whitespace-nowrap font-mono text-lg @min-[7rem]:text-xl @min-[8.5rem]:text-2xl font-semibold tabular-nums">{value}</p>
+      {/* The change chip and "was" each keep their own line (and the chip's line is reserved even when there's no chip), so the tile is the same height whatever the numbers say. */}
+      <div className="mt-1.5 flex min-h-6 items-center">{chip}</div>
+      <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+        was <span className="font-mono tabular-nums">{from}</span>
+      </p>
+      {/* Pinned to the bottom, so the hints line up across tiles of different heights. */}
+      {hint && <p className="mt-auto pt-2 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -61,8 +65,8 @@ function Tile({
 function MoreRow({ label, before, after, hint }: { label: string; before?: ReactNode; after: ReactNode; hint?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border py-2 last:border-0" title={hint}>
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-right font-mono text-sm tabular-nums">
+      <dt className="min-w-0 text-sm text-muted-foreground">{label}</dt>
+      <dd className="shrink-0 whitespace-nowrap text-right font-mono text-sm tabular-nums">
         {before !== undefined && <span className="text-muted-foreground">{before} → </span>}
         <span className="font-semibold">{after}</span>
       </dd>
@@ -86,8 +90,10 @@ export default function VerdictCard({
   className?: string;
 }) {
   const { before, after } = result;
-  const t = TONE[verdict.tone];
+  const t = VERDICT_TONE[verdict.tone];
+  const calm = verdict.tone === "good" || verdict.tone === "neutral";
   const added = result.extraLots > 0;
+  const hasRuler = added && result.buyPrice !== null;
 
   const popDelta = before.pop !== null && after.pop !== null ? (after.pop - before.pop) * 100 : null;
   const closer = verdict.breakevenCloserPts;
@@ -103,29 +109,35 @@ export default function VerdictCard({
   const greeksNote = GREEKS_SOURCE_LABEL[after.greeksSource];
 
   return (
-    <Section title="What changes" subtitle="The result of buying these lots, at a glance." className={className}>
+    <Section step={2} title="What changes" subtitle="The result of buying these lots, at a glance." className={className}>
       <div
-        className={`flex flex-col gap-4 rounded-2xl border border-l-4 border-border bg-card bg-gradient-to-br ${t.glow} via-transparent to-transparent p-4 sm:p-5 ${t.edge}`}
+        className={`@container flex flex-col gap-4 rounded-2xl border border-l-4 border-border bg-card bg-gradient-to-br ${t.glow} via-transparent to-transparent p-4 shadow-sm sm:p-5 ${t.edge}`}
       >
         <div className="flex items-start gap-3">
-          {t.icon === "ok" ? (
+          {calm ? (
             <CheckCircleIcon className={`mt-0.5 size-5 shrink-0 ${verdict.tone === "good" ? "text-profit" : "text-muted-foreground"}`} />
           ) : (
             <AlertCircleIcon className={`mt-0.5 size-5 shrink-0 ${verdict.tone === "bad" ? "text-danger-fg" : "text-warning"}`} />
           )}
           <div className="min-w-0">
             <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${t.pill}`}>{verdict.label}</span>
-            <p aria-live="polite" className="mt-1.5 text-base font-medium leading-snug text-foreground sm:text-lg">
+            {/* The sentence runs two to three lines; the room for them is reserved so what's below doesn't bob as it re-wraps while a slider is dragged. A wide card keeps the line short enough to read, and so needs only two. */}
+            <p aria-live="polite" className="mt-1.5 max-w-3xl text-base font-medium leading-snug text-foreground sm:min-h-[4.65rem] sm:text-lg @min-[52rem]:min-h-[3.1rem]">
               {verdict.headline}
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Tile
-            label="Average price"
-            value={num(after.avgPrice)}
-            from={num(before.avgPrice)}
+        {/*
+          The average (with its ruler) leads, then break-even, chance and premium at risk. Two columns on a
+          phone (the last tile across both); on a mid-width card the average runs across the top with the
+          three tiles under it; on a wide one all four sit in a row, the average taking half the width so
+          its figure and ruler fit side by side and it's no taller than the tiles beside it.
+        */}
+        <div className="grid grid-cols-2 gap-3 @min-[30rem]:grid-cols-3 @min-[62rem]:grid-cols-6">
+          <AveragePriceCard
+            className="col-span-2 @min-[30rem]:col-span-3"
+            value={<AnimatedNumber value={after.avgPrice} format={fmtPrice} />}
             chip={
               added && verdict.avgChangePct !== null ? (
                 <DeltaChip direction={verdict.avgChangePct < 0 ? "down" : verdict.avgChangePct > 0 ? "up" : "flat"} quality={avgQuality}>
@@ -133,10 +145,13 @@ export default function VerdictCard({
                 </DeltaChip>
               ) : undefined
             }
+            before={before.avgPrice}
+            after={after.avgPrice}
+            buy={hasRuler ? result.buyPrice : null}
           />
           <Tile
             label="Break-even at expiry"
-            value={after.breakevenLevel === null ? "—" : formatLevel(after.breakevenLevel)}
+            value={<AnimatedNumber value={after.breakevenLevel} format={fmtLevel} />}
             from={before.breakevenLevel === null ? "—" : formatLevel(before.breakevenLevel)}
             chip={
               added && closer !== null ? (
@@ -155,7 +170,7 @@ export default function VerdictCard({
           />
           <Tile
             label="Chance of profit"
-            value={pct(after.pop)}
+            value={<AnimatedNumber value={after.pop} format={fmtPct} />}
             from={pct(before.pop)}
             chip={
               added && popDelta !== null ? (
@@ -168,8 +183,9 @@ export default function VerdictCard({
             hint="At expiry, from implied volatility"
           />
           <Tile
-            label="Premium at risk"
-            value={formatINR(after.capitalAtRisk)}
+            className="col-span-2 @min-[30rem]:col-span-1"
+          label="Premium at risk"
+            value={<AnimatedNumber value={after.capitalAtRisk} format={fmtRupee} />}
             from={formatINR(before.capitalAtRisk)}
             chip={
               added ? (
@@ -182,7 +198,7 @@ export default function VerdictCard({
           />
         </div>
 
-        <dl className="grid gap-x-6 sm:grid-cols-2">
+        <dl className="grid gap-x-6 @min-[30rem]:grid-cols-2 @min-[52rem]:grid-cols-3">
           <MoreRow label="Quantity" before={`${before.qty}`} after={`${after.qty} (${after.lots} lot${after.lots === 1 ? "" : "s"})`} />
           <MoreRow label="Extra cost" hint="New money for these lots" after={formatINR(result.extraCost)} />
           <MoreRow label="Max loss" hint="Worst P&L at expiry" before={formatINR(before.maxLoss ?? 0)} after={after.maxLoss === null ? "Unlimited" : formatINR(after.maxLoss)} />
