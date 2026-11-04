@@ -19,10 +19,23 @@ type StepperProps = {
   label?: string;
   /** Put on the input, so a <label htmlFor> can point at it. */
   id?: string;
+  /** Touch-sized controls (44px) on phones, shrinking to the usual 32px from `sm` up. */
+  large?: boolean;
 };
 
 /** A number field with − / + buttons, shared by the Analysis leg editor and the averaging simulator. */
-export default function Stepper({ value, onChange, step, min = 0, max, precision, width = "w-20", label, id }: StepperProps) {
+export default function Stepper({
+  value,
+  onChange,
+  step,
+  min = 0,
+  max,
+  precision,
+  width = "w-20",
+  label,
+  id,
+  large = false,
+}: StepperProps) {
   // What's typed is held as text until the field loses focus, so it can be
   // emptied or half-typed without the parent snapping it back mid-keystroke.
   // Only a complete, in-range number is passed up.
@@ -42,8 +55,9 @@ export default function Stepper({ value, onChange, step, min = 0, max, precision
     onChange(Math.min(max ?? Infinity, Math.max(min, rounded)));
   }
 
-  const btn =
-    "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95";
+  const btn = `flex shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95 ${
+    large ? "size-11 text-lg sm:size-8 sm:text-base" : "size-8"
+  }`;
   return (
     <div className="flex min-w-0 items-center gap-1">
       <button type="button" className={btn} onClick={() => nudge(-step)} aria-label={label ? `Decrease ${label}` : "Decrease"}>
@@ -57,7 +71,9 @@ export default function Stepper({ value, onChange, step, min = 0, max, precision
         aria-label={label}
         onChange={(e) => handleType(e.target.value)}
         onBlur={() => setDraft(null)}
-        className={`${INPUT_CLASS} ${width} text-center font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none`}
+        className={`${INPUT_CLASS} ${width} text-center font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none ${
+          large ? "h-11 sm:h-auto" : ""
+        }`}
       />
       <button type="button" className={btn} onClick={() => nudge(step)} aria-label={label ? `Increase ${label}` : "Increase"}>
         +

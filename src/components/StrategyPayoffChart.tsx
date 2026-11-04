@@ -27,7 +27,7 @@ type Props = {
   showTarget: boolean;
 };
 
-function niceTicks(lo: number, hi: number, count: number): number[] {
+export function niceTicks(lo: number, hi: number, count: number): number[] {
   const span = hi - lo || 1;
   const raw = span / count;
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));

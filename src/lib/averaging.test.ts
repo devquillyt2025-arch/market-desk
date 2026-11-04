@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   breakevenSpot,
   buildLadder,
+  buildPayoffCurve,
   buildLegs,
   buildLotsTable,
   buildScenarios,
@@ -18,6 +19,7 @@ import {
   priceMoved,
   simulateAveraging,
   simulationInputs,
+  summarizeAveraging,
   toAnalysisStrategy,
   type AveragingMarket,
   type AveragingPlan,
@@ -456,6 +458,23 @@ describe("lots table", () => {
     }
   });
 
+  it("puts the sweet spot on the last lot before the marginal one", () => {
+    const table = buildLotsTable(p, m, 170, 9);
+    assert.ok(table.marginalLots !== null && table.marginalLots > 1);
+    assert.equal(table.sweetSpot, (table.marginalLots as number) - 1);
+    // Every lot up to the sweet spot still lowers the average by at least 0.5%.
+    for (const row of table.rows.filter((r) => r.lots <= (table.sweetSpot as number))) {
+      assert.ok(row.improvementPct / 100 >= MARGINAL_IMPROVEMENT);
+    }
+  });
+
+  it("has no sweet spot when even the first lot is marginal, none is, or nothing is affordable", () => {
+    assert.equal(buildLotsTable(p, m, 210, 3).sweetSpot, null);
+    assert.equal(buildLotsTable(p, m, 170, 2).marginalLots, null);
+    assert.equal(buildLotsTable(p, m, 170, 2).sweetSpot, null);
+    assert.equal(buildLotsTable(p, m, 170, 0).sweetSpot, null);
+  });
+
   it("calls the very first lot marginal when buying above the average", () => {
     const table = buildLotsTable(p, m, 210, 3);
     assert.equal(table.marginalLots, 1);
@@ -672,6 +691,129 @@ describe("simulationInputs", () => {
 
   it("keeps a row showing last-known prices simulable", () => {
     assert.ok(simulationInputs(row({ stale: true, asOf: NOW - 60_000 }), NOW));
+  });
+});
+
+describe("summarizeAveraging", () => {
+  const run = (over: Partial<AveragingPlan> = {}, p = position(), m = marketOf()) => {
+    const plan = planOf(over);
+    return { p, r: simulateAveraging(p, m, plan), plan };
+  };
+
+  it("reads a sound average-down as good and says what changed", () => {
+    const p = position();
+    const { r, plan } = run({ funds: 500_000 }, p, marketOf({ ltp: modelValue(p) }));
+    const v = summarizeAveraging(p, r, plan.funds);
+    assert.equal(v.tone, "good");
+    assert.equal(v.label, "Lowers your average");
+    near(v.avgChangePct, -5, 1e-9);
+    near(v.breakevenCloserPts, 10, 1e-3);
+    assert.match(v.headline, /Adding 1 lot at ₹170\.00 lowers your average 5\.0% \(200\.00 → 190\.00\)/);
+    assert.match(v.headline, /moves break-even 10 pts closer/);
+    assert.match(v.headline, /₹11,050 more premium/);
+  });
+
+  it("measures 'closer' the right way round for a put", () => {
+    const p = position({ type: "PE" });
+    const { r, plan } = run({ funds: 500_000 }, p);
+    near(summarizeAveraging(p, r, plan.funds).breakevenCloserPts, 10, 1e-3);
+  });
+
+  it("goes cautious on diminishing returns and on a heavy share of funds", () => {
+    const a = run({ extraLots: 8, funds: 500_000 });
+    assert.deepEqual(
+      [summarizeAveraging(a.p, a.r, a.plan.funds).tone, summarizeAveraging(a.p, a.r, a.plan.funds).label],
+      ["caution", "Diminishing returns"],
+    );
+    const b = run({ riskLimitPct: 10 });
+    assert.equal(summarizeAveraging(b.p, b.r, b.plan.funds).label, "Heavy on funds");
+  });
+
+  it("calls an over-budget purchase bad, with the shortfall", () => {
+    const { p, r, plan } = run({ funds: 5000 });
+    const v = summarizeAveraging(p, r, plan.funds);
+    assert.equal(v.tone, "bad");
+    assert.equal(v.label, "Over budget");
+    assert.match(v.headline, /₹6,050 more than your available funds/);
+  });
+
+  it("calls buying above the average bad, and at the average cautious", () => {
+    const above = run({ buyPrice: 230 }, position(), marketOf({ ltp: 230 }));
+    const va = summarizeAveraging(above.p, above.r, above.plan.funds);
+    assert.equal(va.tone, "bad");
+    assert.equal(va.label, "Raises your average");
+    assert.ok((va.avgChangePct as number) > 0);
+    const same = run({ buyPrice: 200 }, position(), marketOf({ ltp: 200 }));
+    assert.equal(summarizeAveraging(same.p, same.r, same.plan.funds).label, "Average unchanged");
+  });
+
+  it("stays neutral until there are lots and a price", () => {
+    const none = run({ extraLots: 0 });
+    const vn = summarizeAveraging(none.p, none.r, none.plan.funds);
+    assert.deepEqual([vn.tone, vn.label, vn.avgChangePct], ["neutral", "Pick lots", null]);
+    const noPrice = run({ buyPrice: NaN });
+    assert.equal(summarizeAveraging(noPrice.p, noPrice.r, noPrice.plan.funds).label, "Enter a price");
+  });
+
+  it("skips the break-even clause when it barely moves, and pluralises lots", () => {
+    const p = position();
+    const { r, plan } = run({ extraLots: 3, buyPrice: 199.9, funds: 500_000 }, p, marketOf({ ltp: 199.9 }));
+    const v = summarizeAveraging(p, r, plan.funds);
+    assert.match(v.headline, /Adding 3 lots at ₹199\.90/);
+    assert.doesNotMatch(v.headline, /break-even/);
+  });
+});
+
+describe("buildPayoffCurve", () => {
+  const p = position();
+  const m = marketOf();
+
+  it("samples before and after P&L that match the engine, in order", () => {
+    const curve = buildPayoffCurve(p, m, 1, 170, "today");
+    assert.ok(curve);
+    const { before, after } = buildLegs(p, 1, 170);
+    for (let i = 1; i < curve.points.length; i++) assert.ok(curve.points[i].level > curve.points[i - 1].level);
+    for (const pt of curve.points.filter((_, i) => i % 9 === 0)) {
+      near(pt.before, pnlAt(before, LOT, SPOT, NOW, pt.level, curve.scenario.atMs), 1e-9);
+      near(pt.after, pnlAt(after, LOT, SPOT, NOW, pt.level, curve.scenario.atMs), 1e-9);
+    }
+  });
+
+  it("brackets spot, the strike and both break-evens, each with zero P&L", () => {
+    for (const key of ["today", "tomorrow", "expiry"] as const) {
+      const curve = buildPayoffCurve(p, m, 1, 170, key);
+      assert.ok(curve && curve.breakevenBefore !== null && curve.breakevenAfter !== null);
+      const levels = curve.points.map((x) => x.level);
+      assert.ok(levels[0] < SPOT && levels[levels.length - 1] > SPOT);
+      assert.ok(levels.includes(24000));
+      assert.ok(levels[0] < Math.min(curve.breakevenBefore, curve.breakevenAfter));
+      assert.ok(levels[levels.length - 1] > Math.max(curve.breakevenBefore, curve.breakevenAfter));
+      for (const be of [curve.breakevenBefore, curve.breakevenAfter]) {
+        const point = curve.points.find((x) => x.level === be);
+        assert.ok(point, "break-even is a sampled point");
+        near(point.after === null ? null : Math.min(Math.abs(point.after), Math.abs(point.before ?? Infinity)), 0, 1e-3);
+      }
+    }
+  });
+
+  it("puts the later break-even further away, as theta bites", () => {
+    const today = buildPayoffCurve(p, m, 1, 170, "today");
+    const expiry = buildPayoffCurve(p, m, 1, 170, "expiry");
+    assert.ok((expiry?.breakevenAfter as number) > (today?.breakevenAfter as number));
+    near(expiry?.breakevenAfter ?? null, 24190, 1e-4);
+    near(expiry?.breakevenBefore ?? null, 24200, 1e-4);
+  });
+
+  it("draws After on top of Before when no lots are added", () => {
+    const curve = buildPayoffCurve(p, m, 0, 170, "today");
+    assert.ok(curve);
+    assert.ok(curve.points.every((pt) => pt.before === pt.after));
+    assert.equal(curve.breakevenBefore, curve.breakevenAfter);
+  });
+
+  it("falls back to Today for a scenario the contract doesn't have, and to nothing when nothing is held", () => {
+    assert.equal(buildPayoffCurve(position({ expiry: "2026-11-04", avgPrice: 60 }), m, 1, 40, "tomorrow")?.scenario.key, "today");
+    assert.equal(buildPayoffCurve(position({ lots: 0 }), m, 0, 170, "today"), null);
   });
 });
 

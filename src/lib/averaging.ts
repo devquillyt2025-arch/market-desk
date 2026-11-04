@@ -21,6 +21,7 @@
 import type { RiskWarning } from "@/lib/calculateRisk";
 import {
   analyzeStrategy,
+  chartDomain,
   daysBetween,
   expiryCloseMs,
   istDateString,
@@ -172,6 +173,8 @@ export type LotsTable = {
   rows: LotsRow[];
   /** The first row whose extra lot lowers the average by less than MARGINAL_IMPROVEMENT; null if none does. */
   marginalLots: number | null;
+  /** The last lot count where every lot still earns its keep (just before `marginalLots`); null when even the first lot is marginal or none is. */
+  sweetSpot: number | null;
 };
 
 export type LadderRow = {
@@ -473,7 +476,7 @@ export function buildLotsTable(
   buyPrice: number | null,
   maxLots: number,
 ): LotsTable {
-  if (buyPrice === null || !(buyPrice > 0) || !(maxLots >= 1)) return { rows: [], marginalLots: null };
+  if (buyPrice === null || !(buyPrice > 0) || !(maxLots >= 1)) return { rows: [], marginalLots: null, sweetSpot: null };
 
   const existingQty = position.lots * position.lotSize;
   const count = Math.min(Math.floor(maxLots), MAX_TABLE_LOTS);
@@ -502,7 +505,139 @@ export function buildLotsTable(
     });
     previousAvg = newAvg;
   }
-  return { rows, marginalLots };
+  return { rows, marginalLots, sweetSpot: marginalLots !== null && marginalLots > 1 ? marginalLots - 1 : null };
+}
+
+// --- Payoff curve ---------------------------------------------------------------
+
+export type PayoffCurve = {
+  scenario: Scenario;
+  /** Sorted by level; the strike and both break-evens are included so the kinks are sharp. */
+  points: { level: number; before: number | null; after: number | null }[];
+  breakevenBefore: number | null;
+  breakevenAfter: number | null;
+};
+
+const CURVE_STEPS = 80;
+const CURVE_PAD = 0.01;
+
+/**
+ * Before-versus-after P&L across the underlying at one moment — the data
+ * behind the chart. The x-range is the Analysis chart's own (strikes plus a
+ * couple of standard deviations), widened to hold both break-evens. Null when
+ * there is nothing to draw. An unavailable scenario falls back to Today.
+ */
+export function buildPayoffCurve(
+  position: AveragingPosition,
+  market: AveragingMarket,
+  extraLots: number,
+  buyPrice: number | null,
+  scenarioKey: ScenarioKey,
+): PayoffCurve | null {
+  const legs = buildLegs(position, extraLots, buyPrice ?? NaN);
+  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize);
+  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize);
+  const reference = pricedAfter.length ? pricedAfter : pricedBefore;
+  if (reference.length === 0) return null;
+
+  const scenarios = buildScenarios(position.expiry, market.nowMs);
+  const scenario = scenarios.find((x) => x.key === scenarioKey) ?? scenarios[0];
+
+  const breakevenBefore = breakevenSpot(pricedBefore, market.spot, scenario.atMs);
+  const breakevenAfter = breakevenSpot(pricedAfter, market.spot, scenario.atMs);
+
+  const sdPct = analyzeStrategy(reference, market.spot, market.nowMs)?.sdPct ?? 0;
+  let [lo, hi] = chartDomain(reference, market.spot, sdPct);
+  const pad = market.spot * CURVE_PAD;
+  for (const be of [breakevenBefore, breakevenAfter]) {
+    if (be === null) continue;
+    lo = Math.min(lo, be - pad);
+    hi = Math.max(hi, be + pad);
+  }
+
+  const xs = new Set<number>();
+  for (let i = 0; i <= CURVE_STEPS; i++) xs.add(lo + ((hi - lo) * i) / CURVE_STEPS);
+  xs.add(position.strike);
+  for (const be of [breakevenBefore, breakevenAfter]) if (be !== null) xs.add(be);
+
+  const points = [...xs]
+    .sort((a, b) => a - b)
+    .map((level) => ({
+      level,
+      before: pricedBefore.length ? strategyPnl(pricedBefore, level, scenario.atMs) : null,
+      after: pricedAfter.length ? strategyPnl(pricedAfter, level, scenario.atMs) : null,
+    }));
+  return { scenario, points, breakevenBefore, breakevenAfter };
+}
+
+// --- Verdict --------------------------------------------------------------------
+
+export type VerdictTone = "good" | "caution" | "bad" | "neutral";
+
+export type Verdict = {
+  tone: VerdictTone;
+  /** Short status for a pill. */
+  label: string;
+  /** One plain-language sentence saying what this purchase does. */
+  headline: string;
+  /** Percent the average moved (negative = lowered); null with nothing added. */
+  avgChangePct: number | null;
+  /** Index points the expiry break-even moved toward the current price (positive = closer, better); null when unknown. */
+  breakevenCloserPts: number | null;
+};
+
+/** The one-sentence read of a simulation, plus how it should be coloured. */
+export function summarizeAveraging(position: AveragingPosition, result: AveragingResult, funds: number | null): Verdict {
+  const { before, after } = result;
+  const avgChangePct = result.avgImprovementPct === null ? null : -result.avgImprovementPct;
+  const breakevenCloserPts =
+    before.breakevenLevel === null || after.breakevenLevel === null
+      ? null
+      : position.type === "CE"
+        ? before.breakevenLevel - after.breakevenLevel
+        : after.breakevenLevel - before.breakevenLevel;
+  const base = { avgChangePct, breakevenCloserPts };
+  const has = (id: string) => result.warnings.some((w) => w.id === id);
+  const lots = (n: number) => `${n} lot${n === 1 ? "" : "s"}`;
+
+  if (result.buyPrice === null) {
+    return { ...base, tone: "neutral", label: "Enter a price", headline: "Enter a buy price above zero to run the numbers." };
+  }
+  if (result.extraLots === 0) {
+    return { ...base, tone: "neutral", label: "Pick lots", headline: "Choose how many lots to add and see exactly what changes." };
+  }
+  const price = `₹${result.buyPrice.toFixed(2)}`;
+
+  if (funds !== null && funds > 0 && result.extraCost > funds) {
+    return {
+      ...base,
+      tone: "bad",
+      label: "Over budget",
+      headline: `${lots(result.extraLots)} at ${price} costs ${inr(result.extraCost)} — ${inr(result.extraCost - funds)} more than your available funds.`,
+    };
+  }
+  if (result.buyPrice > position.avgPrice) {
+    return {
+      ...base,
+      tone: "bad",
+      label: "Raises your average",
+      headline: `Buying at ${price}, above your ${position.avgPrice.toFixed(2)} average, lifts your average by ${Math.abs(avgChangePct ?? 0).toFixed(1)}% — that isn't averaging down.`,
+    };
+  }
+  if (result.buyPrice === position.avgPrice) {
+    return {
+      ...base,
+      tone: "caution",
+      label: "Average unchanged",
+      headline: `Buying at ${price}, exactly your average, leaves it where it is and only adds ${inr(result.extraCost)} of premium at risk.`,
+    };
+  }
+
+  const closer = breakevenCloserPts !== null && breakevenCloserPts >= 0.5 ? ` and moves break-even ${Math.round(breakevenCloserPts)} pts closer` : "";
+  const headline = `Adding ${lots(result.extraLots)} at ${price} lowers your average ${Math.abs(avgChangePct ?? 0).toFixed(1)}% (${position.avgPrice.toFixed(2)} → ${after.avgPrice.toFixed(2)})${closer}, for ${inr(result.extraCost)} more premium at risk.`;
+  if (has("marginal-improvement")) return { ...base, tone: "caution", label: "Diminishing returns", headline };
+  if (has("capital-at-risk")) return { ...base, tone: "caution", label: "Heavy on funds", headline };
+  return { ...base, tone: "good", label: "Lowers your average", headline };
 }
 
 // --- P&L ladder -----------------------------------------------------------------
