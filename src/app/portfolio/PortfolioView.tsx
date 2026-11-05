@@ -6,8 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorCandidate } from "@/components/AveragingSimulator";
 import ClosedTodayTable from "@/components/ClosedTodayTable";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import ExportMenu, { type ExportFormat } from "@/components/ExportMenu";
 import LoadingState from "@/components/LoadingState";
-import { DownloadIcon, InboxIcon, RefreshIcon } from "@/components/icons";
+import { InboxIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import PortfolioInsights, { type InsightsTab } from "@/components/PortfolioInsights";
@@ -22,6 +23,7 @@ import {
   type PortfolioRow,
 } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
+import { downloadBlob, downloadCsvFile, downloadJsonFile } from "@/lib/download";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import {
   calculateEntryPnl,
@@ -34,6 +36,7 @@ import {
   updateLivePortfolioEntry,
   type AddTradeEntryInput,
 } from "@/lib/livePortfolioEntriesStore";
+import { buildPortfolioCsv, buildPortfolioReport, exportFilename } from "@/lib/portfolioExport";
 import { showToast } from "@/lib/toast";
 import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
 import { positionContractKey, positionDayPnl } from "@/lib/upstoxSync";
@@ -48,19 +51,6 @@ function todayISODate(): string {
   const offset = now.getTimezoneOffset() * 60000;
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
-
-function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 
 const SIDE_LABELS: Record<TradeEntrySide, string> = {
   buy: "Buy",
@@ -105,9 +95,9 @@ export default function PortfolioView() {
     [entries],
   );
 
-  const { rows, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, handleManualRefresh } =
+  const { rows, chainsByGroup, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
-  const { totalMargin } = useMargin(rows);
+  const { totalMargin, marginByEntryId } = useMargin(rows);
 
   // Only today's sync counts — positions from an earlier day (the token
   // lapsed overnight and nothing has synced since) aren't today's anything.
@@ -315,7 +305,8 @@ export default function PortfolioView() {
     });
   }
 
-  function handleExport() {
+  /** The raw saved entries, for re-importing elsewhere in the app. */
+  function exportJson(now: number) {
     if (!entries || entries.length === 0) {
       showToast("No positions to export yet.");
       return;
@@ -337,7 +328,66 @@ export default function PortfolioView() {
       return { ...entry, buy_price: buyPrice, sell_price: sellPrice };
     });
 
-    downloadJson(`live-portfolio-${todayISODate()}.json`, exportEntries);
+    downloadJsonFile(exportFilename("json", now), exportEntries);
+  }
+
+  /**
+   * The report as it stands on screen — open positions with live prices, Greeks and margin, today's
+   * squared-off positions, and the Risk & Probability read — as a spreadsheet or a formatted PDF.
+   */
+  async function exportReport(format: "csv" | "pdf", now: number) {
+    if (!rows || !portfolioStats) {
+      showToast("Positions are still loading. Try again in a moment.");
+      return;
+    }
+    if (rows.length === 0 && closedToday.length === 0) {
+      showToast("No positions to export yet.");
+      return;
+    }
+
+    // The same read the Risk & Probability tab shows: the current one, else the last good one held through an outage.
+    const riskRead =
+      riskAnalysis && riskAsOf !== null
+        ? { analysis: riskAnalysis, asOf: riskAsOf }
+        : heldRisk
+          ? { analysis: heldRisk.analysis, asOf: heldRisk.at }
+          : null;
+    const report = buildPortfolioReport({
+      now,
+      rows,
+      marginByEntryId,
+      totalMargin,
+      stats: portfolioStats,
+      closedToday,
+      risk: riskRead && { ...riskRead, paused: riskPaused },
+      feed: {
+        syncedAt: upstox.syncedAt,
+        pricesAt: lastPolledAt,
+        stalePricesAsOf,
+        tokenExpired: anyTokenExpired,
+        offline: anyOffline,
+        syncError: upstox.error,
+        otherCount: upstox.otherCount,
+      },
+    });
+
+    if (format === "csv") {
+      downloadCsvFile(exportFilename("csv", now), buildPortfolioCsv(report));
+      return;
+    }
+    // Loaded on demand: the PDF layout code and its libraries are only needed once someone asks for a PDF.
+    const { buildPortfolioPdf } = await import("@/lib/portfolioPdf");
+    downloadBlob(exportFilename("pdf", now), await buildPortfolioPdf(report));
+  }
+
+  async function handleExport(format: ExportFormat) {
+    const now = Date.now();
+    try {
+      if (format === "json") exportJson(now);
+      else await exportReport(format, now);
+    } catch {
+      showToast(`Couldn't create the ${format.toUpperCase()} file. Try again.`);
+    }
   }
 
   // Until the first sync answers, an empty table means "not loaded yet", not "no positions".
@@ -359,14 +409,7 @@ export default function PortfolioView() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={handleExport}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-          >
-            <DownloadIcon className="size-4" />
-            Export
-          </button>
+          <ExportMenu onSelect={handleExport} />
         </div>
       </div>
 
@@ -496,6 +539,8 @@ export default function PortfolioView() {
             selectedId={simulatingId}
             onSelectCandidate={setSimulatingId}
             nowMs={riskAsOf}
+            rows={rows}
+            chains={chainsByGroup}
           />
         </div>
       )}

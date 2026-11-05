@@ -7,9 +7,15 @@
  */
 
 import { calculateBrokerage } from "@/lib/calculateBrokerage";
+import { round2 } from "@/lib/calculateTrade";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
-import { isUpstoxOptionChainError, type UpstoxOptionChainResult, type UpstoxOptionLeg } from "@/lib/upstox/types";
+import {
+  isUpstoxOptionChainError,
+  type UpstoxOptionChainResult,
+  type UpstoxOptionLeg,
+  type UpstoxPosition,
+} from "@/lib/upstox/types";
 
 /** `(instrument, expiry_date)` pair identifying one option-chain fetch — several open positions can share one. */
 export function portfolioGroupKey(instrument: string, expiryDate: string): string {
@@ -342,4 +348,30 @@ export function computePortfolioRow(
   }
 
   return pricedRow(entry, entryPrice, liveLtp, leg?.instrument_key ?? null, greeksAndOi, { stale: false, asOf: null });
+}
+
+/** One position squared off today, worked out the way the Closed Today table shows it. */
+export type ClosedPositionSummary = {
+  position: UpstoxPosition;
+  /** Average price of everything bought / sold today — null when nothing was. */
+  buyAvg: number | null;
+  sellAvg: number | null;
+  /** Realised P&L before charges: sell turnover less buy turnover. */
+  pnl: number;
+  /** Estimated round-trip charges — null while either average is unknown. */
+  charges: number | null;
+};
+
+function averagePrice(value: number, quantity: number): number | null {
+  return quantity > 0 ? round2(value / quantity) : null;
+}
+
+export function summariseClosedPosition(position: UpstoxPosition): ClosedPositionSummary {
+  const buyAvg = averagePrice(position.buyValue, position.buyQuantity);
+  const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
+  const charges =
+    buyAvg != null && sellAvg != null
+      ? calculateBrokerage("OPTIONS", [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity).totalCharges
+      : null;
+  return { position, buyAvg, sellAvg, pnl: round2(position.sellValue - position.buyValue), charges };
 }

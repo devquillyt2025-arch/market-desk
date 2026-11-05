@@ -25,10 +25,14 @@ function anchorFor(x: number, w: number): "start" | "middle" | "end" {
   return "middle";
 }
 
-type ChartProps = { curve: PayoffCurve; spot: number; indexName: string };
+/** The words around the two lines; the averaging simulator's by default. */
+export type ChartLabels = { subject: string; after: string; before: string };
+const DEFAULT_LABELS: ChartLabels = { subject: "the new lots", after: "After — with the new lots", before: "Before — as it is now" };
+
+type ChartProps = { curve: PayoffCurve; spot: number; indexName: string; labels?: ChartLabels };
 
 /** The drawing itself, at a given pixel width — split from the measuring wrapper below so it renders (and tests) at any size. */
-export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { width: number }) {
+export function ChartPlot({ curve, spot, indexName, width, labels = DEFAULT_LABELS }: ChartProps & { width: number }) {
   const uid = useId().replace(/:/g, "");
   const [hover, setHover] = useState<number | null>(null);
 
@@ -101,7 +105,7 @@ export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { widt
   const when = curve.scenario.key.startsWith("date:") ? `on ${curve.scenario.label}` : curve.scenario.label.toLowerCase();
   const label =
     `Profit and loss ${when} across ${indexName} levels ${formatLevel(geo.xMin)} to ${formatLevel(geo.xMax)}, ` +
-    `before and after the new lots.` +
+    `before and after ${labels.subject}.` +
     (beB !== null && beA !== null ? ` Break-even moves from ${formatLevel(beB)} to ${formatLevel(beA)}.` : "") +
     ` The exact figures are in the table.`;
 
@@ -238,6 +242,7 @@ export function ChartPlot({ curve, spot, indexName, width }: ChartProps & { widt
 
 /** The chart at its container's width, under a short key to the lines and dots. */
 export default function BeforeAfterChart(props: ChartProps) {
+  const labels = props.labels ?? DEFAULT_LABELS;
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -256,13 +261,13 @@ export default function BeforeAfterChart(props: ChartProps) {
           <svg width="22" height="6" aria-hidden="true">
             <line x1="0" y1="3" x2="22" y2="3" strokeWidth="2.5" className="stroke-profit" />
           </svg>
-          After — with the new lots
+          {labels.after}
         </span>
         <span className="flex items-center gap-2">
           <svg width="22" height="6" aria-hidden="true">
             <line x1="0" y1="3" x2="22" y2="3" strokeWidth="2" strokeDasharray="5 4" className="stroke-muted-foreground" />
           </svg>
-          Before — as it is now
+          {labels.before}
         </span>
         <span className="flex items-center gap-2">
           <span className="size-2.5 rounded-full bg-accent-solid" aria-hidden="true" />

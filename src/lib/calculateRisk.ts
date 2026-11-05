@@ -190,31 +190,37 @@ function daysBetween(fromIso: string, toIso: string): number {
 }
 
 /** Years left until the 15:30 IST close on expiry day, floored at 0. */
-function yearsToExpiry(expiryIso: string, now: Date): number {
+export function yearsToExpiry(expiryIso: string, now: Date): number {
   const close = Date.parse(`${expiryIso}T15:30:00+05:30`);
   return Math.max(close - now.getTime(), 0) / (365 * MS_PER_DAY);
 }
 
 // --- Per-leg model --------------------------------------------------------
 
-type Leg = {
-  row: PortfolioRow;
-  entryId: string;
+/** What the payoff model needs from a leg — and all a hypothetical leg (one not held yet) has to supply. */
+export type ModelLeg = {
   isShort: boolean;
   isCall: boolean;
   strike: number;
+  /** Entry price per unit. */
   premium: number;
   qty: number;
   spot: number;
   sigma: number;
-  ivEstimated: boolean;
+  /** Years to the 15:30 IST close on expiry day. */
   t: number;
-  dte: number;
-  expiry: string;
   groupKey: string;
 };
 
-function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
+export type Leg = ModelLeg & {
+  row: PortfolioRow;
+  entryId: string;
+  ivEstimated: boolean;
+  dte: number;
+  expiry: string;
+};
+
+export function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
   const { entry } = row;
   if (
     row.status !== "ok" ||
@@ -257,45 +263,102 @@ function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
 }
 
 /** ₹ payoff of one leg if the underlying settles at `s`. */
-function legPayoff(leg: Leg, s: number): number {
+export function legPayoff(leg: ModelLeg, s: number): number {
   const intrinsic = leg.isCall ? Math.max(s - leg.strike, 0) : Math.max(leg.strike - s, 0);
   return (leg.isShort ? leg.premium - intrinsic : intrinsic - leg.premium) * leg.qty;
 }
 
 /**
- * Best/worst payoff of a set of legs sharing one underlying + expiry. The
- * payoff is piecewise linear with kinks only at strikes, so evaluating at 0
- * and every strike finds both extremes; the slope past the top strike (net
- * long/short calls) says whether either side is unbounded.
+ * Lowest and highest payoff of a set of legs sharing one underlying + expiry, unclipped (so a book
+ * that cannot lose has a `min` above zero), and whether either side is unbounded. The payoff is
+ * piecewise linear with kinks only at strikes, so evaluating at 0 and every strike finds both
+ * extremes; the slope past the top strike (net long/short calls) says whether either side runs away.
  */
-function groupExtremes(legs: Leg[]): { maxLoss: number | null; maxProfit: number | null } {
+export function payoffRange(legs: ModelLeg[]): { min: number; max: number; lossUnlimited: boolean; profitUnlimited: boolean } {
   const callSlope = legs.reduce((acc, l) => acc + (l.isCall ? (l.isShort ? -1 : 1) * l.qty : 0), 0);
   const points = [0, ...legs.map((l) => l.strike)];
   const values = points.map((s) => legs.reduce((acc, l) => acc + legPayoff(l, s), 0));
+  return { min: Math.min(...values), max: Math.max(...values), lossUnlimited: callSlope < 0, profitUnlimited: callSlope > 0 };
+}
+
+function groupExtremes(legs: ModelLeg[]): { maxLoss: number | null; maxProfit: number | null } {
+  const range = payoffRange(legs);
   return {
-    maxLoss: callSlope < 0 ? null : Math.max(-Math.min(...values), 0),
-    maxProfit: callSlope > 0 ? null : Math.max(...values),
+    maxLoss: range.lossUnlimited ? null : Math.max(-range.min, 0),
+    maxProfit: range.profitUnlimited ? null : range.max,
   };
 }
 
-/** Single-shock lognormal grid over every leg: portfolio POP and expected P&L. */
-function simulate(legs: Leg[]): { pop: number; expectedPnl: number } {
+/** The spread of outcomes under the single-shock lognormal model, from one pass over the grid. */
+export type Distribution = {
+  /** Chance of ending above zero. */
+  pop: number;
+  expectedPnl: number;
+  /** The loss (or smallest gain) that 1 time in 20 does worse than — the "bad case". */
+  p5: number;
+  /** The same for 1 time in 100 — the "really bad case". */
+  p1: number;
+  /** The gain that 1 time in 20 does better than. */
+  p95: number;
+  /** Average P&L across the outcomes that profit; null when none do. */
+  avgWin: number | null;
+  /** Average P&L across the outcomes that lose (negative); null when none do. */
+  avgLoss: number | null;
+};
+
+const TAIL = 0.05;
+const DEEP_TAIL = 0.01;
+
+/**
+ * Single-shock lognormal grid over every leg: portfolio POP, expected P&L and the shape of the
+ * outcomes. `booked` is P&L already locked in (e.g. from lots just sold) that rides along with
+ * whatever the legs do.
+ */
+export function simulate(legs: ModelLeg[], booked = 0): Distribution {
+  const points: { pnl: number; w: number }[] = [];
   let wSum = 0;
   let pop = 0;
   let expected = 0;
+  let winSum = 0;
+  let lossSum = 0;
+  let lossW = 0;
   for (let i = 0; i <= GRID_STEPS; i++) {
     const z = -GRID_HALF_WIDTH_Z + (2 * GRID_HALF_WIDTH_Z * i) / GRID_STEPS;
     const w = Math.exp((-z * z) / 2);
-    let pnl = 0;
+    let pnl = booked;
     for (const leg of legs) {
       const sd = leg.sigma * Math.sqrt(leg.t);
       pnl += legPayoff(leg, leg.spot * Math.exp(-(sd * sd) / 2 + sd * z));
     }
+    points.push({ pnl, w });
     wSum += w;
     expected += w * pnl;
-    if (pnl > 0) pop += w;
+    if (pnl > 0) {
+      pop += w;
+      winSum += w * pnl;
+    } else if (pnl < 0) {
+      lossSum += w * pnl;
+      lossW += w;
+    }
   }
-  return { pop: pop / wSum, expectedPnl: expected / wSum };
+  points.sort((a, b) => a.pnl - b.pnl);
+  const quantile = (q: number) => {
+    let acc = 0;
+    for (const p of points) {
+      acc += p.w / wSum;
+      if (acc >= q) return p.pnl;
+    }
+    return points[points.length - 1].pnl;
+  };
+  return {
+    pop: pop / wSum,
+    expectedPnl: expected / wSum,
+    p5: quantile(TAIL),
+    p1: quantile(DEEP_TAIL),
+    p95: quantile(1 - TAIL),
+    avgWin: pop > 0 ? winSum / pop : null,
+    avgLoss: lossW > 0 ? lossSum / lossW : null,
+  };
 }
 
 /** Smallest of 10/25/50/100/250/500/1000 that's ≥ `target` — a round price step for snapping the gauge window. */

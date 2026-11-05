@@ -27,6 +27,8 @@ const DEFAULT_POLL_MS = 10000;
 
 export type LivePricingState = {
   rows: PortfolioRow[] | null;
+  /** The latest option chain per instrument+expiry group (or its error) — every strike, not just the held ones. */
+  chainsByGroup: Record<string, UpstoxOptionChainResult | undefined>;
   tokenExpired: boolean;
   offline: boolean;
   lastPolledAt: number | null;
@@ -203,6 +205,7 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
 
   return {
     rows,
+    chainsByGroup,
     tokenExpired,
     offline,
     lastPolledAt,

@@ -4,7 +4,7 @@ import { AnimatePresence } from "framer-motion";
 import { useState } from "react";
 
 import ClosedPositionDetailModal from "@/components/ClosedPositionDetailModal";
-import { calculateBrokerage } from "@/lib/calculateBrokerage";
+import { summariseClosedPosition } from "@/lib/calculatePortfolio";
 import { round2 } from "@/lib/calculateTrade";
 import { formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
@@ -14,10 +14,6 @@ const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracki
 
 function formatCellDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-}
-
-function average(value: number, quantity: number): number | null {
-  return quantity > 0 ? round2(value / quantity) : null;
 }
 
 type ClosedTodayTableProps = {
@@ -34,15 +30,7 @@ type ClosedTodayTableProps = {
  */
 export default function ClosedTodayTable({ positions }: ClosedTodayTableProps) {
   const [selected, setSelected] = useState<UpstoxPosition | null>(null);
-  const rows = positions.map((p) => {
-    const buyAvg = average(p.buyValue, p.buyQuantity);
-    const sellAvg = average(p.sellValue, p.sellQuantity);
-    const charges =
-      buyAvg != null && sellAvg != null
-        ? calculateBrokerage("OPTIONS", [{ buyPrice: buyAvg, sellPrice: sellAvg }], p.buyQuantity).totalCharges
-        : null;
-    return { p, buyAvg, sellAvg, pnl: round2(p.sellValue - p.buyValue), charges };
-  });
+  const rows = positions.map((position) => ({ p: position, ...summariseClosedPosition(position) }));
   const totalPnl = rows.reduce((sum, r) => sum + r.pnl, 0);
   const totalCharges = rows.reduce((sum, r) => sum + (r.charges ?? 0), 0);
 
