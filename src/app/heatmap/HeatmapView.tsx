@@ -7,7 +7,7 @@ import LoadingState from "@/components/LoadingState";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import { AlertCircleIcon, RefreshIcon } from "@/components/icons";
 import { formatAsOf, formatLevel, formatPct } from "@/lib/format";
-import { HEATMAP_TABS, getHeatmapStocks, type HeatmapStock } from "@/lib/heatmap/constituents";
+import { COMMODITIES_TAB, HEATMAP_PILLS, HEATMAP_TABS, getHeatmapStocks, type HeatmapStock, type HeatmapTabId } from "@/lib/heatmap/constituents";
 import {
   DEFAULT_HEATMAP_RANGE,
   HEATMAP_RANGES,
@@ -15,7 +15,7 @@ import {
   RANGE_PHRASES,
   type HeatmapRange,
 } from "@/lib/heatmap/ranges";
-import type { Instrument } from "@/lib/types";
+import { HEATMAP_COMMODITIES, commodityGlyph, commodityName, commodityUnit } from "@/lib/mcxCommodities";
 import type { HeatmapQuote, IndexQuote } from "@/lib/upstox/types";
 import { HEATMAP_POLL_MS, useHeatmap } from "@/lib/useHeatmap";
 
@@ -122,6 +122,43 @@ function StockTile({ stock, quote, band }: { stock: HeatmapStock; quote: Heatmap
   );
 }
 
+/** A commodity's price in rupees with Indian digit grouping - gold at ₹1,50,000 reads at a glance, not as a run of digits. */
+function formatCommodityPrice(price: number): string {
+  return `₹${price.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+/** The same tile as a stock's, for a commodity: a glyph badge (chemical symbol for the metals) instead of a logo, and the price in its own unit. */
+function CommodityTile({ symbol, quote, band }: { symbol: string; quote: HeatmapQuote; band: Band }) {
+  const pct = quote.changePct === null ? null : Math.round(quote.changePct * 100) / 100;
+  const unit = commodityUnit(symbol);
+
+  return (
+    <div
+      title={`${commodityName(symbol)} - current-month future`}
+      className={`relative flex h-[92px] flex-col justify-between rounded-xl p-3 shadow-md transition-colors duration-500 ${shadeFor(pct, band)}`}
+    >
+      <span className="self-end text-xl font-bold leading-none tabular-nums">{pct === null ? "—" : formatPct(pct, 2)}</span>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span
+          aria-hidden="true"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-[#292e3f] sm:size-10 sm:text-sm"
+        >
+          {commodityGlyph(symbol)}
+        </span>
+        <div className="min-w-0 leading-tight">
+          <div className="w-fit max-w-full truncate text-sm font-semibold underline decoration-[#6b5fa0] decoration-2 underline-offset-4">
+            {commodityName(symbol)}
+          </div>
+          <div className="mt-1 truncate text-sm tabular-nums">
+            {formatCommodityPrice(quote.price)}
+            {unit && <span className="ml-1 text-xs opacity-80">{unit.replace("₹", "")}</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Green/red text for a signed move, readable on both themes (the --loss token is tuned for fills and is too dim as text on dark). */
 function moveTone(value: number): string {
   if (value > 0) return "text-profit";
@@ -171,7 +208,7 @@ function IndexCard({
 }
 
 export default function HeatmapView() {
-  const [index, setIndex] = useState<Instrument>("NIFTY");
+  const [index, setIndex] = useState<HeatmapTabId>("NIFTY");
   const [range, setRange] = useState<HeatmapRange>(DEFAULT_HEATMAP_RANGE);
   const { quotes, indices, tokenExpired, offline, loadError, lastPolledAt, manualRefreshing, handleManualRefresh } =
     useHeatmap(index, range, HEATMAP_POLL_MS);
@@ -182,19 +219,21 @@ export default function HeatmapView() {
   // Biggest gainers first, biggest losers last — the reading order the grid
   // is built around. A stock with no comparison price (e.g. not listed that
   // far back) can't be ranked, so it sinks to the end.
+  const isCommodities = index === COMMODITIES_TAB;
   const tiles = useMemo(() => {
     if (!quotes) return null;
     const quoteBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
-    return getHeatmapStocks(index)
-      .flatMap((stock) => {
-        const quote = quoteBySymbol.get(stock.symbol);
-        return quote ? [{ stock, quote }] : [];
+    // Either an index's stocks or the commodities - one shape, so ranking and rendering don't care which.
+    const symbols: { symbol: string; stock: HeatmapStock | null }[] =
+      index === COMMODITIES_TAB
+        ? HEATMAP_COMMODITIES.map((symbol) => ({ symbol, stock: null }))
+        : getHeatmapStocks(index).map((stock) => ({ symbol: stock.symbol, stock }));
+    return symbols
+      .flatMap(({ symbol, stock }) => {
+        const quote = quoteBySymbol.get(symbol);
+        return quote ? [{ symbol, stock, quote }] : [];
       })
-      .sort(
-        (a, b) =>
-          (b.quote.changePct ?? -Infinity) - (a.quote.changePct ?? -Infinity) ||
-          a.stock.symbol.localeCompare(b.stock.symbol),
-      );
+      .sort((a, b) => (b.quote.changePct ?? -Infinity) - (a.quote.changePct ?? -Infinity) || a.symbol.localeCompare(b.symbol));
   }, [quotes, index]);
 
   return (
@@ -208,7 +247,7 @@ export default function HeatmapView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Heatmap</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            How every stock in the index has moved {RANGE_PHRASES[range]} — prices refresh every {HEATMAP_POLL_MS / 1000}s.
+            How {isCommodities ? "each commodity" : "every stock in the index"} has moved {RANGE_PHRASES[range]} — prices refresh every {HEATMAP_POLL_MS / 1000}s.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -259,7 +298,7 @@ export default function HeatmapView() {
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            {HEATMAP_TABS.map((tab) => (
+            {HEATMAP_PILLS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -312,17 +351,25 @@ export default function HeatmapView() {
           )
         ) : tiles.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-background p-10 text-center text-sm text-muted-foreground">
-            No prices came back for this index yet.
+            No prices came back for {isCommodities ? "the commodities" : "this index"} yet.
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {tiles.map(({ stock, quote }) => (
-              <StockTile key={stock.symbol} stock={stock} quote={quote} band={band} />
-            ))}
+            {tiles.map(({ symbol, stock, quote }) =>
+              stock ? <StockTile key={symbol} stock={stock} quote={quote} band={band} /> : <CommodityTile key={symbol} symbol={symbol} quote={quote} band={band} />,
+            )}
           </div>
         )}
 
-        {range !== "1D" && tiles && tiles.length > 0 && (
+        {isCommodities && tiles && tiles.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Each tile is the commodity&apos;s current-month MCX future, in rupees per the unit shown.
+            {range !== "1D" &&
+              " Beyond a day, changes use that contract's own price history, which only starts when the contract began trading — so a long period may show “—” — and the move can include a roll to a new month."}
+          </p>
+        )}
+
+        {!isCommodities && range !== "1D" && tiles && tiles.length > 0 && (
           <p className="text-xs text-muted-foreground">
             Beyond a day, changes use Upstox&apos;s price history — adjusted for splits and bonuses, but not demergers,
             so a stock that demerged in this period will look weaker than it really was. Stocks listed more recently

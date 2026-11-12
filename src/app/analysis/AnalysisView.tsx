@@ -43,12 +43,9 @@ import {
   type PriceMode,
 } from "@/lib/strategyTransfer";
 import { showToast } from "@/lib/toast";
-import { DEFAULT_LOT_SIZES, INSTRUMENTS, INSTRUMENT_LABELS, type Instrument, type TradeEntry } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, INDEX_INSTRUMENTS, INSTRUMENT_LABELS, STRIKE_STEPS, type Instrument, type TradeEntry } from "@/lib/types";
 import { fetchMargin, fetchOptionChain } from "@/lib/upstox/client";
 import { isUpstoxOptionChainError, type UpstoxOptionChainResult, type UpstoxOptionChainStrike } from "@/lib/upstox/types";
-
-/** Strike spacing per index — what the +/- buttons step by and what "ATM" rounds to. */
-const STRIKE_STEP: Record<Instrument, number> = { NIFTY: 50, BANKNIFTY: 100, SENSEX: 100 };
 
 /** One-line leg row from md up: [include] [B/S] [expiry] [strike] [CE/PE] [lots] [price] [delete]. Narrower screens wrap instead. */
 const LEG_GRID =
@@ -56,7 +53,8 @@ const LEG_GRID =
 
 const CHAIN_POLL_MS = 20_000;
 
-const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
+// Index-only: the weekly expiry pattern and the strategy builder around it are the indices'. Commodities live in Live Portfolio.
+const INSTRUMENT_OPTIONS = INDEX_INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
 
 type ChainStatus = "ok" | "token_expired" | "offline" | "error";
 type Tab = "chart" | "payoff" | "pnl" | "greeks" | "averaging";
@@ -224,7 +222,7 @@ export default function AnalysisView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const lotSize = DEFAULT_LOT_SIZES[instrument];
-  const step = STRIKE_STEP[instrument];
+  const step = STRIKE_STEPS[instrument];
   const today = istDateString(nowMs);
   const defaultExpiry = useMemo(() => upcomingWeeklyExpiries(today, instrument, nowMs, 1)[0], [today, instrument, nowMs]);
 

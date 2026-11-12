@@ -6,7 +6,7 @@
  * - on request - what Upstox says it does to the margin blocked.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import BeforeAfterChart from "@/components/averaging/BeforeAfterChart";
 import { Section, tableHead, thinScroll } from "@/components/averaging/ui";
@@ -50,7 +50,7 @@ function rows(move: Evaluated, base: Outcome, scale: number): Row[] {
   const worstText = (v: number | null, remote: boolean) => (v === null ? "Unlimited" : `${money(v)}${remote ? "*" : ""}`);
   const worstRow: Row = {
     label: "Worst case at expiry",
-    hint: "The most the book could lose if the index ended anywhere. For a sold put that is the index going to zero, which is why a very large figure carries a star.",
+    hint: "The most the book could lose wherever the underlying ended. For a sold put that is the underlying going to zero, which is why a very large figure carries a star.",
     before: worstText(base.maxLoss, base.worstIsRemote),
     after: worstText(o.maxLoss, o.worstIsRemote),
     change: base.maxLoss !== null && o.maxLoss !== null && !o.worstIsRemote ? signedMoney(-(o.maxLoss - base.maxLoss)) : "",
@@ -88,10 +88,10 @@ function rows(move: Evaluated, base: Outcome, scale: number): Row[] {
     rupees("Good case · 1 in 20", base.p95, o.p95, "The result only 1 time in 20 beats."),
     worstRow,
     bestRow,
-    rupees("If the index doesn't move", base.pnlFlat, o.pnlFlat, "P&L at expiry with the index finishing exactly where it is now."),
+    rupees("If the market doesn't move", base.pnlFlat, o.pnlFlat, "P&L at expiry with the underlying finishing exactly where it is now."),
     rupees("Time decay per day", base.thetaPerDay, o.thetaPerDay, "Positive means time is paying you; negative means it is costing you."),
     {
-      label: "P&L for a 1% index move",
+      label: "P&L for a 1% market move",
       hint: "From the summed delta, so a rough guide for small moves.",
       before: money(base.pnlPer1Pct),
       after: money(o.pnlPer1Pct),
@@ -182,6 +182,8 @@ export default function MoveDetail({
   scale,
   book,
   group,
+  standalone = false,
+  children,
 }: {
   title: string;
   subtitle: string;
@@ -190,6 +192,10 @@ export default function MoveDetail({
   scale: number;
   book: Book;
   group: ChartGroup | null;
+  /** The move is measured on its own, against nothing held: there is no "now" to compare it with, so only its own figures are shown. */
+  standalone?: boolean;
+  /** Shown straight under the header - the Reward : Risk tab puts its working here. */
+  children?: ReactNode;
 }) {
   const lines = useMemo(() => highlights(move, base, scale), [move, base, scale]);
   const table = useMemo(() => rows(move, base, scale), [move, base, scale]);
@@ -212,28 +218,29 @@ export default function MoveDetail({
             ))}
           </div>
         )}
-        {lines.length > 0 ? (
-          <ul className="flex flex-col gap-2">
-            {lines.map((line) => (
-              <li key={line.text} className="flex items-start gap-2.5 text-sm">
-                {line.tone === "good" ? (
-                  <CheckCircleIcon className="mt-0.5 size-4 shrink-0 text-profit" />
-                ) : line.tone === "bad" ? (
-                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-danger-fg" />
-                ) : (
-                  <span aria-hidden="true" className="mt-[7px] size-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
-                )}
-                <span>
-                  {line.tone === "good" && <span className="sr-only">Better: </span>}
-                  {line.tone === "bad" && <span className="sr-only">Worse: </span>}
-                  {line.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">This barely changes anything measurable.</p>
-        )}
+        {!standalone &&
+          (lines.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {lines.map((line) => (
+                <li key={line.text} className="flex items-start gap-2.5 text-sm">
+                  {line.tone === "good" ? (
+                    <CheckCircleIcon className="mt-0.5 size-4 shrink-0 text-profit" />
+                  ) : line.tone === "bad" ? (
+                    <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-danger-fg" />
+                  ) : (
+                    <span aria-hidden="true" className="mt-[7px] size-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
+                  )}
+                  <span>
+                    {line.tone === "good" && <span className="sr-only">Better: </span>}
+                    {line.tone === "bad" && <span className="sr-only">Worse: </span>}
+                    {line.text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">This barely changes anything measurable.</p>
+          ))}
         {move.applied.problems.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm text-warning" role="alert">
             {move.applied.problems.map((p) => (
@@ -243,16 +250,25 @@ export default function MoveDetail({
         )}
       </div>
 
-      <Section title="The numbers, before and after" subtitle="Where the book stands now, and where it would land. Hover a label for what it means.">
+      {children}
+
+      <Section
+        title={standalone ? "The numbers" : "The numbers, before and after"}
+        subtitle={
+          standalone
+            ? "What this idea does across the range of outcomes. Hover a label for what it means."
+            : "Where the book stands now, and where it would land. Hover a label for what it means."
+        }
+      >
         <div className={`relative overflow-x-auto rounded-xl border border-border bg-background ${thinScroll}`}>
           <table className="w-full border-collapse text-sm">
-            <caption className="sr-only">Measures of the book before and after this move</caption>
+            <caption className="sr-only">{standalone ? "Measures of this idea" : "Measures of the book before and after this move"}</caption>
             <thead>
               <tr className="border-b border-border text-right">
                 <th scope="col" className={`${tableHead} text-left`}>Measure</th>
-                <th scope="col" className={tableHead}>Now</th>
-                <th scope="col" className={tableHead}>After</th>
-                <th scope="col" className={`${tableHead} hidden sm:table-cell`}>Change</th>
+                {!standalone && <th scope="col" className={tableHead}>Now</th>}
+                <th scope="col" className={tableHead}>{standalone ? "This idea" : "After"}</th>
+                {!standalone && <th scope="col" className={`${tableHead} hidden sm:table-cell`}>Change</th>}
               </tr>
             </thead>
             <tbody>
@@ -261,9 +277,9 @@ export default function MoveDetail({
                   <th scope="row" title={r.hint} className="px-2.5 py-2 text-left font-normal text-muted-foreground">
                     {r.label}
                   </th>
-                  <td className="whitespace-nowrap px-2.5 py-2 font-mono tabular-nums text-muted-foreground">{r.before}</td>
-                  <td className={`whitespace-nowrap px-2.5 py-2 font-mono font-semibold tabular-nums ${TONE_TEXT[r.tone]}`}>{r.after}</td>
-                  <td className={`hidden whitespace-nowrap px-2.5 py-2 font-mono tabular-nums sm:table-cell ${TONE_TEXT[r.tone]}`}>{r.change}</td>
+                  {!standalone && <td className="whitespace-nowrap px-2.5 py-2 font-mono tabular-nums text-muted-foreground">{r.before}</td>}
+                  <td className={`whitespace-nowrap px-2.5 py-2 font-mono font-semibold tabular-nums ${standalone ? "" : TONE_TEXT[r.tone]}`}>{r.after}</td>
+                  {!standalone && <td className={`hidden whitespace-nowrap px-2.5 py-2 font-mono tabular-nums sm:table-cell ${TONE_TEXT[r.tone]}`}>{r.change}</td>}
                 </tr>
               ))}
             </tbody>
@@ -285,14 +301,18 @@ export default function MoveDetail({
         </p>
       </Section>
 
-      <Section title="Profit or loss at expiry, before vs after" subtitle="Hover or touch the chart for exact figures.">
+      <Section title={standalone ? "Profit or loss at expiry" : "Profit or loss at expiry, before vs after"} subtitle="Hover or touch the chart for exact figures.">
         <div className="rounded-2xl border border-border bg-background p-3 shadow-sm sm:p-4">
           {curve && group ? (
             <BeforeAfterChart
               curve={curve}
               spot={group.spot}
               indexName={indexName}
-              labels={{ subject: "this move", after: "After this move", before: "Now — as it stands" }}
+              labels={
+                standalone
+                  ? { subject: "this idea", after: "This idea at expiry", before: "" }
+                  : { subject: "this move", after: "After this move", before: "Now — as it stands" }
+              }
             />
           ) : (
             <p className="p-6 text-center text-sm text-muted-foreground">Nothing to chart yet.</p>
@@ -301,17 +321,19 @@ export default function MoveDetail({
       </Section>
 
       {ladder.length > 0 && group && (
-        <Section title="Profit or loss at each index level" subtitle="At expiry, with the chance the index finishes above each level.">
+        <Section title="Profit or loss at each price level" subtitle="At expiry, with the chance the underlying finishes above each level.">
           <div className={`@container relative overflow-x-auto rounded-xl border border-border bg-background ${thinScroll}`}>
             <table className="w-full border-collapse text-xs @min-[34rem]:text-sm">
-              <caption className="sr-only">Profit or loss at expiry at {indexName} levels around the current price, before and after this move</caption>
+              <caption className="sr-only">
+                Profit or loss at expiry at {indexName} levels around the current price{standalone ? "" : ", before and after this move"}
+              </caption>
               <thead>
                 <tr className="border-b border-border text-right">
                   <th scope="col" className={`${tableHead} text-left`}>{indexName}</th>
                   <th scope="col" className={tableHead}>Chance above</th>
-                  <th scope="col" className={tableHead}>Now</th>
-                  <th scope="col" className={tableHead}>After</th>
-                  <th scope="col" className={`${tableHead} hidden @min-[34rem]:table-cell`}>Change</th>
+                  {!standalone && <th scope="col" className={tableHead}>Now</th>}
+                  <th scope="col" className={tableHead}>{standalone ? "This idea" : "After"}</th>
+                  {!standalone && <th scope="col" className={`${tableHead} hidden @min-[34rem]:table-cell`}>Change</th>}
                 </tr>
               </thead>
               <tbody>
@@ -324,11 +346,13 @@ export default function MoveDetail({
                         {r.offset === 0 && <span className="ml-2 font-sans text-[11px]">now</span>}
                       </th>
                       <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-muted-foreground">{percent(r.chanceAbove)}</td>
-                      <td className={`whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums ${pnlColorClass(r.before)}`}>{compactMoney(r.before)}</td>
+                      {!standalone && <td className={`whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums ${pnlColorClass(r.before)}`}>{compactMoney(r.before)}</td>}
                       <td className={`whitespace-nowrap px-2.5 py-1.5 font-mono font-semibold tabular-nums ${pnlColorClass(r.after)}`}>{compactMoney(r.after)}</td>
-                      <td className={`hidden whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums @min-[34rem]:table-cell ${change > 0.5 ? "text-profit" : change < -0.5 ? "text-danger-fg" : "text-muted-foreground"}`}>
-                        {signedMoney(change)}
-                      </td>
+                      {!standalone && (
+                        <td className={`hidden whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums @min-[34rem]:table-cell ${change > 0.5 ? "text-profit" : change < -0.5 ? "text-danger-fg" : "text-muted-foreground"}`}>
+                          {signedMoney(change)}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

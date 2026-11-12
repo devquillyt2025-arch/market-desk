@@ -16,14 +16,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { round2 } from "@/lib/calculateTrade";
-import { DEFAULT_LOT_SIZES, type Instrument, type TradeEntryOptionType } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, type IndexInstrument, type TradeEntryOptionType } from "@/lib/types";
 import { compareTradeIds, getHistoricalFills, isUpstoxGetError, num, upstoxErrorResponse } from "@/lib/upstox/api";
 import { getPnlCharges, getPnlReportRows } from "@/lib/upstox/pnlReport";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
 import type { UpstoxChargesBreakdown, UpstoxClosedTrade } from "@/lib/upstox/types";
 
 /** The report's own name for each underlying (e.g. "NIFTY 09 Nov 2026 PE 23400"). */
-const INSTRUMENT_BY_REPORT_NAME: Record<string, Instrument> = {
+const INSTRUMENT_BY_REPORT_NAME: Record<string, IndexInstrument> = {
   NIFTY: "NIFTY",
   BANKNIFTY: "BANKNIFTY",
   SENSEX: "SENSEX",
@@ -36,7 +36,7 @@ const INSTRUMENT_BY_REPORT_NAME: Record<string, Instrument> = {
  * the quantity divides evenly by wins. P&L doesn't depend on it, since it's
  * taken from Upstox's own amounts.
  */
-const EARLIER_LOT_SIZES: Record<Instrument, number[]> = {
+const EARLIER_LOT_SIZES: Record<IndexInstrument, number[]> = {
   NIFTY: [75, 25, 50],
   BANKNIFTY: [35, 15, 25],
   SENSEX: [10, 15],
@@ -50,7 +50,7 @@ const MONTHS: Record<string, string> = {
 const OPTION_SCRIP = /^(.+?)\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(CE|PE)\s+(\d+(?:\.\d+)?)$/i;
 const FUTURE_SCRIP = /^(.+?)\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/;
 
-type ParsedScrip = { name: string; instrument: Instrument | null; expiry: string; optionType: TradeEntryOptionType | null; strike: number | null };
+type ParsedScrip = { name: string; instrument: IndexInstrument | null; expiry: string; optionType: TradeEntryOptionType | null; strike: number | null };
 
 function toExpiry(day: string, month: string, year: string): string | null {
   const mm = MONTHS[month.toUpperCase()];
@@ -87,14 +87,14 @@ function reportDate(value: unknown): string | null {
   return match ? `${match[3]}-${match[2]}-${match[1]}` : null;
 }
 
-function lotsFor(instrument: Instrument, quantity: number): number {
+function lotsFor(instrument: IndexInstrument, quantity: number): number {
   for (const size of [DEFAULT_LOT_SIZES[instrument], ...EARLIER_LOT_SIZES[instrument]]) {
     if (quantity % size === 0) return quantity / size;
   }
   return Math.max(1, Math.round(quantity / DEFAULT_LOT_SIZES[instrument]));
 }
 
-type Group = ParsedScrip & { instrument: Instrument; buyDate: string; sellDate: string; quantity: number; buyAmount: number; sellAmount: number };
+type Group = ParsedScrip & { instrument: IndexInstrument; buyDate: string; sellDate: string; quantity: number; buyAmount: number; sellAmount: number };
 
 export async function GET(request: NextRequest) {
   const fy = Number(new URL(request.url).searchParams.get("fy"));

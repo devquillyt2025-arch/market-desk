@@ -130,6 +130,7 @@ export default function PositionHeader({
   actionAdds = false,
   actionLabel = "Open in Analysis",
   actionHint = "Loads this position plus the simulated lots.",
+  actionBlockedHint = null,
   appliedText = null,
   note = "Simulation only — this never places an order. Treats this as a naked long leg; hedges in other rows are ignored.",
 }: {
@@ -147,6 +148,8 @@ export default function PositionHeader({
   /** The main button's wording — "Open in Analysis" unless the page has something better to do with the lots. */
   actionLabel?: string;
   actionHint?: string;
+  /** Why the button can't be used for this position at all (as opposed to "not yet"), if that's so - shown in place of the usual nudge. */
+  actionBlockedHint?: string | null;
   /** What the button has just done, shown in place of the hint for a moment. */
   appliedText?: string | null;
   note?: string;
@@ -211,7 +214,7 @@ export default function PositionHeader({
             </button>
             {/* role=status: a screen reader hears that it worked, without the focus moving. */}
             <p role="status" className={`text-xs ${appliedText ? "font-semibold text-profit" : "text-muted-foreground"}`}>
-              {appliedText ?? (canOpenAnalysis ? actionHint : "Add a lot and a buy price first.")}
+              {appliedText ?? actionBlockedHint ?? (canOpenAnalysis ? actionHint : "Add a lot and a buy price first.")}
             </p>
           </div>
         </div>

@@ -4,7 +4,7 @@
  * into the shapes each chart/stat needs.
  */
 
-import { calculateBrokerage, type BrokerageSegment } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, optionsSegmentFor, type BrokerageSegment } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
 import {
@@ -19,13 +19,14 @@ import {
 } from "@/lib/types";
 
 /**
- * All three tracked instruments (NIFTY/BANKNIFTY/SENSEX) are index
- * derivatives — an entry is Options when it carries a strike/option type,
- * otherwise it's an index Futures trade. Neither Delivery nor Intraday
- * (equity-only segments) applies here.
+ * The tracked instruments (the NIFTY/BANKNIFTY/SENSEX indices, and MCX
+ * crude oil and gold) are all derivatives — an entry is Options when it
+ * carries a strike/option type, otherwise it's a Futures trade (billed at the
+ * index futures rates, even for a commodity - commodity futures aren't
+ * modelled). Neither Delivery nor Intraday (equity-only segments) applies here.
  */
 function entryBrokerageSegment(entry: TradeEntry): BrokerageSegment {
-  return entry.option_type ? "OPTIONS" : "FUTURES";
+  return entry.option_type ? optionsSegmentFor(entry.instrument) : "FUTURES";
 }
 
 /** Estimated round-trip charges (brokerage, STT, GST, etc.) for one entry — see calculateBrokerage.ts. */

@@ -6,7 +6,7 @@
  * calculateBrokerage.ts as-is rather than reimplementing either.
  */
 
-import { calculateBrokerage } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
@@ -269,7 +269,7 @@ function pricedRow(
   const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
   const livePnl = calculateEntryPnl({ instrument: entry.instrument, lots: entry.lots, buyPrice, sellPrice });
   const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
-  const brokerageIfClosed = calculateBrokerage("OPTIONS", [{ buyPrice, sellPrice }], qty).totalCharges;
+  const brokerageIfClosed = calculateBrokerage(optionsSegmentFor(entry.instrument), [{ buyPrice, sellPrice }], qty).totalCharges;
 
   return {
     entry,
@@ -371,7 +371,7 @@ export function summariseClosedPosition(position: UpstoxPosition): ClosedPositio
   const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
   const charges =
     buyAvg != null && sellAvg != null
-      ? calculateBrokerage("OPTIONS", [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity).totalCharges
+      ? calculateBrokerage(optionsSegmentFor(position.instrument), [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity).totalCharges
       : null;
   return { position, buyAvg, sellAvg, pnl: round2(position.sellValue - position.buyValue), charges };
 }

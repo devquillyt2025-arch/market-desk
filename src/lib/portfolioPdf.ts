@@ -48,7 +48,7 @@ const COLOR = {
 };
 
 const MODEL_NOTE =
-  "Odds use live implied volatility, zero drift, all indices moving together. At expiry, before brokerage; a guide, not a forecast.";
+  "Odds use live implied volatility, zero drift, all underlyings moving together. At expiry, before brokerage; a guide, not a forecast.";
 
 const SEVERITY_COLOR: Record<string, Rgb> = {
   Critical: COLOR.loss,
@@ -649,8 +649,8 @@ function drawRisk(ctx: Ctx, risk: ReportRisk) {
         color: pnlColor(risk.netThetaPerDay),
         hint: risk.netThetaPerDay >= 0 ? "Time decay is paying you" : "Time decay is costing you",
       },
-      { label: "Market +1%", value: rs(risk.pnlIfMarketRises1Pct), color: pnlColor(risk.pnlIfMarketRises1Pct), hint: "P&L change if the index rises 1%" },
-      { label: "Market -1%", value: rs(risk.pnlIfMarketFalls1Pct), color: pnlColor(risk.pnlIfMarketFalls1Pct), hint: "P&L change if the index falls 1%" },
+      { label: "Market +1%", value: rs(risk.pnlIfMarketRises1Pct), color: pnlColor(risk.pnlIfMarketRises1Pct), hint: "P&L change if the market rises 1%" },
+      { label: "Market -1%", value: rs(risk.pnlIfMarketFalls1Pct), color: pnlColor(risk.pnlIfMarketFalls1Pct), hint: "P&L change if the market falls 1%" },
       {
         label: "Worst Case Used",
         value: risk.worstCaseUsedPct === null ? "-" : `${risk.worstCaseUsedPct}%`,

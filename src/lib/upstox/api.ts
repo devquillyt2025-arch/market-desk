@@ -68,8 +68,11 @@ export type HistoricalFill = {
 const FILLS_PAGE_SIZE = 500;
 const MAX_FILL_PAGES = 40;
 
+/** Upstox's trade-history segments for the derivatives this app tracks: index F&O, and MCX commodities. */
+export type FillsSegment = "FO" | "COM";
+
 /**
- * Every F&O fill between two dates (inclusive, yyyy-mm-dd) from
+ * Every F&O (or, with `segment: "COM"`, MCX) fill between two dates (inclusive, yyyy-mm-dd) from
  * `/v2/charges/historical-trades`. Upstox adds a day's fills the day after,
  * so today's never appear here. Each fill keeps its exchange trade id, which
  * rises through the session — the only record of which leg of a same-day
@@ -79,11 +82,12 @@ export async function getHistoricalFills(
   token: string,
   fromDate: string,
   toDate: string,
+  segment: FillsSegment = "FO",
 ): Promise<{ fills: HistoricalFill[] } | UpstoxGetError> {
   const fills: HistoricalFill[] = [];
   for (let page = 1; page <= MAX_FILL_PAGES; page++) {
     const params = new URLSearchParams({
-      segment: "FO",
+      segment,
       start_date: fromDate,
       end_date: toDate,
       page_number: String(page),

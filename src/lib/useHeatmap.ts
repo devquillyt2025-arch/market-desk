@@ -12,10 +12,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import type { HeatmapTabId } from "@/lib/heatmap/constituents";
 import type { HeatmapRange } from "@/lib/heatmap/ranges";
 import { loadHeatmap, saveHeatmap, type StoredHeatmap } from "@/lib/lastKnownPrices";
 import { showToast } from "@/lib/toast";
-import type { Instrument } from "@/lib/types";
 import { fetchHeatmap } from "@/lib/upstox/client";
 import { isUpstoxHeatmapError, type HeatmapQuote, type IndexQuote, type UpstoxHeatmapResult } from "@/lib/upstox/types";
 
@@ -42,7 +42,7 @@ export type HeatmapState = {
 
 type Payload = StoredHeatmap;
 
-export function useHeatmap(index: Instrument, range: HeatmapRange, pollMs = HEATMAP_POLL_MS): HeatmapState {
+export function useHeatmap(index: HeatmapTabId, range: HeatmapRange, pollMs = HEATMAP_POLL_MS): HeatmapState {
   const [payloadByKey, setPayloadByKey] = useState<Record<string, Payload | undefined>>({});
   const [tokenExpired, setTokenExpired] = useState(false);
   const [offline, setOffline] = useState(false);

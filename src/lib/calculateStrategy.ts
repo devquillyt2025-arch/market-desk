@@ -17,7 +17,7 @@
  */
 
 import { impliedVolFromPrice, normCdf, normalizeIv } from "@/lib/calculateRisk";
-import type { Instrument } from "@/lib/types";
+import { isCommodityInstrument, sessionCloseIst, type Instrument } from "@/lib/types";
 
 const MS_PER_DAY = 86_400_000;
 const YEAR_MS = 365 * MS_PER_DAY;
@@ -71,8 +71,9 @@ export type StrategyMetrics = {
 
 // --- Dates ----------------------------------------------------------------
 
-export function expiryCloseMs(iso: string): number {
-  return Date.parse(`${iso}T15:30:00+05:30`);
+/** The moment an expiry date runs out — the session close: 15:30 IST, or 23:30 for an MCX commodity (pass its `instrument`). */
+export function expiryCloseMs(iso: string, instrument?: Instrument): number {
+  return Date.parse(`${iso}T${sessionCloseIst(instrument)}:00+05:30`);
 }
 
 export function istDateString(ms: number): string {
@@ -94,6 +95,8 @@ export function addDays(iso: string, days: number): string {
  * from Upstox (Bank Nifty, for one, only lists monthlies).
  */
 export function upcomingWeeklyExpiries(todayIso: string, instrument: Instrument, nowMs: number, count = 8): string[] {
+  // Commodity options are monthly, on dates only the exchange list knows - there is no weekly pattern to guess from.
+  if (isCommodityInstrument(instrument)) return [];
   const target = instrument === "SENSEX" ? 4 : 2;
   const dow = new Date(`${todayIso}T00:00:00Z`).getUTCDay();
   const gap = (target - dow + 7) % 7;
@@ -130,11 +133,12 @@ function blackScholes(spot: number, strike: number, t: number, sigma: number, is
 // --- Legs -----------------------------------------------------------------
 
 /** Enabled legs with a quantity, sign and the vol used to value them. */
-export function priceLegs(legs: StrategyLeg[], spot: number, nowMs: number, lotSize: number): PricedLeg[] {
+/** `instrument` only matters for an MCX commodity, whose expiry day runs to 23:30 rather than 15:30. */
+export function priceLegs(legs: StrategyLeg[], spot: number, nowMs: number, lotSize: number, instrument?: Instrument): PricedLeg[] {
   return legs
     .filter((l) => l.enabled && l.lots > 0 && l.strike > 0 && l.price >= 0)
     .map((l) => {
-      const closeMs = expiryCloseMs(l.expiry);
+      const closeMs = expiryCloseMs(l.expiry, instrument);
       const t = Math.max(closeMs - nowMs, 0) / YEAR_MS;
       const chain = l.chainIv != null && l.chainIv > 0 ? normalizeIv(l.chainIv) : null;
       // The market's vol values the option today; the entered price is only the cost basis. Solving vol

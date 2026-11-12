@@ -10,7 +10,7 @@
  */
 
 import type { DraftLeg } from "@/lib/strategyTransfer";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import { INDEX_INSTRUMENTS, type Instrument } from "@/lib/types";
 
 const STORAGE_KEY = "marketdesk:analysis";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -49,7 +49,8 @@ export function loadSavedAnalysis(): SavedAnalysis | null {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     const v = parsed as Record<string, unknown>;
-    if (!(INSTRUMENTS as readonly unknown[]).includes(v.instrument) || !Array.isArray(v.legs)) return null;
+    // Index-only: Analysis has no commodity strategy builder, so a stray commodity value is as good as nothing saved.
+    if (!(INDEX_INSTRUMENTS as readonly unknown[]).includes(v.instrument) || !Array.isArray(v.legs)) return null;
     return {
       instrument: v.instrument as Instrument,
       legs: v.legs.filter(isSavedLeg),

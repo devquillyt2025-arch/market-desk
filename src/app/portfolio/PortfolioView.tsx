@@ -392,6 +392,11 @@ export default function PortfolioView() {
 
   // Until the first sync answers, an empty table means "not loaded yet", not "no positions".
   const awaitingFirstSync = upstox.syncedAt === null && !anyTokenExpired && !anyOffline && upstox.error === null;
+  // The insights read live prices, so most of them need a priced position. The RRR planner doesn't - with no
+  // position it is the only tab offered - but it waits for the first sync like the table does, so it doesn't
+  // flash up and then grow tabs.
+  const hasPricedPositions = rows?.some((r) => r.status !== "untracked") ?? false;
+  const showInsights = rows !== null && (hasPricedPositions || !awaitingFirstSync);
 
   return (
     <motion.div
@@ -515,7 +520,7 @@ export default function PortfolioView() {
         {upstox.otherCount > 0 && (
           <p className="text-xs text-muted-foreground">
             {upstox.otherCount} Upstox position{upstox.otherCount === 1 ? " isn't" : "s aren't"} shown — Live Portfolio
-            tracks Nifty, Bank Nifty and Sensex options only.
+            tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil and gold options, only.
           </p>
         )}
       </div>
@@ -527,11 +532,12 @@ export default function PortfolioView() {
         </div>
       )}
 
-      {rows && rows.some((r) => r.status !== "untracked") && (
+      {showInsights && (
         <div ref={insightsRef} className="scroll-mt-4">
           <PortfolioInsights
             tab={insightsTab}
             onTabChange={setInsightsTab}
+            hasPositions={hasPricedPositions}
             analysis={riskAnalysis ?? heldRisk?.analysis ?? null}
             asOf={riskAnalysis ? riskAsOf : (heldRisk?.at ?? null)}
             paused={riskPaused}

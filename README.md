@@ -1,6 +1,6 @@
 # MarketDesk
 
-Multi-leg options-selling P&L calculator for Nifty, Bank Nifty, and Sensex.
+Multi-leg options-selling P&L calculator for Nifty, Bank Nifty, and Sensex, with Live Portfolio also tracking MCX crude oil and gold options.
 
 ## Stack
 

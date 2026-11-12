@@ -12,10 +12,11 @@
  */
 
 import { logEvent } from "@/lib/activityLog";
+import { CommodityStorageMissingError, isInstrumentCheckError } from "@/lib/commodityStorage";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import { calculateEntryPnl, type AddTradeEntryInput } from "@/lib/tradeEntriesStore";
-import type { LivePortfolioEntry } from "@/lib/types";
+import { isIndexInstrument, type LivePortfolioEntry } from "@/lib/types";
 import type { UpstoxPosition } from "@/lib/upstox/types";
 import { planPositionSync } from "@/lib/upstoxSync";
 
@@ -152,11 +153,22 @@ export function syncLivePortfolioWithUpstox(positions: UpstoxPosition[], today: 
     }));
     if (rows.length === 0) return { added: 0, updated: 0, closed: 0 };
 
-    const { error } = await supabase.from("live_portfolio_entries").upsert(rows, { onConflict: "id" });
+    let { error } = await supabase.from("live_portfolio_entries").upsert(rows, { onConflict: "id" });
+    // Before the commodity migration is applied, Postgres rejects a crude/gold row - and with it the whole batch, so
+    // the index positions would stop syncing too. Save those on their own and say what's missing.
+    let commoditiesRejected = false;
+    if (error && isInstrumentCheckError(error)) {
+      const indexRows = rows.filter((row) => isIndexInstrument(row.instrument));
+      if (indexRows.length < rows.length) {
+        commoditiesRejected = true;
+        error = indexRows.length === 0 ? null : (await supabase.from("live_portfolio_entries").upsert(indexRows, { onConflict: "id" })).error;
+      }
+    }
     if (error) throw error;
 
     const result = { added: plan.inserts.length, updated: plan.updates.length, closed: plan.closes.length };
     logEvent(`Synced live portfolio from Upstox: ${result.added} added, ${result.updated} updated, ${result.closed} closed`);
+    if (commoditiesRejected) throw new CommodityStorageMissingError();
     return result;
   })().finally(() => {
     syncInflight = null;

@@ -101,8 +101,12 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       const results = await Promise.all(
         groupKeys.map(async (key) => {
           const [instrument, expiry] = key.split("|");
+          // A commodity's chain is a window around the money, so the strikes held are named to be sure they are in it.
+          const held = (entriesRef.current ?? [])
+            .filter((e) => e.instrument === instrument && e.expiry_date === expiry && e.strike_price != null)
+            .map((e) => Number(e.strike_price));
           try {
-            const data = await fetchOptionChain(instrument as TradeEntry["instrument"], expiry);
+            const data = await fetchOptionChain(instrument as TradeEntry["instrument"], expiry, held);
             return [key, data] as const;
           } catch {
             // fetch() itself rejecting (as opposed to resolving with a non-ok

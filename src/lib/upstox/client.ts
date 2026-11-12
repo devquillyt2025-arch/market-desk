@@ -3,13 +3,18 @@
  * Upstox directly (see option-chain/route.ts for why).
  */
 
+import type { HeatmapTabId } from "@/lib/heatmap/constituents";
 import type { HeatmapRange } from "@/lib/heatmap/ranges";
-import type { Instrument } from "@/lib/types";
+import { isCommodityInstrument, type Instrument } from "@/lib/types";
+import type { WatchlistItem } from "@/lib/watchlist";
 import {
   isUpstoxHeatmapError,
   isUpstoxMarginError,
   isUpstoxOptionChainError,
+  isUpstoxVolatilityError,
+  type InstrumentSearchResult,
   type UpstoxHeatmapResult,
+  type UpstoxWatchlistResult,
   type UpstoxMarginInstrumentRequest,
   type UpstoxMarginLine,
   type UpstoxOptionChainResult,
@@ -17,10 +22,16 @@ import {
   type UpstoxPnlSegment,
   type UpstoxPnlSummaryResult,
   type UpstoxPositionsResult,
+  type UpstoxVolatilityResult,
 } from "@/lib/upstox/types";
 
-export async function fetchOptionChain(instrument: Instrument, expiry: string): Promise<UpstoxOptionChainResult> {
+/**
+ * `strikes` only matters for a commodity, whose chain is a window around the money: the strikes held
+ * are asked for by name so they are in it wherever they sit.
+ */
+export async function fetchOptionChain(instrument: Instrument, expiry: string, strikes: number[] = []): Promise<UpstoxOptionChainResult> {
   const params = new URLSearchParams({ instrument, expiry });
+  if (strikes.length > 0 && isCommodityInstrument(instrument)) params.set("strikes", strikes.join(","));
   const res = await fetch(`/api/upstox/option-chain?${params}`, { cache: "no-store" });
   const body: UpstoxOptionChainResult = await res.json();
 
@@ -36,7 +47,7 @@ export async function fetchOptionChain(instrument: Instrument, expiry: string): 
  * Price + percent change over `range` for every constituent of an index, plus
  * the three headline index levels — feeds the Heatmap tab. `index` NIFTY means Nifty 50.
  */
-export async function fetchHeatmap(index: Instrument, range: HeatmapRange): Promise<UpstoxHeatmapResult> {
+export async function fetchHeatmap(index: HeatmapTabId, range: HeatmapRange): Promise<UpstoxHeatmapResult> {
   const res = await fetch(`/api/upstox/heatmap?${new URLSearchParams({ index, range })}`, { cache: "no-store" });
   const body: UpstoxHeatmapResult = await res.json();
 
@@ -45,6 +56,49 @@ export async function fetchHeatmap(index: Instrument, range: HeatmapRange): Prom
     return { error: `Request failed with status ${res.status}` };
   }
   return body;
+}
+
+/** How much an index has been moving, day to day, over a few look-backs - feeds the RRR planner. */
+export async function fetchVolatility(instrument: Instrument): Promise<UpstoxVolatilityResult> {
+  const res = await fetch(`/api/upstox/volatility?${new URLSearchParams({ instrument })}`, { cache: "no-store" });
+  const body: UpstoxVolatilityResult = await res.json();
+
+  if (!res.ok && !isUpstoxVolatilityError(body)) {
+    // Same defensive fallback as fetchOptionChain.
+    return { error: `Request failed with status ${res.status}` };
+  }
+  return body;
+}
+
+/** Live quotes for every instrument on the Watchlist - one call, whatever the list's length. */
+export async function fetchWatchlistQuotes(items: Pick<WatchlistItem, "itemKey" | "kind" | "symbol">[]): Promise<UpstoxWatchlistResult> {
+  try {
+    const res = await fetch("/api/upstox/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: items.map(({ itemKey, kind, symbol }) => ({ itemKey, kind, symbol })) }),
+      cache: "no-store",
+    });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (!body?.quotes || typeof body.quotes !== "object") return { error: "Watchlist response was missing the expected data." };
+    return body;
+  } catch {
+    return { error: "network_error" };
+  }
+}
+
+/** Stocks, indices and commodities matching what's typed in the Watchlist's Add popup. */
+export async function searchInstruments(query: string, signal?: AbortSignal): Promise<InstrumentSearchResult> {
+  try {
+    const res = await fetch(`/api/upstox/instrument-search?${new URLSearchParams({ q: query })}`, { cache: "no-store", signal });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (!body?.results) return { error: "Search response was missing the expected data." };
+    return body;
+  } catch (e) {
+    return { error: e instanceof DOMException && e.name === "AbortError" ? "aborted" : "network_error" };
+  }
 }
 
 const MARGIN_BATCH_SIZE = 20; // Upstox's own per-request limit
@@ -114,7 +168,7 @@ export async function fetchExpiries(instrument: Instrument): Promise<ExpiriesFet
   }
 }
 
-/** The account's open (and squared-off-today) index option positions — feeds Live Portfolio's sync. */
+/** The account's open (and squared-off-today) index and MCX crude oil / gold option positions — feeds Live Portfolio's sync. */
 export async function fetchPositions(): Promise<UpstoxPositionsResult> {
   try {
     const res = await fetch("/api/upstox/positions", { cache: "no-store" });

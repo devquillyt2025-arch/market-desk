@@ -1,5 +1,6 @@
 /**
- * Server-only: every listed option contract of the three indices, keyed by
+ * Server-only: every listed option contract of the three indices (the MCX
+ * commodities come from mcx.ts), keyed by
  * Upstox instrument_key — what turns a position's bare `NSE_FO|39948` into the
  * instrument / strike / CE-PE / expiry this app stores. One
  * `/v2/option/contract` call per index (all expiries at once, ~5,600
@@ -8,7 +9,7 @@
  */
 
 import { istDateString } from "@/lib/calculateStrategy";
-import { INSTRUMENTS, type Instrument, type TradeEntryOptionType } from "@/lib/types";
+import { INDEX_INSTRUMENTS, type Instrument, type TradeEntryOptionType } from "@/lib/types";
 import { isUpstoxGetError, num, upstoxData, upstoxGet, type UpstoxGetError } from "@/lib/upstox/api";
 import { UPSTOX_INSTRUMENT_KEYS } from "@/lib/upstox/instrumentKeys";
 
@@ -39,7 +40,7 @@ function toIsoDate(value: unknown): string | null {
 async function fetchContracts(token: string): Promise<ContractsResult> {
   const contracts = new Map<string, OptionContract>();
   const results = await Promise.all(
-    INSTRUMENTS.map(async (instrument) => {
+    INDEX_INSTRUMENTS.map(async (instrument) => {
       const params = new URLSearchParams({ instrument_key: UPSTOX_INSTRUMENT_KEYS[instrument] });
       return [instrument, await upstoxGet(token, `/v2/option/contract?${params}`)] as const;
     }),

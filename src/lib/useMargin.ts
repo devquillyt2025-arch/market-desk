@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
-import { DEFAULT_LOT_SIZES } from "@/lib/types";
+import { ORDER_QUANTITY_PER_LOT } from "@/lib/types";
 import { fetchMargin } from "@/lib/upstox/client";
 
 const DEFAULT_MARGIN_POLL_MS = 30000;
@@ -74,7 +74,7 @@ export function useMargin(rows: PortfolioRow[] | null, pollMs = DEFAULT_MARGIN_P
       const groups = new Map<string, Group>();
       for (const r of trackable) {
         const side: "BUY" | "SELL" = r.entry.side === "sell" ? "SELL" : "BUY";
-        const qty = r.entry.lots * DEFAULT_LOT_SIZES[r.entry.instrument];
+        const qty = r.entry.lots * ORDER_QUANTITY_PER_LOT[r.entry.instrument];
         const key = `${r.instrumentKey}|${side}`;
         const existing = groups.get(key);
         if (existing) {

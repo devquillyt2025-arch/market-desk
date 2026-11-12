@@ -9,14 +9,16 @@
  * is lognormal with zero drift and one flat volatility per position (its own
  * Upstox IV). Every open position is driven by the *same* standard-normal
  * shock, i.e. Nifty/Bank Nifty/Sensex are assumed perfectly correlated —
- * conservative for cross-index hedges, fair for a single-index book. Payoffs
+ * conservative for cross-index hedges, fair for a single-index book. Crude oil
+ * and gold ride the same shock, which is only right within one market: a book
+ * that mixes markets gets a warning saying so (see "mixed-markets"). Payoffs
  * are at expiry and exclude brokerage. It's a market-implied estimate, not a
  * forecast.
  */
 
 import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
-import { DEFAULT_LOT_SIZES, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, sessionCloseIst, underlyingFamily, type Instrument } from "@/lib/types";
 
 // --- Thresholds -----------------------------------------------------------
 // Heuristics, not market law — tuned to be noisy enough to matter and quiet
@@ -189,9 +191,9 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / MS_PER_DAY);
 }
 
-/** Years left until the 15:30 IST close on expiry day, floored at 0. */
-export function yearsToExpiry(expiryIso: string, now: Date): number {
-  const close = Date.parse(`${expiryIso}T15:30:00+05:30`);
+/** Years left until the session close on expiry day (15:30 IST; 23:30 for an MCX commodity - pass its `instrument`), floored at 0. */
+export function yearsToExpiry(expiryIso: string, now: Date, instrument?: Instrument): number {
+  const close = Date.parse(`${expiryIso}T${sessionCloseIst(instrument)}:00+05:30`);
   return Math.max(close - now.getTime(), 0) / (365 * MS_PER_DAY);
 }
 
@@ -207,7 +209,7 @@ export type ModelLeg = {
   qty: number;
   spot: number;
   sigma: number;
-  /** Years to the 15:30 IST close on expiry day. */
+  /** Years to the session close on expiry day (15:30 IST, or 23:30 for an MCX commodity). */
   t: number;
   groupKey: string;
 };
@@ -232,7 +234,7 @@ export function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
   ) {
     return null;
   }
-  const t = yearsToExpiry(entry.expiry_date, now);
+  const t = yearsToExpiry(entry.expiry_date, now, entry.instrument);
   // Upstox leaves IV out (or reports 0) for illiquid and deep-ITM strikes.
   // Rather than drop the position from the analysis, prefer its own IV, then
   // one solved from its live price, then the nearest strike that has one.
@@ -673,7 +675,7 @@ export function analyzeRisk(
         id: "short-expiry-day",
         severity: "critical",
         title: "Short positions expire today",
-        detail: `${names(shortExpiryDay)} — gamma is at its peak on expiry day, so small index moves swing these premiums sharply.`,
+        detail: `${names(shortExpiryDay)} — gamma is at its peak on expiry day, so small moves in the underlying swing these premiums sharply.`,
       },
       ids(shortExpiryDay),
     );
@@ -762,12 +764,24 @@ export function analyzeRisk(
     });
   }
 
+  // One shared shock is only right inside one market; crude, gold and the indices don't move as one.
+  const families = new Set(legs.map((l) => underlyingFamily(l.row.entry.instrument)));
+  if (families.size > 1) {
+    const markets = [...new Set(legs.map((l) => INSTRUMENT_LABELS[l.row.entry.instrument]))];
+    push({
+      id: "mixed-markets",
+      severity: "info",
+      title: "Odds treat different markets as one",
+      detail: `The book spans ${nameList(markets)}, but the portfolio-level odds and ranges assume they all move together, which they don't - treat those figures as rough. Each position's own odds are unaffected.`,
+    });
+  }
+
   if (totalMargin != null && totalMargin > 0 && Math.abs(pnlPer1PctMove) / totalMargin >= DIRECTIONAL_VS_MARGIN) {
     push({
       id: "directional",
       severity: "warning",
       title: pnlPer1PctMove > 0 ? "Heavily long the market" : "Heavily short the market",
-      detail: `A 1% ${pnlPer1PctMove > 0 ? "fall" : "rise"} in the index costs about ₹${Math.round(Math.abs(pnlPer1PctMove)).toLocaleString("en-IN")} (${pct(Math.abs(pnlPer1PctMove) / totalMargin, 1)} of margin).`,
+      detail: `A 1% ${pnlPer1PctMove > 0 ? "fall" : "rise"} in the underlying costs about ₹${Math.round(Math.abs(pnlPer1PctMove)).toLocaleString("en-IN")} (${pct(Math.abs(pnlPer1PctMove) / totalMargin, 1)} of margin).`,
     });
   }
 

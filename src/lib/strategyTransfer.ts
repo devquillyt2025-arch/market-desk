@@ -9,7 +9,7 @@
 
 import type { LegSide, LegType } from "@/lib/calculateStrategy";
 import type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
-import { INSTRUMENTS, type Instrument, type TradeEntry } from "@/lib/types";
+import { INDEX_INSTRUMENTS, type Instrument, type TradeEntry } from "@/lib/types";
 
 export type DraftLeg = {
   id: string;
@@ -33,7 +33,8 @@ const FILE_FORMAT = "marketdesk-strategy";
 const FILE_VERSION = 1;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-const isInstrument = (v: unknown): v is Instrument => (INSTRUMENTS as readonly unknown[]).includes(v);
+/** Analysis only builds index strategies, so a commodity underlying is treated as "not one of ours" on import. */
+const isInstrument = (v: unknown): v is Instrument => (INDEX_INSTRUMENTS as readonly unknown[]).includes(v);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 /** An open option position with everything a leg needs. */

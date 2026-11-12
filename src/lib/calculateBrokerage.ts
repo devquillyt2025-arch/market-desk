@@ -7,11 +7,17 @@
  * and consistent across brokers, though they change periodically (most
  * recently the Oct 2024 STT revision). Treat this as indicative, not a
  * substitute for a broker's actual contract note.
+ *
+ * MCX commodity options are their own segment: the tax is CTT (commodity
+ * transaction tax), 0.05% on the sell side, not the 0.1% STT of index options,
+ * and MCX's transaction charge differs from NSE's - from Upstox's help-center
+ * page on commodity pricing. CTT is reported in the `stt` field.
  */
 
 import { round2, type TradeLegInput } from "@/lib/calculateTrade";
+import { isCommodityInstrument, type Instrument } from "@/lib/types";
 
-export type BrokerageSegment = "DELIVERY" | "INTRADAY" | "FUTURES" | "OPTIONS";
+export type BrokerageSegment = "DELIVERY" | "INTRADAY" | "FUTURES" | "OPTIONS" | "COMMODITY_OPTIONS";
 
 type SegmentRates = {
   label: string;
@@ -64,7 +70,21 @@ export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
     transactionChargePercent: 0.0495,
     stampDutyBuyPercent: 0.003,
   },
+  COMMODITY_OPTIONS: {
+    label: "Commodity options",
+    brokeragePerOrder: 20,
+    brokeragePercent: null,
+    sttBuyPercent: 0,
+    sttSellPercent: 0.05,
+    transactionChargePercent: 0.0418,
+    stampDutyBuyPercent: 0.003,
+  },
 };
+
+/** The charge segment an option on `instrument` is billed under - the indices' options, or MCX commodity options. */
+export function optionsSegmentFor(instrument: Instrument): BrokerageSegment {
+  return isCommodityInstrument(instrument) ? "COMMODITY_OPTIONS" : "OPTIONS";
+}
 
 const SEBI_CHARGE_PERCENT = 0.0001; // ₹10 per crore of turnover, same across segments
 const GST_PERCENT = 18; // on (brokerage + transaction charges + SEBI fees)

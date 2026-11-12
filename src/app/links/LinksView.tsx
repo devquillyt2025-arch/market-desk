@@ -1,18 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 
-import {
-  CheckIcon,
-  ExternalLinkIcon,
-  GripVerticalIcon,
-  InboxIcon,
-  PencilIcon,
-  PlusIcon,
-  XIcon,
-} from "@/components/icons";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { GripVerticalIcon, LinkIcon, PencilIcon, PlusIcon, ReceiptIcon, SearchIcon, TrendingUpIcon } from "@/components/icons";
 import LoadingState from "@/components/LoadingState";
 import { logEvent } from "@/lib/activityLog";
 import {
@@ -29,34 +21,41 @@ import {
 } from "@/lib/linksStore";
 import { showToast } from "@/lib/toast";
 
-const inputClass =
-  "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30";
+import { LinkCard, toneStyle } from "./LinkCard";
+import { LinkModal } from "./LinkModal";
+import { isFormDirty, matchesQuery, normalizeUrl, orderGroupNames, toneForGroup, type LinkFormValues } from "./linkMeta";
+import { LinksHero } from "./LinksHero";
+import { LinksToolbar } from "./LinksToolbar";
 
-const labelClass = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
+const EMPTY_FORM: LinkFormValues = { label: "", url: "", description: "", group: "" };
 
-function normalizeUrl(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-  try {
-    return new URL(withScheme).toString();
-  } catch {
-    return null;
-  }
+/** How long the first paint's staggered entrance is allowed to run before cards stop waiting their turn. */
+const SETTLE_MS = 900;
+
+function GroupIcon({ name, className }: { name: string; className?: string }) {
+  if (name === "Market Data") return <TrendingUpIcon className={className} />;
+  if (name === "Exchange & Regulatory") return <ReceiptIcon className={className} />;
+  return <LinkIcon className={className} />;
 }
 
 export default function LinksView() {
   const [links, setLinks] = useState<LinkItem[] | null>(getCachedLinks);
-  const [showForm, setShowForm] = useState(false);
+  /** The add / edit popup. */
+  const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  /** null = the form (if open) is adding a new link; otherwise the link being edited. */
+  /** null = the popup (if open) is adding a new link; otherwise the link being edited. */
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [label, setLabel] = useState("");
-  const [url, setUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const [group, setGroup] = useState("");
+  const [form, setForm] = useState<LinkFormValues>(EMPTY_FORM);
+  /** What the popup opened with - to tell whether closing it would lose anything typed. */
+  const [formBaseline, setFormBaseline] = useState<LinkFormValues>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [query, setQuery] = useState("");
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  /** Flips true shortly after the first paint, so later arrivals (a filter change, a new link) don't wait for a stagger delay. */
+  const [settled, setSettled] = useState(false);
 
   const [pendingDelete, setPendingDelete] = useState<LinkItem | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -77,48 +76,86 @@ export default function LinksView() {
     return subscribeToLinkChanges(load);
   }, []);
 
-  const groupNames = links ? Array.from(new Set(links.map((link) => link.group))) : [];
-  // Custom groups first, built-in/necessary groups (Market Data, Exchange & Regulatory) last.
-  const orderedGroupNames = [
-    ...groupNames.filter((g) => !NECESSARY_LINK_GROUPS.includes(g)),
-    ...groupNames.filter((g) => NECESSARY_LINK_GROUPS.includes(g)),
-  ];
+  const loaded = links !== null;
+  useEffect(() => {
+    if (!loaded || settled) return;
+    const id = setTimeout(() => setSettled(true), SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [loaded, settled]);
+
+  // "/" jumps to the search box, the way it does on GitHub and most docs sites - unless you're already typing somewhere.
+  useEffect(() => {
+    function handleKey(e: globalThis.KeyboardEvent) {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
+
+  const groupNames = useMemo(() => (links ? Array.from(new Set(links.map((link) => link.group))) : []), [links]);
+  const orderedGroupNames = useMemo(() => orderGroupNames(groupNames, NECESSARY_LINK_GROUPS), [groupNames]);
+
+  // A filter on a group that has since been renamed or emptied quietly stops applying.
+  const effectiveGroup = activeGroup !== null && groupNames.includes(activeGroup) ? activeGroup : null;
+  const visibleLinks = useMemo(
+    () => (links ?? []).filter((link) => (effectiveGroup === null || link.group === effectiveGroup) && matchesQuery(link, query)),
+    [links, effectiveGroup, query],
+  );
+  const visibleGroupNames = orderedGroupNames.filter((name) => visibleLinks.some((link) => link.group === name));
+  const filtering = query.trim() !== "" || effectiveGroup !== null;
+
+  const chips = orderedGroupNames.map((name) => ({
+    name,
+    tone: toneForGroup(name),
+    count: (links ?? []).filter((link) => link.group === name).length,
+  }));
 
   function resetForm() {
-    setLabel("");
-    setUrl("");
-    setDescription("");
-    setGroup("");
+    setForm(EMPTY_FORM);
+    setFormBaseline(EMPTY_FORM);
     setFormError(null);
     setEditingId(null);
-    setShowForm(false);
+    setModalOpen(false);
+  }
+
+  function handleOpenAdd() {
+    setForm(EMPTY_FORM);
+    setFormBaseline(EMPTY_FORM);
+    setFormError(null);
+    setEditingId(null);
+    setModalOpen(true);
   }
 
   function handleStartEdit(link: LinkItem) {
+    const values = { label: link.label, url: link.url, description: link.description ?? "", group: link.group };
     setEditingId(link.id);
-    setLabel(link.label);
-    setUrl(link.url);
-    setDescription(link.description ?? "");
-    setGroup(link.group);
+    setForm(values);
+    setFormBaseline(values);
     setFormError(null);
-    setShowForm(true);
+    setModalOpen(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const trimmedLabel = label.trim();
-    const normalizedUrl = normalizeUrl(url);
+    const trimmedLabel = form.label.trim();
+    const normalizedUrl = normalizeUrl(form.url);
 
     if (!trimmedLabel || !normalizedUrl) {
       setFormError(!trimmedLabel ? "Enter a name for the link." : "Enter a valid URL.");
+      // Put the cursor where the problem is, so it can be fixed without hunting for it.
+      document.getElementById(!trimmedLabel ? "link-label" : "link-url")?.focus();
       return;
     }
 
     const input = {
       label: trimmedLabel,
       url: normalizedUrl,
-      description: description.trim() || undefined,
-      group: group.trim() || "My Links",
+      description: form.description.trim() || undefined,
+      group: form.group.trim() || "My Links",
     };
 
     setSaving(true);
@@ -138,10 +175,6 @@ export default function LinksView() {
     }
   }
 
-  function requestDelete(link: LinkItem) {
-    setPendingDelete(link);
-  }
-
   function confirmDelete() {
     if (!pendingDelete) return;
     const link = pendingDelete;
@@ -156,6 +189,20 @@ export default function LinksView() {
     });
   }
 
+  async function handleCopy(link: LinkItem) {
+    try {
+      await navigator.clipboard.writeText(link.url);
+      showToast(`Copied ${link.label}`, "success");
+    } catch {
+      showToast("Couldn't copy the link.");
+    }
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setActiveGroup(null);
+  }
+
   function handleDragStart(e: DragEvent<HTMLDivElement>, link: LinkItem) {
     setDraggedId(link.id);
     e.dataTransfer.effectAllowed = "move";
@@ -167,14 +214,14 @@ export default function LinksView() {
     setDragOverGroup(null);
   }
 
-  function handleDragOverGroup(e: DragEvent<HTMLDivElement>, groupName: string) {
+  function handleDragOverGroup(e: DragEvent<HTMLElement>, groupName: string) {
     if (!draggedId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (dragOverGroup !== groupName) setDragOverGroup(groupName);
   }
 
-  function handleDropOnGroup(e: DragEvent<HTMLDivElement>, groupName: string) {
+  function handleDropOnGroup(e: DragEvent<HTMLElement>, groupName: string) {
     e.preventDefault();
     const id = draggedId ?? e.dataTransfer.getData("text/plain");
     setDraggedId(null);
@@ -221,269 +268,216 @@ export default function LinksView() {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col gap-6"
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-7"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Important Links</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Quick access to market data and reference sites, synced across devices — add your own below.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setEditMode((prev) => !prev)}
-            className={
-              editMode
-                ? "flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 active:scale-95"
-                : "flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-            }
-          >
-            {editMode ? <CheckIcon className="size-4" /> : <PencilIcon className="size-4" />}
-            {editMode ? "Done" : "Edit"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (showForm) {
-                resetForm();
-              } else {
-                setEditingId(null);
-                setShowForm(true);
-              }
-            }}
-            className="flex items-center gap-1.5 rounded-lg bg-accent-solid px-3 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 active:scale-95"
-          >
-            <PlusIcon className="size-4" />
-            Add Link
-          </button>
-        </div>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {showForm && (
-          <motion.form
-            key="link-form"
-            onSubmit={handleSubmit}
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-background p-5 sm:p-6"
-          >
-            <h2 className="text-sm font-medium">{editingId ? "Edit Link" : "New Link"}</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="link-label" className={labelClass}>
-                  Name
-                </label>
-                <input
-                  id="link-label"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder="e.g. Sensibull"
-                  className={inputClass}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="link-url" className={labelClass}>
-                  URL
-                </label>
-                <input
-                  id="link-url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="example.com"
-                  className={inputClass}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5 sm:col-span-2">
-                <label htmlFor="link-description" className={labelClass}>
-                  Description (optional)
-                </label>
-                <input
-                  id="link-description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What this link is for"
-                  className={inputClass}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="link-group" className={labelClass}>
-                  Group (optional)
-                </label>
-                <input
-                  id="link-group"
-                  value={group}
-                  onChange={(e) => setGroup(e.target.value)}
-                  placeholder="My Links"
-                  className={inputClass}
-                />
-                {/* Existing groups as chips rather than a native <datalist>, whose popup is browser chrome that ignores the theme. */}
-                {groupNames.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {groupNames.map((name) => {
-                      const picked = group.trim() === name;
-                      return (
-                        <button
-                          key={name}
-                          type="button"
-                          onClick={() => setGroup(name)}
-                          aria-pressed={picked}
-                          className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                            picked
-                              ? "border-accent/40 bg-accent/10 text-accent"
-                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                          }`}
-                        >
-                          {name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {formError && <p className="text-sm text-danger-fg">{formError}</p>}
-
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
-              >
-                {saving ? "Saving…" : editingId ? "Save Changes" : "Save Link"}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-              >
-                Cancel
-              </button>
-            </div>
-          </motion.form>
-        )}
-      </AnimatePresence>
+      <LinksHero
+        linkCount={links ? links.length : null}
+        groupCount={links ? groupNames.length : null}
+        editMode={editMode}
+        onToggleEdit={() => setEditMode((prev) => !prev)}
+        onAdd={handleOpenAdd}
+      />
 
       {links === null ? (
-        <LoadingState className="h-48" label="Loading links…" />
+        <LoadingState className="h-56" label="Loading links…" />
       ) : links.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
-          <InboxIcon className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No links yet. Add one above to get started.</p>
+        <div className="relative isolate flex flex-col items-center gap-5 overflow-hidden rounded-3xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 bg-[image:radial-gradient(50%_70%_at_50%_0%,color-mix(in_srgb,var(--accent-solid)_16%,transparent),transparent_70%)]"
+          />
+          {/* Three tiles fanned out, the middle one lifted - the same monogram language as the cards. */}
+          <div aria-hidden="true" className="flex items-end">
+            <span className="-mr-2 flex size-12 -rotate-6 items-center justify-center rounded-2xl border border-border bg-card text-(--info) shadow-lg">
+              <ReceiptIcon className="size-5" />
+            </span>
+            <span className="relative z-10 flex size-16 items-center justify-center rounded-2xl bg-[image:linear-gradient(145deg,color-mix(in_srgb,var(--accent)_32%,var(--card)),color-mix(in_srgb,var(--accent)_10%,var(--card)))] text-accent shadow-xl ring-1 ring-inset ring-accent/35">
+              <LinkIcon className="size-7" />
+            </span>
+            <span className="-ml-2 flex size-12 rotate-6 items-center justify-center rounded-2xl border border-border bg-card text-(--success) shadow-lg">
+              <TrendingUpIcon className="size-5" />
+            </span>
+          </div>
+          <div className="max-w-sm">
+            <p className="text-lg font-semibold tracking-tight">Your link library is empty</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Save the sites you check every day - option chains, brokers, news - and they&apos;ll be one click away on every device.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-5 py-2.5 text-sm font-semibold text-accent-foreground shadow-[0_10px_28px_-10px_color-mix(in_srgb,var(--accent-solid)_85%,transparent),inset_0_1px_0_rgba(255,255,255,0.22)] transition-[filter,transform] hover:brightness-110 active:scale-95 sm:min-h-10"
+          >
+            <PlusIcon className="size-4" />
+            Add your first link
+          </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
-          {orderedGroupNames.map((groupName) => (
-            <div
-              key={groupName}
-              onDragOver={(e) => handleDragOverGroup(e, groupName)}
-              onDragLeave={() => setDragOverGroup((prev) => (prev === groupName ? null : prev))}
-              onDrop={(e) => handleDropOnGroup(e, groupName)}
-              className={`flex flex-col gap-3 rounded-xl border border-dashed p-2 transition-colors ${
-                dragOverGroup === groupName ? "border-accent bg-accent/5" : "border-transparent"
-              }`}
+        <>
+          <LinksToolbar
+            query={query}
+            onQuery={setQuery}
+            searchRef={searchRef}
+            chips={chips}
+            total={links.length}
+            active={effectiveGroup}
+            onActive={setActiveGroup}
+            shown={visibleLinks.length}
+          />
+
+          {editMode && (
+            <p
+              role="status"
+              className="flex items-start gap-3 rounded-2xl border border-dashed border-accent/40 bg-accent/5 px-4 py-3 text-sm text-muted-foreground"
             >
-              {renamingGroup === groupName ? (
-                <input
-                  ref={groupRenameInputRef}
-                  value={groupRenameValue}
-                  onChange={(e) => setGroupRenameValue(e.target.value)}
-                  onBlur={commitGroupRename}
-                  onKeyDown={handleGroupRenameKeyDown}
-                  autoFocus
-                  className="w-fit max-w-xs rounded-md border border-accent bg-card px-2 py-0.5 text-sm font-medium outline-none"
-                />
-              ) : (
-                <h2 className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  {groupName}
-                  {editMode && (
-                    <button
-                      type="button"
-                      onClick={() => handleStartRenameGroup(groupName)}
-                      aria-label={`Rename ${groupName}`}
-                      className="flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                    >
-                      <PencilIcon className="size-3" />
-                    </button>
-                  )}
-                </h2>
-              )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <AnimatePresence initial={false} mode="popLayout">
-                  {links
-                    .filter((link) => link.group === groupName)
-                    .map((link) => (
-                      <motion.div
-                        key={link.id}
-                        layout
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                        whileHover={{ y: -2 }}
-                        draggable={editMode}
-                        // Capture-phase native handlers — framer-motion's own `onDragStart`/`onDragEnd`
-                        // props are reserved for its pointer-based drag gesture (only active when the
-                        // `drag` prop is set), so they'd silently swallow these native HTML5 DnD events.
-                        onDragStartCapture={(e) => handleDragStart(e, link)}
-                        onDragEndCapture={handleDragEnd}
-                        className={`relative rounded-xl border border-border bg-background p-4 transition-colors hover:border-accent/50 ${
-                          editMode ? "cursor-grab active:cursor-grabbing" : ""
-                        } ${draggedId === link.id ? "opacity-40" : ""}`}
-                      >
-                        {editMode && (
-                          <div className="absolute right-2 top-2 flex items-center gap-1">
-                            <GripVerticalIcon className="size-3.5 text-muted-foreground/40" />
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(link)}
-                              aria-label={`Edit ${link.label}`}
-                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
-                            >
-                              <PencilIcon className="size-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => requestDelete(link)}
-                              aria-label={`Delete ${link.label}`}
-                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-loss/10 hover:text-danger-fg active:scale-90"
-                            >
-                              <XIcon className="size-3.5" />
-                            </button>
-                          </div>
-                        )}
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => {
-                            if (editMode) e.preventDefault();
-                            else logEvent(`Opened link: ${link.label}`);
-                          }}
-                          className={`flex flex-col gap-1 ${editMode ? "pr-16" : "after:absolute after:inset-0 after:rounded-xl"}`}
-                        >
-                          <span className="flex items-center gap-1.5 font-medium">
-                            {link.label}
-                            <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                          </span>
-                          {link.description && (
-                            <span className="text-sm text-muted-foreground">{link.description}</span>
-                          )}
-                        </a>
-                      </motion.div>
-                    ))}
-                </AnimatePresence>
-              </div>
+              <GripVerticalIcon className="mt-0.5 size-4 shrink-0 text-accent" />
+              <span>
+                <span className="font-medium text-foreground">Edit mode.</span> Drag a card onto another group to move it, or use the pencil to change a link or
+                rename a group.
+              </span>
+            </p>
+          )}
+
+          {visibleLinks.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-border bg-card/50 px-6 py-14 text-center">
+              <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                <SearchIcon className="size-5" />
+              </span>
+              <p className="font-medium">{query.trim() ? `Nothing matches “${query.trim()}”` : "No links in this group"}</p>
+              <p className="text-sm text-muted-foreground">Try a different word, or show everything again.</p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-1 min-h-10 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted active:scale-95"
+              >
+                Clear filters
+              </button>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="flex flex-col gap-10">
+              {visibleGroupNames.map((groupName, groupIndex) => {
+                const tone = toneForGroup(groupName);
+                const items = visibleLinks.filter((link) => link.group === groupName);
+                const total = links.filter((link) => link.group === groupName).length;
+                const builtIn = NECESSARY_LINK_GROUPS.includes(groupName);
+                const headingId = `links-group-${groupIndex}`;
+
+                return (
+                  <section
+                    key={groupName}
+                    aria-labelledby={headingId}
+                    style={toneStyle(tone)}
+                    onDragOver={(e) => handleDragOverGroup(e, groupName)}
+                    onDragLeave={() => setDragOverGroup((prev) => (prev === groupName ? null : prev))}
+                    onDrop={(e) => handleDropOnGroup(e, groupName)}
+                    className={`-m-3 flex flex-col gap-4 rounded-3xl border border-dashed p-3 transition-colors ${
+                      dragOverGroup === groupName ? "border-accent bg-accent/5" : draggedId ? "border-border" : "border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--tone)_14%,var(--card))] text-(--tone) ring-1 ring-inset ring-[color-mix(in_srgb,var(--tone)_28%,transparent)]"
+                      >
+                        <GroupIcon name={groupName} className="size-[18px]" />
+                      </span>
+
+                      {renamingGroup === groupName ? (
+                        <input
+                          ref={groupRenameInputRef}
+                          value={groupRenameValue}
+                          onChange={(e) => setGroupRenameValue(e.target.value)}
+                          onBlur={commitGroupRename}
+                          onKeyDown={handleGroupRenameKeyDown}
+                          aria-label={`Rename ${groupName}`}
+                          autoFocus
+                          className="w-full max-w-xs rounded-lg border border-accent bg-card px-3 py-1.5 text-base font-semibold outline-none ring-4 ring-accent/15"
+                        />
+                      ) : (
+                        <h2 id={headingId} className="text-base font-semibold tracking-tight">
+                          {groupName}
+                        </h2>
+                      )}
+
+                      {builtIn && renamingGroup !== groupName && (
+                        <span className="rounded-full border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">Built-in</span>
+                      )}
+                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                        {items.length === total ? total : `${items.length} of ${total}`}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="h-px flex-1 bg-gradient-to-r from-[color-mix(in_srgb,var(--tone)_38%,var(--border))] to-transparent"
+                      />
+
+                      {editMode && renamingGroup !== groupName && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartRenameGroup(groupName)}
+                          aria-label={`Rename ${groupName}`}
+                          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent active:scale-90"
+                        >
+                          <PencilIcon className="size-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+                      <AnimatePresence initial={false} mode="popLayout">
+                        {items.map((link, index) => (
+                          <LinkCard
+                            key={link.id}
+                            link={link}
+                            tone={tone}
+                            delay={settled ? 0 : Math.min(groupIndex * 3 + index, 12) * 0.04}
+                            editMode={editMode}
+                            dragging={draggedId === link.id}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onOpen={(l) => logEvent(`Opened link: ${l.label}`)}
+                            onCopy={handleCopy}
+                            onEdit={handleStartEdit}
+                            onDelete={setPendingDelete}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+
+          {filtering && visibleLinks.length > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="self-center rounded-xl px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Clear filters
+            </button>
+          )}
+        </>
       )}
+
+      <AnimatePresence>
+        {modalOpen && (
+          <LinkModal
+            key="link-modal"
+            editing={editingId !== null}
+            values={form}
+            onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+            groupNames={groupNames}
+            error={formError}
+            saving={saving}
+            dirty={isFormDirty(form, formBaseline)}
+            onSubmit={handleSubmit}
+            onClose={resetForm}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {pendingDelete && (

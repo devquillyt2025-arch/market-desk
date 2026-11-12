@@ -13,7 +13,8 @@
 
 import { addDays } from "@/lib/calculateStrategy";
 
-export type DailyClose = { date: string; close: number };
+/** One completed session: its close, and its open when Upstox gave one (the RRR planner's intraday volatility runs from open to close). */
+export type DailyClose = { date: string; close: number; open: number | null };
 export type DailyClosesResult = { closes: DailyClose[] } | { error: string };
 
 /** The longest range is 5 years; the extra days make sure a candle exists on or before that date even if it landed on a holiday. */
@@ -48,8 +49,9 @@ async function fetchDailyCloses(token: string, instrumentKey: string, todayIso: 
   for (const candle of candles) {
     const date = typeof candle?.[0] === "string" ? candle[0].slice(0, 10) : "";
     const close = Number(candle?.[4]);
+    const open = Number(candle?.[1]);
     // Today's candle (if Upstox has one yet) is partial — live prices cover today.
-    if (date && date < todayIso && close > 0) closes.push({ date, close });
+    if (date && date < todayIso && close > 0) closes.push({ date, close, open: open > 0 ? open : null });
   }
   closes.sort((a, b) => (a.date < b.date ? -1 : 1));
   return { closes };

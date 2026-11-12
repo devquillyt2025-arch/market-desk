@@ -11,6 +11,7 @@
  */
 
 import type { Instrument, TradeEntryOptionType, TradeEntrySide } from "@/lib/types";
+import type { WatchQuote, WatchSearchResult } from "@/lib/watchlist";
 
 export type UpstoxOptionGreeks = {
   delta?: number;
@@ -129,6 +130,43 @@ export function isUpstoxHeatmapError(result: UpstoxHeatmapResult): result is Ups
   return "error" in result;
 }
 
+/**
+ * What this app's own /api/upstox/volatility route returns: how much one index has been moving, measured
+ * from its daily closes over a few look-backs. Not Upstox's own shape - it is computed here from their history.
+ */
+export type UpstoxVolatilitySuccess = {
+  instrument: Instrument;
+  /** The date (yyyy-mm-dd) of the latest close used. */
+  asOf: string;
+  /** That close, i.e. the index level the figures are measured up to. */
+  lastClose: number;
+  /**
+   * One entry per look-back that has enough history: `daily` (close to close) and `annual` are fractions
+   * (0.008 = 0.8%); `intraday` is the same for the move from a session's open to its close, null when the
+   * history has too few opens to measure it.
+   */
+  windows: { days: number; daily: number; annual: number; intraday: number | null }[];
+};
+export type UpstoxVolatilityError = { error: string };
+export type UpstoxVolatilityResult = UpstoxVolatilitySuccess | UpstoxVolatilityError;
+
+export function isUpstoxVolatilityError(result: UpstoxVolatilityResult): result is UpstoxVolatilityError {
+  return "error" in result;
+}
+
+/** What /api/upstox/watchlist returns: a quote per instrument on the list, keyed by its `itemKey`; `missing` are the ones Upstox has no price for. */
+export type UpstoxWatchlistSuccess = { quotes: Record<string, WatchQuote>; missing: string[] };
+export type UpstoxWatchlistError = { error: string };
+export type UpstoxWatchlistResult = UpstoxWatchlistSuccess | UpstoxWatchlistError;
+
+export function isUpstoxWatchlistError(result: UpstoxWatchlistResult): result is UpstoxWatchlistError {
+  return "error" in result;
+}
+
+/** What /api/upstox/instrument-search returns, grouped the way the Add popup shows it. */
+export type InstrumentSearchSuccess = { results: { indices: WatchSearchResult[]; commodities: WatchSearchResult[]; stocks: WatchSearchResult[] } };
+export type InstrumentSearchResult = InstrumentSearchSuccess | { error: string };
+
 export type UpstoxMarginError = { error: string; detail?: string };
 export type UpstoxMarginResult = UpstoxMarginSuccess | UpstoxMarginError;
 
@@ -137,7 +175,7 @@ export function isUpstoxMarginError(result: UpstoxMarginResult): result is Upsto
 }
 
 /**
- * One open (or squared-off-today) index option position, as this app's own
+ * One open (or squared-off-today) index or commodity option position, as this app's own
  * /api/upstox/positions route returns it — reduced from Upstox's
  * `GET /v2/portfolio/short-term-positions` and already matched to its
  * contract, so unlike Upstox's own shape it carries strike/CE-PE/expiry
@@ -151,6 +189,7 @@ export type UpstoxPosition = {
   optionType: TradeEntryOptionType;
   /** yyyy-mm-dd. */
   expiry: string;
+  /** Units in a lot. Quantities below are in units too - MCX positions are reduced to that (Upstox counts them in lots). */
   lotSize: number;
   /** Signed: positive long, negative short, 0 once squared off today. */
   quantity: number;
@@ -176,7 +215,7 @@ export type UpstoxPosition = {
 
 export type UpstoxPositionsSuccess = {
   positions: UpstoxPosition[];
-  /** Positions in anything other than Nifty / Bank Nifty / Sensex options (stocks, futures, other indices) — left out. */
+  /** Positions in anything other than Nifty / Bank Nifty / Sensex or MCX crude oil / gold options (stocks, futures, other indices and commodities) — left out. */
   otherCount: number;
 };
 export type UpstoxPositionsError = { error: string; detail?: string };

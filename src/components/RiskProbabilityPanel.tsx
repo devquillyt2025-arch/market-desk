@@ -300,13 +300,13 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false, s
           label="Market +1%"
           value={formatINR(pnlIfRise)}
           valueClass={pnlColorClass(pnlIfRise)}
-          hint="P&L change if the index rises 1%"
+          hint="P&L change if the market rises 1%"
         />
         <Tile
           label="Market −1%"
           value={formatINR(pnlIfFall)}
           valueClass={pnlColorClass(pnlIfFall)}
-          hint="P&L change if the index falls 1%"
+          hint="P&L change if the market falls 1%"
         />
       </dl>
 
@@ -374,7 +374,7 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false, s
       </section>
 
       <p className="text-xs text-muted-foreground">
-        Probabilities use each option&apos;s live implied volatility, zero drift, and assume all indices move together.
+        Probabilities use each option&apos;s live implied volatility, zero drift, and assume all underlyings move together.
         Figures are at expiry and exclude brokerage — a guide to what to watch, not a forecast.
       </p>
     </div>

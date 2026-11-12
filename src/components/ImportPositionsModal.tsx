@@ -15,7 +15,7 @@ import LoadingState from "@/components/LoadingState";
 import { getCachedLivePortfolioEntries, getLivePortfolioEntries } from "@/lib/livePortfolioEntriesStore";
 import { getCachedPaperTradeEntries, getPaperTradeEntries } from "@/lib/paperTradeEntriesStore";
 import { isImportableEntry, type PriceMode } from "@/lib/strategyTransfer";
-import { INSTRUMENTS, INSTRUMENT_LABELS, type Instrument, type TradeEntry } from "@/lib/types";
+import { INDEX_INSTRUMENTS, INSTRUMENT_LABELS, isIndexInstrument, type Instrument, type TradeEntry } from "@/lib/types";
 import { useDialogFocus } from "@/lib/useDialogFocus";
 
 export type ImportSource = "live" | "paper";
@@ -103,7 +103,8 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
   const open = useMemo(
     () =>
       (entries ?? [])
-        .filter(isImportableEntry)
+        // Analysis builds index strategies only, so a commodity position has nowhere to go.
+        .filter((e) => isImportableEntry(e) && isIndexInstrument(e.instrument))
         .sort((a, b) => (a.expiry_date! === b.expiry_date! ? a.strike_price! - b.strike_price! : a.expiry_date! < b.expiry_date! ? -1 : 1)),
     [entries],
   );
@@ -114,7 +115,7 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
   }, [open]);
 
   const instrument: Instrument =
-    pickedInstrument ?? (counts[currentInstrument] ? currentInstrument : (INSTRUMENTS.find((i) => counts[i]) ?? currentInstrument));
+    pickedInstrument ?? (counts[currentInstrument] ? currentInstrument : (INDEX_INSTRUMENTS.find((i) => counts[i]) ?? currentInstrument));
   const rows = open.filter((e) => e.instrument === instrument);
   const isExpired = (e: TradeEntry) => e.expiry_date! < today;
   const chosen = rows.filter((e) => !deselected.has(e.id) && !isExpired(e));
@@ -175,13 +176,13 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
             </p>
           ) : open.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No open option positions in {SOURCE_LABELS[source]}. Positions need a strike, CE/PE, expiry and the
+              No open Nifty, Bank Nifty or Sensex option positions in {SOURCE_LABELS[source]}. Positions need a strike, CE/PE, expiry and the
               &quot;Hold&quot; status.
             </p>
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                {INSTRUMENTS.filter((i) => counts[i]).map((i) => (
+                {INDEX_INSTRUMENTS.filter((i) => counts[i]).map((i) => (
                   <button
                     key={i}
                     type="button"

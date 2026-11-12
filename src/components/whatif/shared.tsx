@@ -31,6 +31,17 @@ export const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-foreground",
 };
 
+/** A headline figure with a one-line hint under it - the "where you stand" strips on the lab and the Reward : Risk tab. */
+export function Tile({ label, value, hint, tone = "neutral" }: { label: string; value: string; hint: string; tone?: Tone }) {
+  return (
+    <div className="flex min-w-0 flex-col rounded-xl border border-border bg-background p-3.5">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className={`mt-1 whitespace-nowrap font-mono text-xl font-semibold tabular-nums ${TONE_TEXT[tone]}`}>{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
 const TAG_TONE: Record<TagTone, string> = {
   good: "bg-profit/10 text-profit",
   bad: "bg-loss/15 text-danger-fg",

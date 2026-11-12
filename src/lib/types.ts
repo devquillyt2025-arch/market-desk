@@ -1,20 +1,98 @@
-export const INSTRUMENTS = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
+/** The NSE / BSE index option underlyings. */
+export const INDEX_INSTRUMENTS = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
+export type IndexInstrument = (typeof INDEX_INSTRUMENTS)[number];
+
+/**
+ * MCX commodity option underlyings, named by Upstox's `underlying_symbol`. The
+ * mini contracts are separate instruments because they have a different lot —
+ * and a crude or gold position could be in either.
+ */
+export const COMMODITY_INSTRUMENTS = ["CRUDEOIL", "CRUDEOILM", "GOLD", "GOLDM"] as const;
+export type CommodityInstrument = (typeof COMMODITY_INSTRUMENTS)[number];
+
+export const INSTRUMENTS = [...INDEX_INSTRUMENTS, ...COMMODITY_INSTRUMENTS] as const;
 export type Instrument = (typeof INSTRUMENTS)[number];
+
+export function isCommodityInstrument(instrument: Instrument): instrument is CommodityInstrument {
+  return (COMMODITY_INSTRUMENTS as readonly string[]).includes(instrument);
+}
+
+export function isIndexInstrument(instrument: Instrument): instrument is IndexInstrument {
+  return (INDEX_INSTRUMENTS as readonly string[]).includes(instrument);
+}
 
 export const INSTRUMENT_LABELS: Record<Instrument, string> = {
   NIFTY: "Nifty",
   BANKNIFTY: "Bank Nifty",
   SENSEX: "Sensex",
+  CRUDEOIL: "Crude Oil",
+  CRUDEOILM: "Crude Oil Mini",
+  GOLD: "Gold",
+  GOLDM: "Gold Mini",
 };
 
 /**
- * Starting point only — NSE/BSE revise lot sizes periodically, so every trade
- * stores its own `lot_size` rather than trusting this at read time.
+ * Units per lot — what a ₹1 move in the quoted option price is worth, per lot.
+ * Every P&L, charge and risk figure is `price × lots × this`. Starting point
+ * only — the exchanges revise lot sizes periodically.
+ *
+ * Gold's premium is quoted per 10 g, so a 1 kg lot (Gold Mini: 100 g) is 100
+ * (10) units of it. These match the `multiplier` Upstox puts on MCX positions.
  */
 export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   NIFTY: 65,
   BANKNIFTY: 30,
   SENSEX: 20,
+  CRUDEOIL: 100, // barrels, quoted per barrel
+  CRUDEOILM: 10,
+  GOLD: 100, // 1 kg lot, quoted per 10 g
+  GOLDM: 10, // 100 g lot, quoted per 10 g
+};
+
+/**
+ * When the session ends in IST — where an option's last day runs out. The
+ * indices stop at 15:30; MCX crude and gold trade into the night and their
+ * options expire at 23:30 (23:55 for a few weeks while US clocks are on summer
+ * time, a gap too small to matter for pricing).
+ */
+export function sessionCloseIst(instrument?: Instrument): "15:30" | "23:30" {
+  return instrument !== undefined && isCommodityInstrument(instrument) ? "23:30" : "15:30";
+}
+
+/** What a position is written on, for telling apart books that can't be treated as one market. Mini and full contracts share a family. */
+export type UnderlyingFamily = "index" | "crude" | "gold";
+
+export function underlyingFamily(instrument: Instrument): UnderlyingFamily {
+  if (instrument === "CRUDEOIL" || instrument === "CRUDEOILM") return "crude";
+  if (instrument === "GOLD" || instrument === "GOLDM") return "gold";
+  return "index";
+}
+
+/** Strike spacing of the listed options — what "ATM" rounds to and what a ladder of strikes steps by. */
+export const STRIKE_STEPS: Record<Instrument, number> = {
+  NIFTY: 50,
+  BANKNIFTY: 100,
+  SENSEX: 100,
+  CRUDEOIL: 50,
+  CRUDEOILM: 50,
+  GOLD: 500,
+  GOLDM: 500,
+};
+
+/**
+ * What one lot counts as in an Upstox margin request. The indices are counted
+ * in units (65 for a Nifty lot); MCX is counted in lots, so 2 lots of crude is
+ * `quantity: 2` — sending 200 asks for margin on 200 lots. Checked against the
+ * margin endpoint with a live crude option.
+ */
+export const ORDER_QUANTITY_PER_LOT: Record<Instrument, number> = {
+  NIFTY: DEFAULT_LOT_SIZES.NIFTY,
+  BANKNIFTY: DEFAULT_LOT_SIZES.BANKNIFTY,
+  SENSEX: DEFAULT_LOT_SIZES.SENSEX,
+  CRUDEOIL: 1,
+  CRUDEOILM: 1,
+  GOLD: 1,
+  GOLDM: 1,
 };
 
 export const NOTE_COLORS = [
@@ -114,6 +192,18 @@ export type LinkRow = {
   url: string;
   description: string | null;
   group_name: string;
+  created_at: string;
+};
+
+/** `watchlist_items` row shape — one instrument on the Watchlist page; the app-facing shape is WatchlistItem in watchlist.ts. */
+export type WatchlistItemRow = {
+  id: string;
+  user_id: string | null;
+  kind: "index" | "equity" | "commodity";
+  item_key: string;
+  symbol: string;
+  name: string;
+  sort_order: number;
   created_at: string;
 };
 
@@ -263,6 +353,12 @@ export type Database = {
         Row: LinkRow;
         Insert: Insert<LinkRow, "id" | "user_id" | "created_at">;
         Update: Partial<LinkRow>;
+        Relationships: [];
+      };
+      watchlist_items: {
+        Row: WatchlistItemRow;
+        Insert: Insert<WatchlistItemRow, "id" | "user_id" | "sort_order" | "created_at">;
+        Update: Partial<WatchlistItemRow>;
         Relationships: [];
       };
       activity_log: {

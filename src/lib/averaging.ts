@@ -37,7 +37,7 @@ import {
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import type { SavedAnalysis } from "@/lib/savedAnalysis";
 import type { DraftLeg } from "@/lib/strategyTransfer";
-import { DEFAULT_LOT_SIZES, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, STRIKE_STEPS, isCommodityInstrument, type Instrument } from "@/lib/types";
 
 // --- Tunables -----------------------------------------------------------------
 
@@ -57,7 +57,7 @@ export const MODEL_GAP_WARN = 0.05;
 export const UNSET_FUNDS_TABLE_LOTS = 10;
 
 /** Index points between ladder rows — Nifty ±300 in 50s; the wider indices scale with their strike spacing. */
-export const LADDER_STEP: Record<Instrument, number> = { NIFTY: 50, BANKNIFTY: 100, SENSEX: 100 };
+export const LADDER_STEP: Record<Instrument, number> = STRIKE_STEPS;
 const LADDER_HALF_STEPS = 6;
 
 const BRACKET_LOW = 0.2;
@@ -290,8 +290,9 @@ export function pnlAt(
   nowMs: number,
   atSpot: number,
   atMs: number,
+  instrument?: Instrument,
 ): number {
-  return strategyPnl(priceLegs(legs, spot, nowMs, lotSize), atSpot, atMs);
+  return strategyPnl(priceLegs(legs, spot, nowMs, lotSize, instrument), atSpot, atMs);
 }
 
 /** Option value per unit at a spot and moment, read off the first priced leg (all legs are one contract). */
@@ -327,8 +328,8 @@ function dateText(iso: string): string {
  * Tomorrow is left out when the contract expires today, and folded into Expiry when it expires
  * tomorrow — there it is the same moment.
  */
-export function buildScenarios(expiry: string, nowMs: number): Scenario[] {
-  const expiryMs = expiryCloseMs(expiry);
+export function buildScenarios(expiry: string, nowMs: number, instrument?: Instrument): Scenario[] {
+  const expiryMs = expiryCloseMs(expiry, instrument);
   const today = istDateString(nowMs);
   const totalDays = Math.max(daysBetween(today, istDateString(expiryMs)), 0);
   const out: Scenario[] = [{ key: "today", label: "Today", dateLabel: dateText(today), daysOut: 0, atMs: nowMs }];
@@ -402,7 +403,7 @@ function perUnitGreeks(position: AveragingPosition, market: AveragingMarket, ivM
     return { delta: broker.delta, gamma: broker.gamma, theta: broker.theta, source: "broker" };
   }
   const { before } = buildLegs(position, 0, 0);
-  const priced = priceLegs([{ ...before[0], lots: 1 }], market.spot, market.nowMs, position.lotSize);
+  const priced = priceLegs([{ ...before[0], lots: 1 }], market.spot, market.nowMs, position.lotSize, position.instrument);
   const g = strategyGreeks(priced, market.spot, market.nowMs);
   const q = position.lotSize;
   return { delta: g.delta / q, gamma: g.gamma / q, theta: g.theta / q, source: ivMissing ? "estimated" : "engine" };
@@ -489,13 +490,13 @@ export function simulateAveraging(
   const newAvg = buyPrice === null ? position.avgPrice : newAveragePrice(existingQty, position.avgPrice, extraQty, buyPrice);
 
   const legs = buildLegs(position, extraLots, buyPrice ?? NaN);
-  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize);
-  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize);
+  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize, position.instrument);
+  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize, position.instrument);
 
   const before = snapshotOf(position, market, pricedBefore, position.lots, position.avgPrice, unit);
   const after = snapshotOf(position, market, pricedAfter, position.lots + extraLots, newAvg, unit);
 
-  const scenarios = buildScenarios(position.expiry, market.nowMs);
+  const scenarios = buildScenarios(position.expiry, market.nowMs, position.instrument);
   const heldPriced = pricedBefore.length ? pricedBefore : pricedAfter;
   const modelGap = heldPriced.length ? unitValue(heldPriced, market.spot, market.nowMs) - market.ltp : null;
   const dte = daysBetween(istDateString(market.nowMs), position.expiry);
@@ -553,7 +554,7 @@ export function buildLotsTable(
     const improvement = previousAvg > 0 ? (previousAvg - newAvg) / previousAvg : 0;
     if (marginalLots === null && improvement < MARGINAL_IMPROVEMENT) marginalLots = lots;
 
-    const priced = priceLegs(buildLegs(position, lots, buyPrice).after, market.spot, market.nowMs, position.lotSize);
+    const priced = priceLegs(buildLegs(position, lots, buyPrice).after, market.spot, market.nowMs, position.lotSize, position.instrument);
     const level = breakevenSpot(priced, market.spot, market.nowMs);
     const rise = premiumRiseNeeded(newAvg, market.ltp);
     rows.push({
@@ -598,12 +599,12 @@ export function buildPayoffCurve(
   scenarioKey: ScenarioKey,
 ): PayoffCurve | null {
   const legs = buildLegs(position, extraLots, buyPrice ?? NaN);
-  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize);
-  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize);
+  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize, position.instrument);
+  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize, position.instrument);
   const reference = pricedAfter.length ? pricedAfter : pricedBefore;
   if (reference.length === 0) return null;
 
-  const scenarios = buildScenarios(position.expiry, market.nowMs);
+  const scenarios = buildScenarios(position.expiry, market.nowMs, position.instrument);
   const scenario = scenarios.find((x) => x.key === scenarioKey) ?? scenarios[0];
 
   const breakevenBefore = breakevenSpot(pricedBefore, market.spot, scenario.atMs);
@@ -761,9 +762,9 @@ export function buildLadder(
 ): LadderRow[] {
   const step = LADDER_STEP[position.instrument];
   const legs = buildLegs(position, extraLots, buyPrice ?? NaN);
-  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize);
-  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize);
-  const scenarios = buildScenarios(position.expiry, market.nowMs);
+  const pricedBefore = priceLegs(legs.before, market.spot, market.nowMs, position.lotSize, position.instrument);
+  const pricedAfter = priceLegs(legs.after, market.spot, market.nowMs, position.lotSize, position.instrument);
+  const scenarios = buildScenarios(position.expiry, market.nowMs, position.instrument);
 
   const rows: LadderRow[] = [];
   for (let i = -LADDER_HALF_STEPS; i <= LADDER_HALF_STEPS; i++) {
@@ -874,7 +875,7 @@ function buildWarnings(
     });
   }
 
-  if (market.stale || !isMarketOpen(market.nowMs)) {
+  if (market.stale || !isMarketOpen(market.nowMs, position.instrument)) {
     out.push({
       id: "market-closed",
       severity: "info",
@@ -888,12 +889,18 @@ function buildWarnings(
 
 // --- Market hours ---------------------------------------------------------------
 
-/** Mon–Fri 09:15–15:30 IST. Exchange holidays aren't known here, so a holiday reads as open. */
-export function isMarketOpen(nowMs: number): boolean {
+/**
+ * Mon–Fri 09:15–15:30 IST for the indices; 09:00–23:30 for an MCX commodity (pass its `instrument`).
+ * Exchange holidays aren't known here, so a holiday reads as open.
+ */
+export function isMarketOpen(nowMs: number, instrument?: Instrument): boolean {
   const ist = new Date(nowMs + IST_OFFSET_MS);
   const day = ist.getUTCDay();
   const minutes = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  return day >= 1 && day <= 5 && minutes >= 9 * 60 + 15 && minutes < 15 * 60 + 30;
+  const commodity = instrument !== undefined && isCommodityInstrument(instrument);
+  const open = commodity ? 9 * 60 : 9 * 60 + 15;
+  const close = commodity ? 23 * 60 + 30 : 15 * 60 + 30;
+  return day >= 1 && day <= 5 && minutes >= open && minutes < close;
 }
 
 // --- From a Live Portfolio row ---------------------------------------------------
@@ -911,7 +918,7 @@ export function simulationInputs(
   if (entry.strike_price == null || entry.option_type == null || entry.expiry_date == null) return null;
   if (row.status !== "ok" || row.liveLtp == null || !(row.liveLtp > 0)) return null;
   if (row.underlyingSpot == null || !(row.underlyingSpot > 0)) return null;
-  if (!(expiryCloseMs(entry.expiry_date) > nowMs) || !(row.entryPrice > 0) || !(entry.lots > 0)) return null;
+  if (!(expiryCloseMs(entry.expiry_date, entry.instrument) > nowMs) || !(row.entryPrice > 0) || !(entry.lots > 0)) return null;
 
   return {
     position: {
@@ -959,7 +966,7 @@ export function simulationInputsFromLegs(
   for (const leg of legs) {
     const price = Number(leg.price);
     if (!leg.enabled || leg.side !== "buy" || !(leg.lots > 0) || leg.price.trim() === "" || !(price > 0)) continue;
-    if (!(expiryCloseMs(leg.expiry) > nowMs)) continue;
+    if (!(expiryCloseMs(leg.expiry, instrument) > nowMs)) continue;
     const id = `${leg.type}-${leg.strike}-${leg.expiry}`;
     const group = groups.get(id) ?? { type: leg.type, strike: leg.strike, expiry: leg.expiry, lots: 0, cost: 0 };
     group.lots += leg.lots;

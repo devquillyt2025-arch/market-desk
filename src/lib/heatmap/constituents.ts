@@ -12,7 +12,7 @@
  * quote response simply doesn't render — it never breaks the grid.
  */
 
-import { INSTRUMENT_LABELS, type Instrument } from "@/lib/types";
+import { INSTRUMENT_LABELS, type IndexInstrument } from "@/lib/types";
 
 export type HeatmapStock = {
   /** NSE trading symbol — also the key for the logo image. */
@@ -120,20 +120,39 @@ const SENSEX_SYMBOLS: string[] = [
   "TRENT", "ULTRACEMCO",
 ];
 
-const INDEX_SYMBOLS: Record<Instrument, string[]> = {
+const INDEX_SYMBOLS: Record<IndexInstrument, string[]> = {
   NIFTY: NIFTY_SYMBOLS,
   BANKNIFTY: BANKNIFTY_SYMBOLS,
   SENSEX: SENSEX_SYMBOLS,
 };
 
 /** The heatmap tabs, in display order. Labels come from the app-wide instrument labels, except Nifty — "Nifty 50" is what the index is called on a heatmap. */
-export const HEATMAP_TABS: { id: Instrument; label: string }[] = [
+export const HEATMAP_TABS: { id: IndexInstrument; label: string }[] = [
   { id: "NIFTY", label: "Nifty 50" },
   { id: "BANKNIFTY", label: INSTRUMENT_LABELS.BANKNIFTY },
   { id: "SENSEX", label: INSTRUMENT_LABELS.SENSEX },
 ];
 
-export function getHeatmapStocks(index: Instrument): HeatmapStock[] {
+/** The Commodities tab's id - not an index, so it has no constituents here: its tiles are MCX futures (see mcxCommodities.ts). */
+export const COMMODITIES_TAB = "COMMODITIES";
+
+/** Any tab of the Heatmap: one of the three indices, or the commodities. */
+export type HeatmapTabId = IndexInstrument | typeof COMMODITIES_TAB;
+
+/** Every tab pill, in display order. (HEATMAP_TABS above is the three indices - what the headline cards at the top show.) */
+export const HEATMAP_PILLS: { id: HeatmapTabId; label: string }[] = [...HEATMAP_TABS, { id: COMMODITIES_TAB, label: "Commodities" }];
+
+export function isHeatmapTabId(value: string): value is HeatmapTabId {
+  return value === COMMODITIES_TAB || HEATMAP_TABS.some((tab) => tab.id === value);
+}
+
+/** One stock from the table above by its NSE symbol - name and ISIN - or null if it isn't in any of the three indices. */
+export function getHeatmapStock(symbol: string): HeatmapStock | null {
+  const info = STOCKS[symbol];
+  return info ? { symbol, ...info } : null;
+}
+
+export function getHeatmapStocks(index: IndexInstrument): HeatmapStock[] {
   return INDEX_SYMBOLS[index].map((symbol) => ({ symbol, ...STOCKS[symbol] }));
 }
 

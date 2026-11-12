@@ -10,8 +10,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { UPSTOX_INSTRUMENT_KEYS } from "@/lib/upstox/instrumentKeys";
+import { getMcxContracts, isMcxError } from "@/lib/upstox/mcx";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import { INSTRUMENTS, isCommodityInstrument, type Instrument } from "@/lib/types";
 
 const IST_OFFSET_MS = 5.5 * 3_600_000;
 
@@ -35,6 +36,13 @@ export async function GET(request: NextRequest) {
   }
   if (!isInstrument(instrument)) {
     return NextResponse.json({ error: `Unknown instrument: ${instrument}` }, { status: 400 });
+  }
+
+  // The commodity expiries come off Upstox's public MCX contract list, which needs no token.
+  if (isCommodityInstrument(instrument)) {
+    const mcx = await getMcxContracts();
+    if (isMcxError(mcx)) return NextResponse.json({ error: mcx.error }, { status: mcx.status });
+    return NextResponse.json({ expiries: mcx.expiries.get(instrument) ?? [] });
   }
 
   let token: string | null;

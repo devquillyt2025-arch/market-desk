@@ -20,7 +20,7 @@ import MoveCard from "@/components/whatif/MoveCard";
 import MoveDetail, { type ChartGroup } from "@/components/whatif/MoveDetail";
 import CustomBuilder from "@/components/whatif/CustomBuilder";
 import Select from "@/components/Select";
-import { compactMoney, money, percent, TONE_TEXT, type Tone } from "@/components/whatif/shared";
+import { compactMoney, money, percent, Tile } from "@/components/whatif/shared";
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import { loadAveragingPrefs, saveAveragingPrefs } from "@/lib/averagingPrefs";
 import type { UpstoxOptionChainResult } from "@/lib/upstox/types";
@@ -32,6 +32,7 @@ import {
   evaluateChanges,
   FAMILY_LABELS,
   GOALS,
+  pickFocus,
   rankMoves,
   runLab,
   underlyingLabel,
@@ -67,16 +68,6 @@ export default function WhatIfLab({ rows, chains, nowMs, paused }: WhatIfLabProp
 
 // --- Where you stand ------------------------------------------------------------------------
 
-function Tile({ label, value, hint, tone = "neutral" }: { label: string; value: string; hint: string; tone?: Tone }) {
-  return (
-    <div className="flex min-w-0 flex-col rounded-xl border border-border bg-background p-3.5">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className={`mt-1 whitespace-nowrap font-mono text-xl font-semibold tabular-nums ${TONE_TEXT[tone]}`}>{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-    </div>
-  );
-}
-
 function StandingStrip({ base }: { base: Outcome }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -87,7 +78,7 @@ function StandingStrip({ base }: { base: Outcome }) {
       <Tile
         label="Worst case"
         value={base.maxLoss === null ? "Unlimited" : `${compactMoney(base.maxLoss)}${base.worstIsRemote ? "*" : ""}`}
-        hint={base.worstIsRemote ? "*only if the index hit zero" : "the most you can lose"}
+        hint={base.worstIsRemote ? "*only if the underlying fell to zero" : "the most you can lose"}
         tone={base.maxLoss === null ? "bad" : "neutral"}
       />
       <Tile label="Time decay" value={`${compactMoney(base.thetaPerDay)}/day`} hint={base.thetaPerDay >= 0 ? "time is paying you" : "time is costing you"} tone={base.thetaPerDay >= 0 ? "good" : "bad"} />
@@ -113,12 +104,7 @@ function LabBody({ rows, chains, nowMs, paused }: { rows: PortfolioRow[]; chains
   const unders = useMemo(() => buildUnderlyings(chains, nowMs), [chains, nowMs]);
 
   // New trades are offered in one instrument + expiry at a time - the one the book leans on most, unless chosen.
-  const focus = useMemo(() => {
-    const chosen = unders.find((u) => u.key === focusKey);
-    if (chosen) return chosen;
-    const held = (key: string) => book.legs.filter((l) => l.groupKey === key).length;
-    return unders.reduce<(typeof unders)[number] | null>((best, u) => (best === null || held(u.key) > held(best.key) ? u : best), null);
-  }, [unders, focusKey, book]);
+  const focus = useMemo(() => pickFocus(unders, book, focusKey), [unders, focusKey, book]);
 
   const funds = prefs.funds;
   const lab = useMemo(() => runLab({ book, unders, focusKey: focus?.key ?? null, funds }), [book, unders, focus, funds]);

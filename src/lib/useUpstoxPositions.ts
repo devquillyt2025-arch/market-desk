@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { CommodityStorageMissingError } from "@/lib/commodityStorage";
 import { syncLivePortfolioWithUpstox } from "@/lib/livePortfolioEntriesStore";
 import { fetchPositions } from "@/lib/upstox/client";
 import { isUpstoxPositionsError, type UpstoxPosition } from "@/lib/upstox/types";
@@ -24,7 +25,7 @@ function localISODate(ms: number): string {
 export type UpstoxPositionsState = {
   /** The latest positions Upstox reported, squared-off-today ones included — null until the first successful sync. */
   positions: UpstoxPosition[] | null;
-  /** Upstox positions left out for being in something other than the three indices' options. */
+  /** Upstox positions left out for being in something other than the tracked options (three indices; MCX crude oil and gold). */
   otherCount: number;
   syncedAt: number | null;
   tokenExpired: boolean;
@@ -71,8 +72,8 @@ export function useUpstoxPositions(pollMs = DEFAULT_POLL_MS): UpstoxPositionsSta
       try {
         await syncLivePortfolioWithUpstox(result.positions, localISODate(now));
         setError(null);
-      } catch {
-        setError("couldn't save the synced positions.");
+      } catch (e) {
+        setError(e instanceof CommodityStorageMissingError ? e.message : "couldn't save the synced positions.");
       }
       setPositions(result.positions);
       setOtherCount(result.otherCount);

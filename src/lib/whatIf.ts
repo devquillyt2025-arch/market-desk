@@ -18,7 +18,7 @@
  * Everything else is held to expiry, which is what the Risk tab assumes too.
  */
 
-import { calculateBrokerage } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import {
   impliedVolFromPrice,
@@ -56,7 +56,7 @@ const MIN_SCORE = 0.004;
  */
 export const RISK_BUDGET = 0.25;
 /** A worst case this many times the 1-in-100 bad case is theoretical rather than something to plan around. */
-const REMOTE_WORST = 6;
+export const REMOTE_WORST = 6;
 /** Most moves worth showing across all families at once, and per kind of move. */
 export const TOP_TOTAL = 8;
 const PER_BUCKET = 2;
@@ -235,7 +235,7 @@ export function buildUnderlyings(chains: Record<string, UpstoxOptionChainResult 
     if (!chain || isUpstoxOptionChainError(chain)) continue;
     const [instrument, expiry] = key.split("|");
     if (!expiry || !(instrument in DEFAULT_LOT_SIZES)) continue;
-    const years = yearsToExpiry(expiry, now);
+    const years = yearsToExpiry(expiry, now, instrument as Instrument);
     if (!(years > 0)) continue;
     const spot = chain.data.find((r) => r.underlying_spot_price != null && r.underlying_spot_price > 0)?.underlying_spot_price;
     if (!spot) continue;
@@ -284,6 +284,17 @@ export function buildUnderlyings(chains: Record<string, UpstoxOptionChainResult 
     });
   }
   return out.sort((a, b) => a.expiry.localeCompare(b.expiry) || a.instrument.localeCompare(b.instrument));
+}
+
+/**
+ * The instrument + expiry new trades are offered in: the one chosen, else the one the book leans on
+ * most (the most positions), else the first. Null when no chain loaded.
+ */
+export function pickFocus(unders: Underlying[], book: Pick<Book, "legs">, chosenKey: string | null): Underlying | null {
+  const chosen = unders.find((u) => u.key === chosenKey);
+  if (chosen) return chosen;
+  const held = (key: string) => book.legs.filter((l) => l.groupKey === key).length;
+  return unders.reduce<Underlying | null>((best, u) => (best === null || held(u.key) > held(best.key) ? u : best), null);
 }
 
 // --- The book ---------------------------------------------------------------------
@@ -367,9 +378,9 @@ function openLeg(u: Underlying, q: ChainQuote, side: Side, lots: number, price: 
 
 // --- Applying a move ----------------------------------------------------------------
 
-function orderCharges(side: Side, price: number, qty: number): number {
+function orderCharges(instrument: Instrument, side: Side, price: number, qty: number): number {
   const leg = side === "sell" ? { sellPrice: price, buyPrice: 0 } : { buyPrice: price, sellPrice: 0 };
-  return calculateBrokerage("OPTIONS", [leg], qty).totalCharges;
+  return calculateBrokerage(optionsSegmentFor(instrument), [leg], qty).totalCharges;
 }
 
 export function applyChanges(book: Book, unders: Underlying[], changes: Change[]): Applied {
@@ -398,7 +409,7 @@ export function applyChanges(book: Book, unders: Underlying[], changes: Change[]
     const qty = lots * leg.lotSize;
     const price = c.price ?? leg.ltp;
     const pnl = (leg.isShort ? leg.premium - price : price - leg.premium) * qty;
-    const fee = orderCharges(leg.isShort ? "buy" : "sell", price, qty);
+    const fee = orderCharges(leg.instrument, leg.isShort ? "buy" : "sell", price, qty);
     booked += pnl;
     cash += (leg.isShort ? -price : price) * qty;
     charges += fee;
@@ -422,7 +433,7 @@ export function applyChanges(book: Book, unders: Underlying[], changes: Change[]
       continue;
     }
     created.push(leg);
-    const fee = orderCharges(c.side, price, leg.qty);
+    const fee = orderCharges(u.instrument, c.side, price, leg.qty);
     cash += (c.side === "sell" ? price : -price) * leg.qty;
     charges += fee;
     bump(u.key, -fee);

@@ -243,6 +243,8 @@ export function ChartPlot({ curve, spot, indexName, width, labels = DEFAULT_LABE
 /** The chart at its container's width, under a short key to the lines and dots. */
 export default function BeforeAfterChart(props: ChartProps) {
   const labels = props.labels ?? DEFAULT_LABELS;
+  // An idea measured on its own has nothing to compare against: no dashed line, no "before" marker.
+  const hasBefore = props.curve.points.some((p) => p.before !== null);
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -263,20 +265,24 @@ export default function BeforeAfterChart(props: ChartProps) {
           </svg>
           {labels.after}
         </span>
-        <span className="flex items-center gap-2">
-          <svg width="22" height="6" aria-hidden="true">
-            <line x1="0" y1="3" x2="22" y2="3" strokeWidth="2" strokeDasharray="5 4" className="stroke-muted-foreground" />
-          </svg>
-          {labels.before}
-        </span>
+        {hasBefore && (
+          <span className="flex items-center gap-2">
+            <svg width="22" height="6" aria-hidden="true">
+              <line x1="0" y1="3" x2="22" y2="3" strokeWidth="2" strokeDasharray="5 4" className="stroke-muted-foreground" />
+            </svg>
+            {labels.before}
+          </span>
+        )}
         <span className="flex items-center gap-2">
           <span className="size-2.5 rounded-full bg-accent-solid" aria-hidden="true" />
-          Break-even after
+          {hasBefore ? "Break-even after" : "Break-even"}
         </span>
-        <span className="flex items-center gap-2">
-          <span className="size-3.5 rounded-full border-2 border-muted-foreground" aria-hidden="true" />
-          Break-even before
-        </span>
+        {hasBefore && (
+          <span className="flex items-center gap-2">
+            <span className="size-3.5 rounded-full border-2 border-muted-foreground" aria-hidden="true" />
+            Break-even before
+          </span>
+        )}
       </div>
 
       {/* Space is held before the width is measured (phone-height below sm, full height above) so the page doesn't jump when the chart appears. */}

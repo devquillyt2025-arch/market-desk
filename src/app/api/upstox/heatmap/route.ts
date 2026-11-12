@@ -1,11 +1,11 @@
 /**
  * Server-side proxy behind the Heatmap tab: one price and one percent-change
- * per constituent of an index, plus the level and change of the three
- * headline indices. Same reasoning as option-chain/route.ts — the token stays
+ * per constituent of an index (or, on the Commodities tab, per MCX commodity),
+ * plus the level and change of the three headline indices. Same reasoning as option-chain/route.ts — the token stays
  * server-side.
  *
- * Query params: `index` (one of this app's Instrument values; NIFTY is the
- * Nifty 50 here) and optionally `range` (1D, 5D, 1M, 3M, 6M, 1Y, 3Y, 5Y —
+ * Query params: `index` (one of the three indices; NIFTY is the Nifty 50 here -
+ * or COMMODITIES, whose tiles are each commodity's current-month future) and optionally `range` (1D, 5D, 1M, 3M, 6M, 1Y, 3Y, 5Y —
  * defaults to 1D). Returns `{ quotes, indices }`.
  *
  * Live prices always come from v3 `market-quote/ltp` rather than v2's full
@@ -20,22 +20,20 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { istDateString } from "@/lib/calculateStrategy";
-import { getHeatmapStocks, heatmapInstrumentKey } from "@/lib/heatmap/constituents";
+import { COMMODITIES_TAB, getHeatmapStocks, heatmapInstrumentKey, isHeatmapTabId } from "@/lib/heatmap/constituents";
 import { DEFAULT_HEATMAP_RANGE, isHeatmapRange, rangeStartDate, type HeatmapRange } from "@/lib/heatmap/ranges";
 import { closeOnOrBefore, getDailyCloses } from "@/lib/upstox/dailyCloses";
 import { UPSTOX_INSTRUMENT_KEYS } from "@/lib/upstox/instrumentKeys";
+import { getMcxContracts, isMcxError } from "@/lib/upstox/mcx";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
 import type { HeatmapQuote, IndexQuote } from "@/lib/upstox/types";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import { HEATMAP_COMMODITIES } from "@/lib/mcxCommodities";
+import { INDEX_INSTRUMENTS } from "@/lib/types";
 
 type LtpEntry = { instrument_token?: string; last_price?: number; cp?: number };
 
 /** Upstox's own limit is 50 requests/second; this stays far under it while still loading ~60 histories in about a second. */
 const HISTORY_BATCH_SIZE = 12;
-
-function isInstrument(value: string): value is Instrument {
-  return (INSTRUMENTS as readonly string[]).includes(value);
-}
 
 function percentChange(price: number, reference: number | null | undefined): number | null {
   return typeof reference === "number" && reference > 0 ? ((price - reference) / reference) * 100 : null;
@@ -49,7 +47,7 @@ export async function GET(request: NextRequest) {
   if (!index) {
     return NextResponse.json({ error: "Missing required query param: index." }, { status: 400 });
   }
-  if (!isInstrument(index)) {
+  if (!isHeatmapTabId(index)) {
     return NextResponse.json({ error: `Unknown index: ${index}` }, { status: 400 });
   }
   if (!isHeatmapRange(rangeParam)) {
@@ -67,10 +65,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "token_expired" }, { status: 401 });
   }
 
-  const stocks = getHeatmapStocks(index);
-  const stockKeys = stocks.map(heatmapInstrumentKey);
+  // What the tiles are: an index's stocks, or each commodity's current-month future. The month rolls, so a
+  // commodity's key is looked up fresh from the exchange's contract list rather than written down here.
+  let tiles: { symbol: string; key: string }[];
+  if (index === COMMODITIES_TAB) {
+    const mcx = await getMcxContracts();
+    if (isMcxError(mcx)) return NextResponse.json({ error: mcx.error }, { status: mcx.status });
+    tiles = HEATMAP_COMMODITIES.flatMap((symbol) => {
+      const future = mcx.futures.get(symbol);
+      return future ? [{ symbol, key: future.key }] : [];
+    });
+  } else {
+    tiles = getHeatmapStocks(index).map((stock) => ({ symbol: stock.symbol, key: heatmapInstrumentKey(stock) }));
+  }
+  const stockKeys = tiles.map((tile) => tile.key);
   // The headline indices ride along on the same request — all three, whichever tab is open.
-  const indexKeys = INSTRUMENTS.map((i) => UPSTOX_INSTRUMENT_KEYS[i]);
+  const indexKeys = INDEX_INSTRUMENTS.map((i) => UPSTOX_INSTRUMENT_KEYS[i]);
   const upstoxUrl = `https://api.upstox.com/v3/market-quote/ltp?instrument_key=${encodeURIComponent([...stockKeys, ...indexKeys].join(","))}`;
 
   let upstoxResponse: Response;
@@ -145,17 +155,16 @@ export async function GET(request: NextRequest) {
   }
 
   const quotes: HeatmapQuote[] = [];
-  for (const stock of stocks) {
-    const key = heatmapInstrumentKey(stock);
+  for (const { symbol, key } of tiles) {
     const price = entryByToken.get(key)?.last_price;
     // A zero/absent price means the stock hasn't traded (or Upstox has no
     // quote for it) — drop it rather than draw a ₹0 tile at -100%.
     if (typeof price !== "number" || !(price > 0)) continue;
-    quotes.push({ symbol: stock.symbol, price, changePct: percentChange(price, referenceByKey.get(key)) });
+    quotes.push({ symbol, price, changePct: percentChange(price, referenceByKey.get(key)) });
   }
 
   const indices: IndexQuote[] = [];
-  for (const instrument of INSTRUMENTS) {
+  for (const instrument of INDEX_INSTRUMENTS) {
     const key = UPSTOX_INSTRUMENT_KEYS[instrument];
     const price = entryByToken.get(key)?.last_price;
     if (typeof price !== "number" || !(price > 0)) continue;

@@ -111,8 +111,9 @@ export default function OptionChainPicker({
   }, [instrument]);
 
   const expiries = useMemo(() => {
-    // An expiry is gone once its 15:30 IST close has passed, even though today's date still matches.
-    const listed = (expiriesByInstrument[instrument] ?? []).filter((e) => expiryCloseMs(e) > nowMs);
+    // An expiry is gone once its session close has passed (15:30 IST; 23:30 for MCX), even though today's date still matches.
+    const listed = (expiriesByInstrument[instrument] ?? []).filter((e) => expiryCloseMs(e, instrument) > nowMs);
+    // The indices have a weekly pattern to fall back on; a commodity has only the exchange's list, so it waits for it.
     return listed.length > 0 ? listed : upcomingWeeklyExpiries(today, instrument, nowMs);
   }, [expiriesByInstrument, instrument, today, nowMs]);
   const expiry = pickedExpiry && expiries.includes(pickedExpiry) ? pickedExpiry : expiries[0];
@@ -121,6 +122,8 @@ export default function OptionChainPicker({
 
   const chainKey = `${instrument}|${expiry}`;
   useEffect(() => {
+    // No expiry yet: a commodity's list is still on its way (or it has none listed).
+    if (!expiry) return;
     let cancelled = false;
     let stop = false;
 
@@ -187,7 +190,8 @@ export default function OptionChainPicker({
   }, [rows, chainKey]);
 
   const status = errors[chainKey];
-  const loading = rows.length === 0 && !status;
+  const noExpiries = !expiry && expiriesByInstrument[instrument] !== undefined;
+  const loading = rows.length === 0 && !status && !noExpiries;
 
   // --- Selection -------------------------------------------------------------
 
@@ -465,9 +469,11 @@ export default function OptionChainPicker({
               <LoadingState className="h-48" label="Loading option chain…" />
             ) : rows.length === 0 ? (
               <p className="p-8 text-center text-sm text-muted-foreground">
-                {status === "token_expired"
-                  ? "Reconnect Upstox in Settings to see the option chain."
-                  : `Couldn't load the ${formatExpiry(expiry ?? today, today)} chain.`}
+                {noExpiries
+                  ? `No ${INSTRUMENT_LABELS[instrument]} expiries are listed right now.`
+                  : status === "token_expired"
+                    ? "Reconnect Upstox in Settings to see the option chain."
+                    : `Couldn't load the ${formatExpiry(expiry ?? today, today)} chain.`}
               </p>
             ) : (
               rows.map((row) => {

@@ -45,7 +45,7 @@ import {
 } from "@/lib/averaging";
 import { loadAveragingPrefs, saveAveragingPrefs, type AveragingPrefs } from "@/lib/averagingPrefs";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
-import { INSTRUMENT_LABELS } from "@/lib/types";
+import { INSTRUMENT_LABELS, isIndexInstrument } from "@/lib/types";
 
 /** One open long option that can be simulated, with the latest poll's prices. */
 export type SimulatorCandidate = {
@@ -211,7 +211,10 @@ function SimulatorBody({
     return picks;
   }, [lotsTable.sweetSpot, prefs.funds, prefs.riskLimitPct, result.before.capitalAtRisk, result.buyPrice, result.maxAffordableLots, position.lotSize]);
 
-  const canOpenAnalysis = result.buyPrice !== null && result.extraLots >= 1;
+  // Analysis builds index strategies only; on its own page (`apply`) every position is one, but a Live
+  // Portfolio crude or gold position has nowhere to go there.
+  const analysisSupportsIt = apply !== undefined || isIndexInstrument(position.instrument);
+  const canOpenAnalysis = analysisSupportsIt && result.buyPrice !== null && result.extraLots >= 1;
 
   function goToAnalysis() {
     if (result.buyPrice === null) return;
@@ -250,6 +253,7 @@ function SimulatorBody({
           onOpenAnalysis={handleOpenInAnalysis}
           actionLabel={apply?.label}
           actionHint={apply?.hint}
+          actionBlockedHint={analysisSupportsIt ? null : "Analysis covers Nifty, Bank Nifty and Sensex only."}
           actionAdds={apply !== undefined}
           appliedText={appliedText}
           note={note}

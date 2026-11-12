@@ -369,7 +369,7 @@ function buildNotices(input: PortfolioReportInput): string[] {
   }
   if (feed.otherCount > 0) {
     notices.push(
-      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options only.`,
+      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil and gold options, only.`,
     );
   }
   if (risk?.paused) {
@@ -742,7 +742,7 @@ export function buildPortfolioCsv(report: PortfolioReport): string {
 
     blank();
     add(
-      "Probabilities use each option's live implied volatility, zero drift, and assume all indices move together. Figures are at expiry and exclude brokerage - a guide to what to watch, not a forecast.",
+      "Probabilities use each option's live implied volatility, zero drift, and assume all underlyings move together. Figures are at expiry and exclude brokerage - a guide to what to watch, not a forecast.",
     );
   }
 

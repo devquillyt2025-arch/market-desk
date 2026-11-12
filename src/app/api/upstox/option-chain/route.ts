@@ -4,7 +4,10 @@
  * for arbitrary origins, so a direct browser call would fail regardless).
  *
  * Query params: `instrument` (one of this app's Instrument values) and
- * `expiry` (yyyy-mm-dd). Returns the full chain response through unfiltered
+ * `expiry` (yyyy-mm-dd); for a commodity also optionally `strikes`, a comma
+ * list of strikes to include even when they sit outside the window around the
+ * money (see mcxChain.ts - the commodity chain is built here, since Upstox's
+ * chain endpoint doesn't serve MCX). Returns the full chain response through unfiltered
  * — the caller (Live Portfolio) matches specific strikes client-side, since
  * several open positions can share one instrument+expiry and should share
  * one fetch rather than one each.
@@ -16,8 +19,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { UPSTOX_INSTRUMENT_KEYS } from "@/lib/upstox/instrumentKeys";
+import { isUpstoxGetError, upstoxErrorResponse } from "@/lib/upstox/api";
+import { getMcxContracts, isMcxError } from "@/lib/upstox/mcx";
+import { fetchMcxChain } from "@/lib/upstox/mcxChain";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import { INSTRUMENTS, isCommodityInstrument, type Instrument } from "@/lib/types";
 
 function isInstrument(value: string): value is Instrument {
   return (INSTRUMENTS as readonly string[]).includes(value);
@@ -43,6 +49,20 @@ export async function GET(request: NextRequest) {
   }
   if (!token) {
     return NextResponse.json({ error: "token_expired" }, { status: 401 });
+  }
+
+  // Upstox's chain endpoint answers an MCX underlying with an empty list, so a
+  // commodity's chain is assembled from per-contract quotes instead.
+  if (isCommodityInstrument(instrument)) {
+    const mcx = await getMcxContracts();
+    if (isMcxError(mcx)) return NextResponse.json({ error: mcx.error }, { status: mcx.status });
+    const held = (searchParams.get("strikes") ?? "")
+      .split(",")
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const chain = await fetchMcxChain(token, mcx, instrument, expiry, held);
+    if (isUpstoxGetError(chain)) return upstoxErrorResponse(chain);
+    return NextResponse.json({ status: "success", data: chain.data });
   }
 
   const instrumentKey = UPSTOX_INSTRUMENT_KEYS[instrument];
