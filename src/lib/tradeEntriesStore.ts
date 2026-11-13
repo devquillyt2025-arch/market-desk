@@ -5,6 +5,7 @@
 
 import { logEvent } from "@/lib/activityLog";
 import { round2 } from "@/lib/calculateTrade";
+import { isInstrumentCheckError } from "@/lib/commodityStorage";
 import { formatINR } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
@@ -12,6 +13,7 @@ import {
   DEFAULT_LOT_SIZES,
   INSTRUMENT_LABELS,
   INSTRUMENTS,
+  isIndexInstrument,
   TRADE_ENTRY_OPTION_TYPES,
   TRADE_ENTRY_SIDES,
   TRADE_ENTRY_STATUSES,
@@ -299,16 +301,27 @@ export type UpstoxTradeWrite = {
   entry: TradeEntry | null;
 };
 
-export type UpstoxImportResult = { added: number; updated: number; removed: number };
+export type UpstoxImportResult = {
+  added: number;
+  updated: number;
+  removed: number;
+  /** Crude oil / gold trades that couldn't be saved because the commodity migration isn't applied yet - see commodityStorage.ts. */
+  commoditiesSkipped: number;
+};
 
 /**
  * Writes an approved "Sync Upstox" plan: each trade becomes (or overwrites)
  * a squared-off entry, keeping any remarks it already had, and `removeIds`
  * are deleted. P&L is Upstox's own figure rather than calculateEntryPnl's —
  * an older trade's lot size can differ from today's DEFAULT_LOT_SIZES.
+ *
+ * Before the commodity migration is applied Postgres rejects a crude / gold row
+ * — and in one bulk upsert, the whole batch with it. So the index trades are
+ * saved on their own and the commodity ones are counted in `commoditiesSkipped`.
  */
 export async function applyUpstoxTrades(writes: UpstoxTradeWrite[], removeIds: string[]): Promise<UpstoxImportResult> {
   const now = new Date().toISOString();
+  let saved = writes;
   if (writes.length > 0) {
     const rows = writes.map(({ trade, entry }) => ({
       id: entry?.id ?? crypto.randomUUID(),
@@ -327,7 +340,14 @@ export async function applyUpstoxTrades(writes: UpstoxTradeWrite[], removeIds: s
       remarks: entry?.remarks ?? null,
       updated_at: now,
     }));
-    const { error } = await supabase.from("trade_entries").upsert(rows, { onConflict: "id" });
+    let { error } = await supabase.from("trade_entries").upsert(rows, { onConflict: "id" });
+    if (error && isInstrumentCheckError(error)) {
+      saved = writes.filter(({ trade }) => isIndexInstrument(trade.instrument));
+      if (saved.length < writes.length) {
+        const indexRows = rows.filter((row) => isIndexInstrument(row.instrument));
+        error = indexRows.length === 0 ? null : (await supabase.from("trade_entries").upsert(indexRows, { onConflict: "id" })).error;
+      }
+    }
     if (error) throw error;
   }
   if (removeIds.length > 0) {
@@ -335,9 +355,12 @@ export async function applyUpstoxTrades(writes: UpstoxTradeWrite[], removeIds: s
     if (error) throw error;
   }
 
-  const updated = writes.filter((w) => w.entry !== null).length;
-  const result = { added: writes.length - updated, updated, removed: removeIds.length };
-  logEvent(`Synced trade entries from Upstox: ${result.added} added, ${result.updated} updated, ${result.removed} removed`);
+  const updated = saved.filter((w) => w.entry !== null).length;
+  const result = { added: saved.length - updated, updated, removed: removeIds.length, commoditiesSkipped: writes.length - saved.length };
+  logEvent(
+    `Synced trade entries from Upstox: ${result.added} added, ${result.updated} updated, ${result.removed} removed` +
+      (result.commoditiesSkipped > 0 ? ` (${result.commoditiesSkipped} commodity trade${result.commoditiesSkipped === 1 ? "" : "s"} not saved - commodity migration not applied)` : ""),
+  );
   return result;
 }
 

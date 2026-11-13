@@ -179,7 +179,16 @@ export default function UpstoxTradeSyncModal({ onClose }: { onClose: () => void 
         result.updated > 0 && `${result.updated} corrected`,
         result.removed > 0 && `${result.removed} removed`,
       ].filter(Boolean);
-      showToast(`Synced ${fyLabel(fy)} from Upstox — ${parts.join(", ")}.`, "success");
+      if (result.commoditiesSkipped > 0) {
+        // The index trades were saved; Postgres refuses commodity rows until the migration widens the instrument check.
+        const skipped = result.commoditiesSkipped;
+        showToast(
+          `${skipped} commodity trade${skipped === 1 ? "" : "s"} (crude oil, gold, natural gas) couldn't be saved until the commodity migration is applied` +
+            (parts.length > 0 ? ` — the rest synced: ${parts.join(", ")}.` : "."),
+        );
+      } else {
+        showToast(`Synced ${fyLabel(fy)} from Upstox — ${parts.join(", ")}.`, "success");
+      }
       onClose();
     } catch {
       showToast("Couldn't save the synced trades. Try again.");
@@ -226,7 +235,7 @@ export default function UpstoxTradeSyncModal({ onClose }: { onClose: () => void 
               <Select value={String(fy)} onChange={changeFy} options={fyOptions} />
             </div>
             <p className="flex-1 text-xs text-muted-foreground">
-              From Upstox&apos;s P&amp;L report. A day&apos;s trades show up there from the next day.
+              From Upstox&apos;s P&amp;L report, index options and MCX. A day&apos;s trades show up there from the next day.
             </p>
           </div>
 

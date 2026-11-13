@@ -322,8 +322,8 @@ function dateText(iso: string): string {
 }
 
 /**
- * Every day from Today (right now) to Expiry (the 15:30 close), each at 15:30 IST like the Analysis
- * payoff table, so the cards show how the break-even drifts as time decay bites. Up to
+ * Every day from Today (right now) to Expiry (the session close: 15:30, or 23:30 for an MCX commodity), each at that
+ * close like the Analysis payoff table, so the cards show how the break-even drifts as time decay bites. Up to
  * MAX_SCENARIOS dates; a longer expiry keeps Today, Tomorrow and Expiry and spreads the rest.
  * Tomorrow is left out when the contract expires today, and folded into Expiry when it expires
  * tomorrow — there it is the same moment.
@@ -340,7 +340,7 @@ export function buildScenarios(expiry: string, nowMs: number, instrument?: Instr
       label: d === 1 ? "Tomorrow" : dateText(date),
       dateLabel: dateText(date),
       daysOut: d,
-      atMs: targetMomentMs(d, totalDays, nowMs, expiryMs),
+      atMs: targetMomentMs(d, totalDays, nowMs, expiryMs, instrument),
     });
   }
   if (expiryMs > nowMs) {

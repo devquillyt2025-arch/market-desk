@@ -9,7 +9,7 @@
 
 import type { LegSide, LegType } from "@/lib/calculateStrategy";
 import type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
-import { INDEX_INSTRUMENTS, type Instrument, type TradeEntry } from "@/lib/types";
+import { INSTRUMENTS, type Instrument, type TradeEntry } from "@/lib/types";
 
 export type DraftLeg = {
   id: string;
@@ -33,8 +33,8 @@ const FILE_FORMAT = "marketdesk-strategy";
 const FILE_VERSION = 1;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Analysis only builds index strategies, so a commodity underlying is treated as "not one of ours" on import. */
-const isInstrument = (v: unknown): v is Instrument => (INDEX_INSTRUMENTS as readonly unknown[]).includes(v);
+/** Anything this app tracks: the three indices and the MCX crude oil, gold and natural gas options. */
+const isInstrument = (v: unknown): v is Instrument => (INSTRUMENTS as readonly unknown[]).includes(v);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 /** An open option position with everything a leg needs. */
@@ -138,7 +138,9 @@ function parseFileLeg(raw: unknown, index: number): DraftLegInput {
 /** Throws an Error with a user-readable message when the data is neither accepted shape. */
 export function parseStrategyImport(data: unknown): ParsedStrategy {
   if (isObject(data) && !Array.isArray(data) && data.format === FILE_FORMAT) {
-    if (!isInstrument(data.instrument)) throw new Error("The file's underlying isn't Nifty, Bank Nifty or Sensex.");
+    if (!isInstrument(data.instrument)) {
+      throw new Error("The file's underlying isn't Nifty, Bank Nifty, Sensex, crude oil, gold or natural gas.");
+    }
     if (!Array.isArray(data.legs)) throw new Error("The file has no legs.");
     return { instrument: data.instrument, legs: data.legs.map(parseFileLeg), skipped: 0 };
   }
@@ -155,7 +157,7 @@ export function parseStrategyImport(data: unknown): ParsedStrategy {
       }
       byInstrument.set(entry.instrument, [...(byInstrument.get(entry.instrument) ?? []), leg]);
     }
-    // One strategy has one underlying — keep the index with the most open legs.
+    // One strategy has one underlying — keep the one with the most open legs.
     const best = [...byInstrument.entries()].sort((a, b) => b[1].length - a[1].length)[0];
     if (!best) throw new Error("No open option positions found in this file.");
     skipped += [...byInstrument.values()].reduce((acc, l) => acc + l.length, 0) - best[1].length;

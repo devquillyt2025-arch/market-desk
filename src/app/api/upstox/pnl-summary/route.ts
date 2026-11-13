@@ -4,7 +4,7 @@
  * figures Upstox's own P&L screen shows, for Reports. Same reasoning as
  * option-chain/route.ts for living here.
  *
- * Query params: `segment` (FO or EQ, defaulting to FO), and `from` and `to`
+ * Query params: `segment` (FO, COM for MCX, or EQ, defaulting to FO), and `from` and `to`
  * (yyyy-mm-dd, inclusive), matched against the date each trade closed. Upstox
  * only answers one financial year per call, so a range across 31 March is
  * fetched as one piece per year and added up.
@@ -14,14 +14,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { round2 } from "@/lib/calculateTrade";
 import { isUpstoxGetError, num, upstoxErrorResponse } from "@/lib/upstox/api";
-import { fyStartOf, getPnlCharges, getPnlReportRows, type DateRange } from "@/lib/upstox/pnlReport";
+import { addCharges, fyStartOf, getPnlCharges, getPnlReportRows, ZERO_CHARGES, type DateRange } from "@/lib/upstox/pnlReport";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
-import {
-  UPSTOX_PNL_SEGMENTS,
-  type UpstoxChargesBreakdown,
-  type UpstoxPnlSegment,
-  type UpstoxPnlSummary,
-} from "@/lib/upstox/types";
+import { UPSTOX_PNL_SEGMENTS, type UpstoxPnlSegment, type UpstoxPnlSummary } from "@/lib/upstox/types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -30,18 +25,6 @@ function isPnlSegment(value: string): value is UpstoxPnlSegment {
 }
 /** Enough for "All" (three years) with room to spare, without letting a typo'd year 1900 fan out into a hundred calls. */
 const MAX_YEARS = 5;
-
-const ZERO_CHARGES: UpstoxChargesBreakdown = {
-  total: 0,
-  brokerage: 0,
-  gst: 0,
-  stt: 0,
-  stampDuty: 0,
-  transactionAndSebi: 0,
-  clearing: 0,
-  ipft: 0,
-  demat: 0,
-};
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -115,9 +98,7 @@ export async function GET(request: NextRequest) {
 
     const chargesResult = await getPnlCharges(token, { segment, fyStart, range });
     if (isUpstoxGetError(chargesResult)) return upstoxErrorResponse(chargesResult);
-    for (const key of Object.keys(ZERO_CHARGES) as (keyof UpstoxChargesBreakdown)[]) {
-      summary.charges[key] = round2(summary.charges[key] + chargesResult.charges[key]);
-    }
+    summary.charges = addCharges(summary.charges, chargesResult.charges);
   }
 
   summary.grossPnl = round2(summary.grossPnl);

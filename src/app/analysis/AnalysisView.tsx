@@ -17,6 +17,7 @@ import {
   analyzeStrategy,
   chartDomain,
   daysBetween,
+  defaultExpiryFor,
   expiryCloseMs,
   istDateString,
   legGreeks,
@@ -25,7 +26,6 @@ import {
   strategyGreeks,
   strategyPnl,
   targetMomentMs,
-  upcomingWeeklyExpiries,
   type LegType,
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
@@ -43,8 +43,16 @@ import {
   type PriceMode,
 } from "@/lib/strategyTransfer";
 import { showToast } from "@/lib/toast";
-import { DEFAULT_LOT_SIZES, INDEX_INSTRUMENTS, INSTRUMENT_LABELS, STRIKE_STEPS, type Instrument, type TradeEntry } from "@/lib/types";
-import { fetchMargin, fetchOptionChain } from "@/lib/upstox/client";
+import {
+  DEFAULT_LOT_SIZES,
+  INSTRUMENTS,
+  INSTRUMENT_LABELS,
+  ORDER_QUANTITY_PER_LOT,
+  STRIKE_STEPS,
+  type Instrument,
+  type TradeEntry,
+} from "@/lib/types";
+import { fetchExpiries, fetchMargin, fetchOptionChain } from "@/lib/upstox/client";
 import { isUpstoxOptionChainError, type UpstoxOptionChainResult, type UpstoxOptionChainStrike } from "@/lib/upstox/types";
 
 /** One-line leg row from md up: [include] [B/S] [expiry] [strike] [CE/PE] [lots] [price] [delete]. Narrower screens wrap instead. */
@@ -53,8 +61,10 @@ const LEG_GRID =
 
 const CHAIN_POLL_MS = 20_000;
 
-// Index-only: the weekly expiry pattern and the strategy builder around it are the indices'. Commodities live in Live Portfolio.
-const INSTRUMENT_OPTIONS = INDEX_INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
+const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
+
+/** The needed-expiries key is a comma-joined list, which is "" when there are none - and "".split(",") would be [""]. */
+const splitExpiries = (joined: string): string[] => (joined ? joined.split(",") : []);
 
 type ChainStatus = "ok" | "token_expired" | "offline" | "error";
 type Tab = "chart" | "payoff" | "pnl" | "greeks" | "averaging";
@@ -221,14 +231,48 @@ export default function AnalysisView() {
   const tokenExpiredRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // The held strikes, so a commodity's chain (a window around the money) is fetched with them in it wherever they sit.
+  const legsRef = useRef(legs);
+  // The exchange's expiry list per underlying, loaded once each. A commodity has no weekly pattern to fall back on, and
+  // Bank Nifty's real expiries are monthly, so the weekly guess is only a stand-in until this arrives.
+  const [listedExpiries, setListedExpiries] = useState<Partial<Record<Instrument, string[]>>>({});
+  // The underlying the chains were last loaded for - to tell a switch from a leg being added.
+  const chainsInstrumentRef = useRef<Instrument | null>(null);
+
   const lotSize = DEFAULT_LOT_SIZES[instrument];
   const step = STRIKE_STEPS[instrument];
   const today = istDateString(nowMs);
-  const defaultExpiry = useMemo(() => upcomingWeeklyExpiries(today, instrument, nowMs, 1)[0], [today, instrument, nowMs]);
+  const defaultExpiry: string | undefined = useMemo(
+    () => defaultExpiryFor(instrument, listedExpiries[instrument], today, nowMs),
+    [today, instrument, nowMs, listedExpiries],
+  );
 
   useEffect(() => {
     instrumentRef.current = instrument;
   }, [instrument]);
+
+  useEffect(() => {
+    legsRef.current = legs;
+  }, [legs]);
+
+  // Keeps asking until the list lands (an expired token or a dropped connection shouldn't leave a commodity with no
+  // expiry for good), but not while the token is known to be bad.
+  useEffect(() => {
+    if (!hydrated || listedExpiries[instrument]) return;
+    let cancelled = false;
+    const load = () =>
+      void fetchExpiries(instrument).then((result) => {
+        if (!cancelled && "expiries" in result) setListedExpiries((prev) => ({ ...prev, [instrument]: result.expiries }));
+      });
+    load();
+    const id = setInterval(() => {
+      if (!tokenExpiredRef.current && !document.hidden) load();
+    }, CHAIN_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [hydrated, instrument, listedExpiries]);
 
   // Restored after mount rather than in the useState initializers: localStorage
   // doesn't exist during SSR, so reading it there would hydrate with a mismatch.
@@ -280,7 +324,8 @@ export default function AnalysisView() {
       const results = await Promise.all(
         fresh.map(async (expiry): Promise<readonly [string, UpstoxOptionChainResult]> => {
           try {
-            return [expiry, await fetchOptionChain(inst, expiry)] as const;
+            const held = [...new Set(legsRef.current.filter((l) => l.expiry === expiry).map((l) => l.strike))];
+            return [expiry, await fetchOptionChain(inst, expiry, held)] as const;
           } catch {
             return [expiry, { error: "network_error" }] as const;
           }
@@ -314,19 +359,26 @@ export default function AnalysisView() {
   );
 
   // A saved strategy can outlive its expiry; Upstox has no chain for a date that's gone, so don't keep asking (every poll) for one.
-  const neededExpiries = [...new Set([defaultExpiry, ...legs.map((l) => l.expiry).filter((e) => e >= today)])]
+  // A commodity has no default expiry until its list arrives, so there may be none to ask for yet.
+  const neededExpiries = [
+    ...new Set([defaultExpiry, ...legs.map((l) => l.expiry).filter((e) => e >= today)].filter((e): e is string => !!e)),
+  ]
     .sort()
     .join(",");
   useEffect(() => {
     if (!hydrated) return;
-    void loadChains(instrument, neededExpiries.split(","), { force: false, overwritePrices: false });
+    // Only the latest chain's spot is kept, so coming back to an underlying whose chain was fetched earlier must fetch
+    // it again - skipped as "already requested", its spot would stay empty until the next poll.
+    const switched = chainsInstrumentRef.current !== instrument;
+    chainsInstrumentRef.current = instrument;
+    void loadChains(instrument, splitExpiries(neededExpiries), { force: switched, overwritePrices: false });
   }, [hydrated, instrument, neededExpiries, loadChains]);
 
   // Keep spot and IV current. Typed or imported prices are left alone — only "Reset Prices" overwrites them.
   useEffect(() => {
     const id = setInterval(() => {
       if (tokenExpiredRef.current || document.hidden) return;
-      void loadChains(instrument, neededExpiries.split(","), { force: true, overwritePrices: false });
+      void loadChains(instrument, splitExpiries(neededExpiries), { force: true, overwritePrices: false });
     }, CHAIN_POLL_MS);
     return () => clearInterval(id);
   }, [instrument, neededExpiries, loadChains]);
@@ -334,7 +386,7 @@ export default function AnalysisView() {
   async function handleRefreshPrices() {
     setRefreshing(true);
     try {
-      await loadChains(instrument, neededExpiries.split(","), { force: true, overwritePrices: true });
+      await loadChains(instrument, splitExpiries(neededExpiries), { force: true, overwritePrices: true });
     } finally {
       setRefreshing(false);
     }
@@ -361,9 +413,15 @@ export default function AnalysisView() {
 
   function addLeg() {
     const last = legs[legs.length - 1];
+    const expiry = last?.expiry ?? defaultExpiry;
+    if (!expiry) {
+      // A commodity's expiry list hasn't arrived (or has none listed) - there is nothing to default the leg to.
+      showToast("Expiries are still loading - try again in a moment, or add legs from the option chain.");
+      return;
+    }
     const atm = spot ? Math.round(spot / step) * step : 0;
     const draft = {
-      expiry: last?.expiry ?? defaultExpiry,
+      expiry,
       strike: last?.strike ?? atm,
       type: last?.type ?? ("CE" as LegType),
     };
@@ -511,12 +569,12 @@ export default function AnalysisView() {
   // not deleted). A strategy that's *entirely* expired is left alone: it's
   // still shown at its settled value.
   const dropsExpired = useMemo(
-    () => legs.some((l) => l.enabled && expiryCloseMs(l.expiry) > nowMs),
-    [legs, nowMs],
+    () => legs.some((l) => l.enabled && expiryCloseMs(l.expiry, instrument) > nowMs),
+    [legs, nowMs, instrument],
   );
   const isLeftOut = useCallback(
-    (l: Pick<DraftLeg, "expiry">) => dropsExpired && expiryCloseMs(l.expiry) <= nowMs,
-    [dropsExpired, nowMs],
+    (l: Pick<DraftLeg, "expiry">) => dropsExpired && expiryCloseMs(l.expiry, instrument) <= nowMs,
+    [dropsExpired, nowMs, instrument],
   );
   const leftOutCount = legs.filter((l) => l.enabled && isLeftOut(l)).length;
 
@@ -536,12 +594,16 @@ export default function AnalysisView() {
     [legs, quoteFor, isLeftOut],
   );
 
-  const priced = useMemo(() => (spot ? priceLegs(strategyLegs, spot, nowMs, lotSize) : []), [strategyLegs, spot, nowMs, lotSize]);
+  // `instrument` makes an MCX option run to 23:30 on its expiry day rather than 15:30.
+  const priced = useMemo(
+    () => (spot ? priceLegs(strategyLegs, spot, nowMs, lotSize, instrument) : []),
+    [strategyLegs, spot, nowMs, lotSize, instrument],
+  );
   const metrics = useMemo(() => (spot ? analyzeStrategy(priced, spot, nowMs) : null), [priced, spot, nowMs]);
 
   const totalDays = metrics ? Math.max(daysBetween(today, istDateString(metrics.expiryMs)), 0) : 0;
   const day = Math.min(dayIndex, totalDays);
-  const targetMs = metrics ? targetMomentMs(day, totalDays, nowMs, metrics.expiryMs) : nowMs;
+  const targetMs = metrics ? targetMomentMs(day, totalDays, nowMs, metrics.expiryMs, instrument) : nowMs;
   const targetSpot = targetSpotInput ?? spot ?? 0;
 
   const domain = useMemo(() => (spot && metrics ? chartDomain(priced, spot, metrics.sdPct) : null), [priced, spot, metrics]);
@@ -564,12 +626,14 @@ export default function AnalysisView() {
       if (!key) return null; // a leg without an instrument key would make the basket total partial
       const side = l.side === "buy" ? "BUY" : "SELL";
       const id = `${key}|${side}`;
+      // Upstox counts the indices' margin quantity in units but MCX's in lots - 2 lots of natural gas is 2, not 2,500.
+      const qty = l.lots * ORDER_QUANTITY_PER_LOT[instrument];
       const existing = byKey.get(id);
-      if (existing) existing.qty += l.qty;
-      else byKey.set(id, { key, side, qty: l.qty, price: l.price });
+      if (existing) existing.qty += qty;
+      else byKey.set(id, { key, side, qty, price: l.price });
     }
     return byKey.size ? [...byKey.values()] : null;
-  }, [priced, quoteFor]);
+  }, [priced, quoteFor, instrument]);
   const marginSig = marginRequest ? marginRequest.map((r) => `${r.key}:${r.side}:${r.qty}`).sort().join(",") : "";
 
   useEffect(() => {
@@ -1112,6 +1176,7 @@ export default function AnalysisView() {
                 totalDays={totalDays}
                 nowMs={nowMs}
                 expiryMs={metrics.expiryMs}
+                instrument={instrument}
                 pnl={(s, ms) => strategyPnl(priced, s, ms)}
               />
             )}
@@ -1273,6 +1338,7 @@ function PnlMatrix({
   totalDays,
   nowMs,
   expiryMs,
+  instrument,
   pnl,
 }: {
   spot: number;
@@ -1281,6 +1347,7 @@ function PnlMatrix({
   totalDays: number;
   nowMs: number;
   expiryMs: number;
+  instrument: Instrument;
   pnl: (spot: number, atMs: number) => number;
 }) {
   const sd = Math.max(sdPct, 0.02);
@@ -1302,10 +1369,10 @@ function PnlMatrix({
     moments = days.map((d) => ({
       key: String(d),
       label: `${d === 0 ? "Today" : dayLabel(d)}${d === totalDays ? " (exp)" : ""}`,
-      ms: targetMomentMs(d, totalDays, nowMs, expiryMs),
+      ms: targetMomentMs(d, totalDays, nowMs, expiryMs, instrument),
     }));
   }
-  const grid = spots.map((s) => moments.map((m) => pnl(s, m.ms)));
+  const grid =spots.map((s) => moments.map((m) => pnl(s, m.ms)));
   const peak = Math.max(1, ...grid.flat().map(Math.abs));
 
   return (

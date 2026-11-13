@@ -5,7 +5,7 @@
  * net P&L, charges broken down, ROI, profit factor and win rate — fetched
  * live rather than worked out from the journal, so it always agrees with
  * Upstox's P&L screen to the paisa. Like Upstox, it covers every trade in the
- * picked segment (F&O includes stock options) that closed in the range,
+ * picked segment (F&O includes stock options; MCX is commodities) that closed in the range,
  * counted per report row.
  */
 
@@ -64,13 +64,14 @@ function Row({ label, value, className = "", strong = false }: { label: React.Re
 
 type ChargesDialogProps = {
   charges: UpstoxChargesBreakdown;
+  segment: UpstoxPnlSegment;
   /** e.g. "F&O · 04 Aug 2026 – 02 Nov 2026" — which figures these are. */
   caption: string;
   onClose: () => void;
 };
 
 /** "Charges and Breakdown" popup, like the one behind Upstox's own "Charges & taxes" link. */
-function ChargesDialog({ charges, caption, onClose }: ChargesDialogProps) {
+function ChargesDialog({ charges, segment, caption, onClose }: ChargesDialogProps) {
   const dialogRef = useDialogFocus();
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -119,7 +120,12 @@ function ChargesDialog({ charges, caption, onClose }: ChargesDialogProps) {
         </div>
         <dl className="px-5 py-3">
           {CHARGE_LINES.filter((line) => line.always || charges[line.key] !== 0).map((line) => (
-            <Row key={line.key} label={line.label} value={inrPaise.format(charges[line.key])} />
+            <Row
+              key={line.key}
+              // The tax Upstox's API files under "stt" is the commodities transaction tax on MCX.
+              label={line.key === "stt" && segment === "COM" ? "Commodities transaction tax" : line.label}
+              value={inrPaise.format(charges[line.key])}
+            />
           ))}
           <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-2 pb-1.5 text-sm font-semibold">
             <dt>Total</dt>
@@ -263,6 +269,7 @@ export default function UpstoxTradeSummary({ from, to }: { from: string; to: str
           <ChargesDialog
             key="charges"
             charges={result.charges}
+            segment={segment}
             caption={`${UPSTOX_PNL_SEGMENT_LABELS[segment]} · ${formatDate(from)} – ${formatDate(to)}`}
             onClose={() => setShowCharges(false)}
           />

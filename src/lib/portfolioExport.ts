@@ -369,7 +369,7 @@ function buildNotices(input: PortfolioReportInput): string[] {
   }
   if (feed.otherCount > 0) {
     notices.push(
-      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil and gold options, only.`,
+      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil, gold and natural gas options, only.`,
     );
   }
   if (risk?.paused) {

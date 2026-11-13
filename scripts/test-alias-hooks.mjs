@@ -1,5 +1,6 @@
 // Module-resolution hook for `npm test`: lets Node's built-in test runner load the
-// project's TypeScript, which imports as "@/lib/…" (tsconfig `paths`) without file extensions.
+// project's TypeScript, which imports as "@/lib/…" (tsconfig `paths`) without file extensions,
+// and "next/server", which Node won't find without the ".js" the bundler adds.
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,5 +13,6 @@ export async function resolve(specifier, context, nextResolve) {
       if (existsSync(candidate)) return nextResolve(pathToFileURL(candidate).href, context);
     }
   }
+  if (specifier === "next/server") return nextResolve("next/server.js", context);
   return nextResolve(specifier, context);
 }

@@ -105,7 +105,8 @@ export async function getHistoricalFills(
         tradeId: String(row.trade_id ?? ""),
         date: String(row.trade_date ?? "").slice(0, 10),
         side,
-        symbol: String(row.symbol ?? ""),
+        // NSE / BSE fills name the underlying in `symbol`; MCX leaves that empty and uses `scrip_name` ("CRUDEOIL").
+        symbol: String(row.symbol || row.scrip_name || ""),
         optionType: String(row.option_type ?? ""),
         strike: num(row.strike_price),
         expiry: String(row.expiry ?? "").slice(0, 10),

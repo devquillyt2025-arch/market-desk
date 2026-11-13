@@ -1,8 +1,9 @@
 /**
- * Server-only: Upstox's trade-wise P&L report for one segment (F&O, equity) —
- * the rows (`/v2/trade/profit-loss/data`, paged) and the year's charges
- * (`/v2/trade/profit-loss/charges`). Shared by the pnl-report route (Trade
- * Entries' sync) and pnl-summary (Reports' Upstox Trade Summary).
+ * Server-only: Upstox's trade-wise P&L report for one segment (F&O, MCX
+ * commodities "COM", equity) — the rows (`/v2/trade/profit-loss/data`, paged)
+ * and the year's charges (`/v2/trade/profit-loss/charges`). Shared by the
+ * pnl-report route (Trade Entries' sync) and pnl-summary (Reports' Upstox
+ * Trade Summary).
  *
  * Upstox asks for one financial year per call ("2627" = Apr 2026 – Mar 2027).
  * An optional date range inside it narrows the result to trades that closed
@@ -18,6 +19,25 @@ export type DateRange = { from: string; to: string };
 
 /** Where a report call is pointed: which segment, which financial year, optionally which dates inside it. */
 export type ReportScope = { segment: UpstoxPnlSegment; fyStart: number; range?: DateRange };
+
+export const ZERO_CHARGES: UpstoxChargesBreakdown = {
+  total: 0,
+  brokerage: 0,
+  gst: 0,
+  stt: 0,
+  stampDuty: 0,
+  transactionAndSebi: 0,
+  clearing: 0,
+  ipft: 0,
+  demat: 0,
+};
+
+/** Line-by-line sum of two charges breakdowns - a year in two pieces, or two segments. */
+export function addCharges(a: UpstoxChargesBreakdown, b: UpstoxChargesBreakdown): UpstoxChargesBreakdown {
+  const sum = { ...ZERO_CHARGES };
+  for (const key of Object.keys(ZERO_CHARGES) as (keyof UpstoxChargesBreakdown)[]) sum[key] = round2(a[key] + b[key]);
+  return sum;
+}
 
 /** The financial year a yyyy-mm-dd date falls in, as the year it starts in. */
 export function fyStartOf(isoDate: string): number {

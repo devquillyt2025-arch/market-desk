@@ -1,13 +1,14 @@
 /**
- * Crude oil and gold rows can only be saved once `20261112000000_commodity_instruments.sql` has widened each table's
- * `instrument` CHECK. Until then Postgres rejects such a row with a check violation (23514) naming
+ * Commodity rows (crude oil, gold, natural gas) can only be saved once the commodity migrations
+ * (`20261112000000_commodity_instruments.sql`, then `20261113000000_natural_gas_instruments.sql`) have widened each
+ * table's `instrument` CHECK. Until then Postgres rejects such a row with a check violation (23514) naming
  * `<table>_instrument_check` - and in one bulk upsert that rejects the whole batch, index rows included.
  * The Live Portfolio sync uses this to tell "the migration isn't applied yet" from any other failure.
  */
 
 export class CommodityStorageMissingError extends Error {
   constructor() {
-    super("crude oil and gold positions can't be saved until the commodity migration is applied.");
+    super("commodity positions (crude oil, gold, natural gas) can't be saved until the commodity migration is applied.");
     this.name = "CommodityStorageMissingError";
   }
 }

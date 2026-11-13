@@ -1,5 +1,5 @@
 /**
- * Server-only: the listed MCX crude oil and gold option contracts, from
+ * Server-only: the listed MCX crude oil, gold and natural gas option contracts, from
  * Upstox's public instrument file (no token needed).
  *
  * The indices get their contracts from `/v2/option/contract` (see
@@ -154,7 +154,7 @@ export function parseMcxInstruments(rows: unknown, todayIso: string = istDateStr
   return { futures, contracts, underlyingKeys, ladders, expiries };
 }
 
-/** Strikes fetched each side of the money. Crude steps 50 (±1,500), gold 500 (±15,000) - well beyond a sensible strike. */
+/** Strikes fetched each side of the money. Crude steps 50 (±1,500), gold 500 (±15,000), natural gas 5 (±150) - well beyond a sensible strike. */
 export const MCX_CHAIN_WINDOW = 30;
 /** A caller can't ask for the whole ladder by listing every strike. */
 const MAX_EXTRA_STRIKES = 20;

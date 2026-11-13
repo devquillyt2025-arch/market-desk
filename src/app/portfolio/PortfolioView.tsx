@@ -520,7 +520,7 @@ export default function PortfolioView() {
         {upstox.otherCount > 0 && (
           <p className="text-xs text-muted-foreground">
             {upstox.otherCount} Upstox position{upstox.otherCount === 1 ? " isn't" : "s aren't"} shown — Live Portfolio
-            tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil and gold options, only.
+            tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil, gold and natural gas options, only.
           </p>
         )}
       </div>

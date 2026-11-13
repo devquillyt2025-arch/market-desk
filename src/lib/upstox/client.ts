@@ -168,7 +168,7 @@ export async function fetchExpiries(instrument: Instrument): Promise<ExpiriesFet
   }
 }
 
-/** The account's open (and squared-off-today) index and MCX crude oil / gold option positions — feeds Live Portfolio's sync. */
+/** The account's open (and squared-off-today) index and MCX crude oil / gold / natural gas option positions — feeds Live Portfolio's sync. */
 export async function fetchPositions(): Promise<UpstoxPositionsResult> {
   try {
     const res = await fetch("/api/upstox/positions", { cache: "no-store" });

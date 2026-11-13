@@ -287,9 +287,32 @@ export function sampleCurves(
   return points;
 }
 
-/** The moment `dayIndex` days from today: now for 0, the expiry close for the last day, 15:30 IST otherwise. */
-export function targetMomentMs(dayIndex: number, totalDays: number, nowMs: number, expiryMs: number): number {
+/**
+ * The moment `dayIndex` days from today: now for 0, the expiry close for the last day, the session close
+ * otherwise - 15:30 IST, or 23:30 for an MCX commodity (pass its `instrument`).
+ */
+export function targetMomentMs(dayIndex: number, totalDays: number, nowMs: number, expiryMs: number, instrument?: Instrument): number {
   if (dayIndex <= 0) return nowMs;
   if (dayIndex >= totalDays) return expiryMs;
-  return expiryCloseMs(addDays(istDateString(nowMs), dayIndex));
+  return expiryCloseMs(addDays(istDateString(nowMs), dayIndex), instrument);
+}
+
+/**
+ * The first of `expiries` (yyyy-mm-dd, soonest first) that hasn't run out yet. Undefined when there is none (or the
+ * list hasn't loaded).
+ */
+export function firstLiveExpiry(expiries: string[], instrument: Instrument, nowMs: number): string | undefined {
+  return expiries.find((e) => expiryCloseMs(e, instrument) > nowMs);
+}
+
+/**
+ * The expiry a new strategy starts on: the exchange's nearest live one when its list is known. The indices' weekly
+ * pattern is only a guess to use until then (or when the list can't be had) - it is wrong for Bank Nifty, which lists
+ * monthlies only, and a guessed date with no chain leaves the tab without a spot. A commodity has no pattern to guess
+ * from, so it is undefined until its list arrives.
+ */
+export function defaultExpiryFor(instrument: Instrument, listed: string[] | undefined, todayIso: string, nowMs: number): string | undefined {
+  const real = firstLiveExpiry(listed ?? [], instrument, nowMs);
+  if (real) return real;
+  return isCommodityInstrument(instrument) ? undefined : upcomingWeeklyExpiries(todayIso, instrument, nowMs, 1)[0];
 }

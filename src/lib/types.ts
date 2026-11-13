@@ -5,9 +5,9 @@ export type IndexInstrument = (typeof INDEX_INSTRUMENTS)[number];
 /**
  * MCX commodity option underlyings, named by Upstox's `underlying_symbol`. The
  * mini contracts are separate instruments because they have a different lot —
- * and a crude or gold position could be in either.
+ * and a crude, gold or natural gas position could be in either.
  */
-export const COMMODITY_INSTRUMENTS = ["CRUDEOIL", "CRUDEOILM", "GOLD", "GOLDM"] as const;
+export const COMMODITY_INSTRUMENTS = ["CRUDEOIL", "CRUDEOILM", "GOLD", "GOLDM", "NATURALGAS", "NATGASMINI"] as const;
 export type CommodityInstrument = (typeof COMMODITY_INSTRUMENTS)[number];
 
 export const INSTRUMENTS = [...INDEX_INSTRUMENTS, ...COMMODITY_INSTRUMENTS] as const;
@@ -29,6 +29,8 @@ export const INSTRUMENT_LABELS: Record<Instrument, string> = {
   CRUDEOILM: "Crude Oil Mini",
   GOLD: "Gold",
   GOLDM: "Gold Mini",
+  NATURALGAS: "Natural Gas",
+  NATGASMINI: "Natural Gas Mini",
 };
 
 /**
@@ -37,7 +39,8 @@ export const INSTRUMENT_LABELS: Record<Instrument, string> = {
  * only — the exchanges revise lot sizes periodically.
  *
  * Gold's premium is quoted per 10 g, so a 1 kg lot (Gold Mini: 100 g) is 100
- * (10) units of it. These match the `multiplier` Upstox puts on MCX positions.
+ * (10) units of it. Natural gas is quoted per mmBtu, 1,250 of them to a lot
+ * (Mini: 250). These match the `multiplier` Upstox puts on MCX positions.
  */
 export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   NIFTY: 65,
@@ -47,6 +50,8 @@ export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   CRUDEOILM: 10,
   GOLD: 100, // 1 kg lot, quoted per 10 g
   GOLDM: 10, // 100 g lot, quoted per 10 g
+  NATURALGAS: 1250, // mmBtu, quoted per mmBtu
+  NATGASMINI: 250,
 };
 
 /**
@@ -60,11 +65,12 @@ export function sessionCloseIst(instrument?: Instrument): "15:30" | "23:30" {
 }
 
 /** What a position is written on, for telling apart books that can't be treated as one market. Mini and full contracts share a family. */
-export type UnderlyingFamily = "index" | "crude" | "gold";
+export type UnderlyingFamily = "index" | "crude" | "gold" | "natgas";
 
 export function underlyingFamily(instrument: Instrument): UnderlyingFamily {
   if (instrument === "CRUDEOIL" || instrument === "CRUDEOILM") return "crude";
   if (instrument === "GOLD" || instrument === "GOLDM") return "gold";
+  if (instrument === "NATURALGAS" || instrument === "NATGASMINI") return "natgas";
   return "index";
 }
 
@@ -77,6 +83,8 @@ export const STRIKE_STEPS: Record<Instrument, number> = {
   CRUDEOILM: 50,
   GOLD: 500,
   GOLDM: 500,
+  NATURALGAS: 5, // strikes run 75, 80, 85, ...
+  NATGASMINI: 5,
 };
 
 /**
@@ -93,6 +101,8 @@ export const ORDER_QUANTITY_PER_LOT: Record<Instrument, number> = {
   CRUDEOILM: 1,
   GOLD: 1,
   GOLDM: 1,
+  NATURALGAS: 1,
+  NATGASMINI: 1,
 };
 
 export const NOTE_COLORS = [

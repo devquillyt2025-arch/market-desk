@@ -215,7 +215,7 @@ export type UpstoxPosition = {
 
 export type UpstoxPositionsSuccess = {
   positions: UpstoxPosition[];
-  /** Positions in anything other than Nifty / Bank Nifty / Sensex or MCX crude oil / gold options (stocks, futures, other indices and commodities) — left out. */
+  /** Positions in anything other than Nifty / Bank Nifty / Sensex or MCX crude oil / gold / natural gas options (stocks, futures, other indices and commodities) — left out. */
   otherCount: number;
 };
 export type UpstoxPositionsError = { error: string; detail?: string };
@@ -257,14 +257,14 @@ export type UpstoxPnlReportSuccess = {
   from: string;
   to: string;
   trades: UpstoxClosedTrade[];
-  /** Round trips in anything other than the three indices, left out — with their names for the summary. */
+  /** Round trips in anything other than the three indices and MCX crude oil / gold / natural gas, left out — with their names for the summary. */
   otherCount: number;
   otherNames: string[];
   /**
-   * Sell minus buy over every row of the report, the left-out underlyings
-   * included — the same scope as `charges`, so the two can be netted against
-   * each other. `trades` alone would leave the stock options' P&L out while
-   * their charges stayed in.
+   * Sell minus buy over every row of the F&O and MCX reports, the left-out
+   * underlyings included — the same scope as `charges`, so the two can be
+   * netted against each other. `trades` alone would leave the stock options'
+   * P&L out while their charges stayed in.
    */
   grossPnl: number;
   /** Upstox's own charges (brokerage, STT, GST, stamp duty, …) for the year — null if they couldn't be fetched. */
@@ -277,14 +277,21 @@ export function isUpstoxPnlReportError(result: UpstoxPnlReportResult): result is
   return "error" in result;
 }
 
-/** The P&L report segments Reports offers, in Upstox's own codes. */
-export const UPSTOX_PNL_SEGMENTS = ["FO", "EQ"] as const;
+/** The P&L report segments Reports offers, in Upstox's own codes. COM is MCX commodities. */
+export const UPSTOX_PNL_SEGMENTS = ["FO", "COM", "EQ"] as const;
 export type UpstoxPnlSegment = (typeof UPSTOX_PNL_SEGMENTS)[number];
 
 export const UPSTOX_PNL_SEGMENT_LABELS: Record<UpstoxPnlSegment, string> = {
   FO: "F&O",
+  COM: "MCX",
   EQ: "Equity",
 };
+
+/**
+ * The segments whose trades the journal records - index options and MCX crude oil / gold / natural gas options. Trade Entries'
+ * sync reads the report of each; equity trades have no place in an options journal.
+ */
+export const JOURNAL_PNL_SEGMENTS = ["FO", "COM"] as const satisfies readonly UpstoxPnlSegment[];
 
 /** Upstox's own charges for a period, as /api/upstox/pnl-report and pnl-summary return them. */
 export type UpstoxChargesBreakdown = {
