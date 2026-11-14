@@ -111,7 +111,7 @@ export default function OptionChainPicker({
   }, [instrument]);
 
   const expiries = useMemo(() => {
-    // An expiry is gone once its session close has passed (15:30 IST; 23:30 for MCX), even though today's date still matches.
+    // An expiry is gone once its session close has passed (15:30 IST; 23:30 or 23:55 for MCX), even though today's date still matches.
     const listed = (expiriesByInstrument[instrument] ?? []).filter((e) => expiryCloseMs(e, instrument) > nowMs);
     // The indices have a weekly pattern to fall back on; a commodity has only the exchange's list, so it waits for it.
     return listed.length > 0 ? listed : upcomingWeeklyExpiries(today, instrument, nowMs);

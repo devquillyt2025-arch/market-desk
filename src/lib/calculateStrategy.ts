@@ -71,9 +71,9 @@ export type StrategyMetrics = {
 
 // --- Dates ----------------------------------------------------------------
 
-/** The moment an expiry date runs out — the session close: 15:30 IST, or 23:30 for an MCX commodity (pass its `instrument`). */
+/** The moment an expiry date runs out — the session close: 15:30 IST, or for an MCX commodity (pass its `instrument`) 23:30 in summer and 23:55 in winter. */
 export function expiryCloseMs(iso: string, instrument?: Instrument): number {
-  return Date.parse(`${iso}T${sessionCloseIst(instrument)}:00+05:30`);
+  return Date.parse(`${iso}T${sessionCloseIst(instrument, iso)}:00+05:30`);
 }
 
 export function istDateString(ms: number): string {
@@ -133,7 +133,7 @@ function blackScholes(spot: number, strike: number, t: number, sigma: number, is
 // --- Legs -----------------------------------------------------------------
 
 /** Enabled legs with a quantity, sign and the vol used to value them. */
-/** `instrument` only matters for an MCX commodity, whose expiry day runs to 23:30 rather than 15:30. */
+/** `instrument` only matters for an MCX commodity, whose expiry day runs into the night (23:30 or 23:55) rather than to 15:30. */
 export function priceLegs(legs: StrategyLeg[], spot: number, nowMs: number, lotSize: number, instrument?: Instrument): PricedLeg[] {
   return legs
     .filter((l) => l.enabled && l.lots > 0 && l.strike > 0 && l.price >= 0)
@@ -289,7 +289,7 @@ export function sampleCurves(
 
 /**
  * The moment `dayIndex` days from today: now for 0, the expiry close for the last day, the session close
- * otherwise - 15:30 IST, or 23:30 for an MCX commodity (pass its `instrument`).
+ * otherwise - 15:30 IST, or the night close for an MCX commodity (pass its `instrument`).
  */
 export function targetMomentMs(dayIndex: number, totalDays: number, nowMs: number, expiryMs: number, instrument?: Instrument): number {
   if (dayIndex <= 0) return nowMs;

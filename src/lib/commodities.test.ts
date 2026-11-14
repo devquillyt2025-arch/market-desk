@@ -22,8 +22,10 @@ import {
   STRIKE_STEPS,
   isCommodityInstrument,
   isIndexInstrument,
+  mcxSessionCloseIst,
   sessionCloseIst,
   underlyingFamily,
+  usSummerTime,
   type LivePortfolioEntry,
 } from "@/lib/types";
 import type { UpstoxOptionChainResult, UpstoxPosition } from "@/lib/upstox/types";
@@ -69,28 +71,62 @@ describe("instrument tables", () => {
 });
 
 describe("session close", () => {
-  it("is 15:30 for the indices and 23:30 for MCX", () => {
-    assert.equal(sessionCloseIst("NIFTY"), "15:30");
-    assert.equal(sessionCloseIst(), "15:30");
-    assert.equal(sessionCloseIst("CRUDEOIL"), "23:30");
+  // Read off real 1-minute candles of MCX crude and natural gas: the last trade was at 23:29 up to Friday 30 Oct 2026
+  // and at 23:54 from Monday 2 Nov, the day after US clocks went back.
+  it("is 15:30 for the indices, and for MCX 23:30 in US summer time and 23:55 in winter", () => {
+    assert.equal(sessionCloseIst("NIFTY", "2026-11-17"), "15:30");
+    assert.equal(sessionCloseIst(undefined, "2026-11-17"), "15:30");
+    assert.equal(sessionCloseIst("CRUDEOIL", "2026-11-17"), "23:55");
+    assert.equal(sessionCloseIst("CRUDEOIL", "2026-07-15"), "23:30");
     assert.equal(expiryCloseMs("2026-11-17"), Date.parse("2026-11-17T15:30:00+05:30"));
-    assert.equal(expiryCloseMs("2026-11-17", "CRUDEOIL"), Date.parse("2026-11-17T23:30:00+05:30"));
+    assert.equal(expiryCloseMs("2026-11-17", "CRUDEOIL"), Date.parse("2026-11-17T23:55:00+05:30"));
+    assert.equal(expiryCloseMs("2026-07-15", "CRUDEOIL"), Date.parse("2026-07-15T23:30:00+05:30"));
+  });
+
+  it("switches on the weekend US clocks change - Friday 30 Oct is the last 23:30 close, Monday 2 Nov the first 23:55", () => {
+    assert.equal(mcxSessionCloseIst("2026-10-30"), "23:30");
+    assert.equal(mcxSessionCloseIst("2026-11-01"), "23:55"); // the Sunday itself
+    assert.equal(mcxSessionCloseIst("2026-11-02"), "23:55");
+    // ... and back in spring, assuming it mirrors (second Sunday of March 2026 is the 8th)
+    assert.equal(mcxSessionCloseIst("2026-03-06"), "23:55");
+    assert.equal(mcxSessionCloseIst("2026-03-09"), "23:30");
+  });
+
+  it("finds US summer time from the calendar, in other years too", () => {
+    assert.equal(usSummerTime("2026-03-07"), false);
+    assert.equal(usSummerTime("2026-03-08"), true);
+    assert.equal(usSummerTime("2026-10-31"), true);
+    assert.equal(usSummerTime("2026-11-01"), false);
+    assert.equal(usSummerTime("2027-03-14"), true); // second Sunday of March 2027
+    assert.equal(usSummerTime("2027-03-13"), false);
+    assert.equal(usSummerTime("2027-11-07"), false); // first Sunday of November 2027
+    assert.equal(usSummerTime("2027-11-06"), true);
+    assert.equal(usSummerTime("2026-01-15"), false);
+    assert.equal(usSummerTime("2026-07-15"), true);
   });
 
   it("keeps a crude option alive through the evening of its expiry day", () => {
     const evening = new Date("2026-11-17T20:00:00+05:30");
     assert.equal(yearsToExpiry("2026-11-17", evening, "NIFTY"), 0);
-    near(yearsToExpiry("2026-11-17", evening, "CRUDEOIL") * 365 * 24, 3.5, 1e-9);
+    near(yearsToExpiry("2026-11-17", evening, "CRUDEOIL") * 365 * 24, 3 + 55 / 60, 1e-9);
   });
 
-  it("has MCX open 09:00 to 23:30, weekdays", () => {
+  it("has MCX open 09:00 to 23:55 in winter, weekdays", () => {
     const at = (t: string) => Date.parse(`2026-11-12T${t}:00+05:30`); // a Thursday
     assert.equal(isMarketOpen(at("20:00"), "CRUDEOIL"), true);
     assert.equal(isMarketOpen(at("20:00"), "NIFTY"), false);
     assert.equal(isMarketOpen(at("09:00"), "GOLD"), true);
     assert.equal(isMarketOpen(at("08:59"), "GOLD"), false);
-    assert.equal(isMarketOpen(at("23:30"), "GOLD"), false);
+    assert.equal(isMarketOpen(at("23:30"), "GOLD"), true); // still trading - the old 23:30 close called this closed
+    assert.equal(isMarketOpen(at("23:54"), "GOLD"), true);
+    assert.equal(isMarketOpen(at("23:55"), "GOLD"), false);
     assert.equal(isMarketOpen(Date.parse("2026-11-14T12:00:00+05:30"), "CRUDEOIL"), false); // Saturday
+  });
+
+  it("has MCX close at 23:30 in summer", () => {
+    const at = (t: string) => Date.parse(`2026-07-16T${t}:00+05:30`); // a Thursday
+    assert.equal(isMarketOpen(at("23:29"), "CRUDEOIL"), true);
+    assert.equal(isMarketOpen(at("23:30"), "CRUDEOIL"), false);
   });
 
   it("has no weekly expiry pattern to guess for a commodity", () => {

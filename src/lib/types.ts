@@ -54,14 +54,35 @@ export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   NATGASMINI: 250,
 };
 
+/** The day of the month of the `n`th (1-based) Sunday of a month (`month0` is 0 for January). */
+function nthSunday(year: number, month0: number, n: number): number {
+  const firstWeekday = new Date(Date.UTC(year, month0, 1)).getUTCDay(); // 0 = Sunday
+  return 1 + ((7 - firstWeekday) % 7) + 7 * (n - 1);
+}
+
+/** Whether US clocks are on summer time on a date (yyyy-mm-dd): from the second Sunday of March up to the first Sunday of November. */
+export function usSummerTime(iso: string): boolean {
+  const year = Number(iso.slice(0, 4));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return iso >= `${year}-03-${pad(nthSunday(year, 2, 2))}` && iso < `${year}-11-${pad(nthSunday(year, 10, 1))}`;
+}
+
 /**
- * When the session ends in IST — where an option's last day runs out. The
- * indices stop at 15:30; MCX crude and gold trade into the night and their
- * options expire at 23:30 (23:55 for a few weeks while US clocks are on summer
- * time, a gap too small to matter for pricing).
+ * When an MCX session ends on a date (yyyy-mm-dd): 23:30 while US clocks are on summer time, 23:55 once they go back -
+ * the exchange keeps the evening open to cover the US session as it moves an hour later in IST. Read off real
+ * 1-minute candles of crude and natural gas: the last trade was at 23:29 up to Friday 30 Oct 2026 and 23:54 from
+ * Monday 2 Nov. The autumn change is what was observed; the spring one is assumed to mirror it.
  */
-export function sessionCloseIst(instrument?: Instrument): "15:30" | "23:30" {
-  return instrument !== undefined && isCommodityInstrument(instrument) ? "23:30" : "15:30";
+export function mcxSessionCloseIst(iso: string): "23:30" | "23:55" {
+  return usSummerTime(iso) ? "23:30" : "23:55";
+}
+
+/**
+ * When the session ends in IST on a date - where an option's last day runs out. The indices stop at 15:30; an MCX
+ * commodity trades into the night (see mcxSessionCloseIst). Holiday and special sessions aren't known here.
+ */
+export function sessionCloseIst(instrument: Instrument | undefined, iso: string): "15:30" | "23:30" | "23:55" {
+  return instrument !== undefined && isCommodityInstrument(instrument) ? mcxSessionCloseIst(iso) : "15:30";
 }
 
 /** What a position is written on, for telling apart books that can't be treated as one market. Mini and full contracts share a family. */

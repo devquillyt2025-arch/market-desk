@@ -1,6 +1,6 @@
 /**
  * The Analysis tab with an MCX commodity: importing a position into it, saving the strategy, and the timing that
- * differs from the indices (an MCX option runs to 23:30 on its expiry day, not 15:30). The fixture is the real
+ * differs from the indices (an MCX option runs into the night - 23:55 in winter - on its expiry day, not to 15:30). The fixture is the real
  * natural gas position: long 2 lots of NATURALGAS 330 PE, 20 Nov 2026 expiry, bought at 29.
  */
 
@@ -106,10 +106,10 @@ describe("the saved strategy", () => {
 describe("MCX timing in Analysis", () => {
   const at = (iso: string) => Date.parse(iso);
 
-  it("moves the date slider's in-between days to the commodity's own 23:30 close", () => {
+  it("moves the date slider's in-between days to the commodity's own night close (23:55 in November)", () => {
     const now = at("2026-11-13T12:00:00+05:30");
     const expiryMs = expiryCloseMs("2026-11-20", "NATURALGAS");
-    assert.equal(targetMomentMs(3, 7, now, expiryMs, "NATURALGAS"), at("2026-11-16T23:30:00+05:30"));
+    assert.equal(targetMomentMs(3, 7, now, expiryMs, "NATURALGAS"), at("2026-11-16T23:55:00+05:30"));
     assert.equal(targetMomentMs(3, 7, now, expiryMs), at("2026-11-16T15:30:00+05:30")); // the indices' close
     assert.equal(targetMomentMs(0, 7, now, expiryMs, "NATURALGAS"), now);
     assert.equal(targetMomentMs(7, 7, now, expiryMs, "NATURALGAS"), expiryMs);
@@ -119,7 +119,8 @@ describe("MCX timing in Analysis", () => {
     const listed = ["2026-11-20", "2026-12-23", "2027-01-21"];
     assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2026-11-13T12:00:00+05:30")), "2026-11-20");
     assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2026-11-20T20:00:00+05:30")), "2026-11-20");
-    assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2026-11-20T23:45:00+05:30")), "2026-12-23");
+    assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2026-11-20T23:45:00+05:30")), "2026-11-20"); // still trading until 23:55
+    assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2026-11-20T23:56:00+05:30")), "2026-12-23");
     assert.equal(firstLiveExpiry(listed, "NATURALGAS", at("2027-02-01T12:00:00+05:30")), undefined);
     assert.equal(firstLiveExpiry([], "NATURALGAS", at("2026-11-13T12:00:00+05:30")), undefined); // list not loaded yet
   });
@@ -151,11 +152,11 @@ describe("MCX timing in Analysis", () => {
     assert.equal(defaultExpiryFor("NATURALGAS", ["2026-11-20", "2026-12-23"], "2026-11-20", at("2026-11-20T20:00:00+05:30")), "2026-11-20");
   });
 
-  it("values the leg to 23:30 on its expiry day when it is told the instrument, so there is time value at 20:00", () => {
+  it("values the leg to the night close (23:55) on its expiry day when it is told the instrument, so there is time value at 20:00", () => {
     const leg: StrategyLeg = { id: "a", enabled: true, side: "buy", type: "PE", strike: 330, expiry: "2026-11-20", lots: 2, price: 29, chainIv: 77 };
     const evening = at("2026-11-20T20:00:00+05:30");
     const [mcx] = priceLegs([leg], 308, evening, 1250, "NATURALGAS");
-    assert.equal(mcx.closeMs, at("2026-11-20T23:30:00+05:30"));
+    assert.equal(mcx.closeMs, at("2026-11-20T23:55:00+05:30"));
     assert.equal(mcx.qty, 2500);
     // Without the instrument it would be treated as expired at 15:30 - no time left at all.
     const [asIndex] = priceLegs([leg], 308, evening, 1250);

@@ -594,7 +594,7 @@ export default function AnalysisView() {
     [legs, quoteFor, isLeftOut],
   );
 
-  // `instrument` makes an MCX option run to 23:30 on its expiry day rather than 15:30.
+  // `instrument` makes an MCX option run into the night (23:30 or 23:55) on its expiry day rather than to 15:30.
   const priced = useMemo(
     () => (spot ? priceLegs(strategyLegs, spot, nowMs, lotSize, instrument) : []),
     [strategyLegs, spot, nowMs, lotSize, instrument],

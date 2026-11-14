@@ -191,9 +191,9 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / MS_PER_DAY);
 }
 
-/** Years left until the session close on expiry day (15:30 IST; 23:30 for an MCX commodity - pass its `instrument`), floored at 0. */
+/** Years left until the session close on expiry day (15:30 IST; 23:30 or 23:55 for an MCX commodity - pass its `instrument`), floored at 0. */
 export function yearsToExpiry(expiryIso: string, now: Date, instrument?: Instrument): number {
-  const close = Date.parse(`${expiryIso}T${sessionCloseIst(instrument)}:00+05:30`);
+  const close = Date.parse(`${expiryIso}T${sessionCloseIst(instrument, expiryIso)}:00+05:30`);
   return Math.max(close - now.getTime(), 0) / (365 * MS_PER_DAY);
 }
 
@@ -209,7 +209,7 @@ export type ModelLeg = {
   qty: number;
   spot: number;
   sigma: number;
-  /** Years to the session close on expiry day (15:30 IST, or 23:30 for an MCX commodity). */
+  /** Years to the session close on expiry day (15:30 IST, or 23:30 / 23:55 for an MCX commodity). */
   t: number;
   groupKey: string;
 };

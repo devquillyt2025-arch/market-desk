@@ -51,8 +51,8 @@ describe("natural gas instruments", () => {
     }
   });
 
-  it("runs to 23:30 like the other MCX contracts, and is billed as a commodity option", () => {
-    assert.equal(sessionCloseIst("NATURALGAS"), "23:30");
+  it("runs into the night like the other MCX contracts (23:55 in winter), and is billed as a commodity option", () => {
+    assert.equal(sessionCloseIst("NATURALGAS", "2026-11-20"), "23:55");
     assert.equal(optionsSegmentFor("NATURALGAS"), "COMMODITY_OPTIONS");
     assert.equal(optionsSegmentFor("NATGASMINI"), "COMMODITY_OPTIONS");
   });

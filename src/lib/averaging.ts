@@ -37,7 +37,7 @@ import {
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import type { SavedAnalysis } from "@/lib/savedAnalysis";
 import type { DraftLeg } from "@/lib/strategyTransfer";
-import { DEFAULT_LOT_SIZES, STRIKE_STEPS, isCommodityInstrument, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, STRIKE_STEPS, isCommodityInstrument, sessionCloseIst, type Instrument } from "@/lib/types";
 
 // --- Tunables -----------------------------------------------------------------
 
@@ -322,7 +322,7 @@ function dateText(iso: string): string {
 }
 
 /**
- * Every day from Today (right now) to Expiry (the session close: 15:30, or 23:30 for an MCX commodity), each at that
+ * Every day from Today (right now) to Expiry (the session close: 15:30, or 23:30 / 23:55 for an MCX commodity), each at that
  * close like the Analysis payoff table, so the cards show how the break-even drifts as time decay bites. Up to
  * MAX_SCENARIOS dates; a longer expiry keeps Today, Tomorrow and Expiry and spreads the rest.
  * Tomorrow is left out when the contract expires today, and folded into Expiry when it expires
@@ -890,8 +890,9 @@ function buildWarnings(
 // --- Market hours ---------------------------------------------------------------
 
 /**
- * Mon–Fri 09:15–15:30 IST for the indices; 09:00–23:30 for an MCX commodity (pass its `instrument`).
- * Exchange holidays aren't known here, so a holiday reads as open.
+ * Mon–Fri 09:15–15:30 IST for the indices; 09:00 to 23:30 (summer) or 23:55 (winter) for an MCX commodity (pass its
+ * `instrument`). Exchange holidays aren't known here, so a holiday reads as open - and so does the morning of a
+ * part-day holiday, when MCX opens only at 17:00.
  */
 export function isMarketOpen(nowMs: number, instrument?: Instrument): boolean {
   const ist = new Date(nowMs + IST_OFFSET_MS);
@@ -899,8 +900,8 @@ export function isMarketOpen(nowMs: number, instrument?: Instrument): boolean {
   const minutes = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   const commodity = instrument !== undefined && isCommodityInstrument(instrument);
   const open = commodity ? 9 * 60 : 9 * 60 + 15;
-  const close = commodity ? 23 * 60 + 30 : 15 * 60 + 30;
-  return day >= 1 && day <= 5 && minutes >= open && minutes < close;
+  const [closeH, closeM] = sessionCloseIst(instrument, ist.toISOString().slice(0, 10)).split(":").map(Number);
+  return day >= 1 && day <= 5 && minutes >= open && minutes < closeH * 60 + closeM;
 }
 
 // --- From a Live Portfolio row ---------------------------------------------------
