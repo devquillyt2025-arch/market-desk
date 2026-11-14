@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type DragEvent, type KeyboardEvent } from "react";
+import type { DragEvent, KeyboardEvent } from "react";
 
 import { ChevronDownIcon, GripVerticalIcon, TrashIcon, TrendingDownIcon, TrendingUpIcon } from "@/components/icons";
 import {
@@ -10,39 +10,19 @@ import {
   formatPrice,
   formatRangeValue,
   itemDetail,
-  itemGlyph,
   moveDirection,
   type WatchQuote,
   type WatchlistItem,
 } from "@/lib/watchlist";
 
-import { toneStyle } from "./watchTone";
-
-const FLASH_MS = 800;
+import { InstrumentIcon } from "./InstrumentIcon";
+import { useTickFlash } from "./useTickFlash";
 
 /**
- * Which way the price last ticked, for a moment after each change - the cue that a number on screen is live. Derived while
- * rendering (React's "adjust state when a prop changes" pattern) rather than in an effect, so there is no frame
- * where the new price shows without its flash. Nothing flashes on the first price, or when a stale price is
- * replaced by a live one (`quiet`): that is a refresh, not a tick.
+ * The columns of the wide layout - grip, instrument, price, change, day range, actions - written once, because the header
+ * row above the list (WatchlistView) must use the very same ones or its labels drift off their columns.
  */
-function useTickFlash(price: number | undefined, quiet: boolean): { dir: "up" | "down"; on: boolean } {
-  const [seen, setSeen] = useState(price);
-  const [flash, setFlash] = useState<{ dir: "up" | "down"; on: boolean }>({ dir: "up", on: false });
-
-  if (price !== seen) {
-    setSeen(price);
-    if (price !== undefined && seen !== undefined && !quiet) setFlash({ dir: price > seen ? "up" : "down", on: true });
-  }
-
-  useEffect(() => {
-    if (!flash.on) return;
-    const id = setTimeout(() => setFlash((f) => ({ ...f, on: false })), FLASH_MS);
-    return () => clearTimeout(id);
-  }, [flash]);
-
-  return flash;
-}
+export const WATCH_COLUMNS = "xl:grid-cols-[1.25rem_minmax(0,2.7fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.8fr)_6.5rem]";
 
 type WatchRowProps = {
   item: WatchlistItem;
@@ -119,13 +99,12 @@ export function WatchRow({
       onDragOver={(e) => onDragOver(e, item)}
       onDrop={(e) => onDrop(e, item)}
       onDragEnd={onDragEnd}
-      style={toneStyle(item.kind)}
-      className={`group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-3.5 transition-colors hover:bg-muted/40 xl:grid-cols-[1.5rem_minmax(0,2.3fr)_minmax(0,1.2fr)_minmax(0,1.8fr)_minmax(0,1.3fr)_6.5rem] ${
+      className={`group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-2.5 transition-colors hover:bg-muted/40 ${WATCH_COLUMNS} ${
         dragging ? "opacity-40" : ""
       }`}
     >
       {/* The direction of today's move, as a thin rail down the row's left edge. */}
-      <span aria-hidden="true" className={`absolute inset-y-3 left-0 w-[3px] rounded-r-full ${rail} ${hasMove ? "" : "opacity-40"}`} />
+      <span aria-hidden="true" className={`absolute inset-y-2 left-0 w-[3px] rounded-r-full ${rail} ${hasMove ? "" : "opacity-40"}`} />
       {/* A brief wash of green or red each time the price ticks. */}
       <span
         aria-hidden="true"
@@ -152,14 +131,9 @@ export function WatchRow({
       </div>
 
       <div className="col-start-1 row-span-2 row-start-1 flex min-w-0 items-center gap-3 xl:col-start-2 xl:row-span-1">
-        <span
-          aria-hidden="true"
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[image:linear-gradient(145deg,color-mix(in_srgb,var(--tone)_28%,var(--card)),color-mix(in_srgb,var(--tone)_8%,var(--card)))] text-sm font-semibold tracking-tight text-[color-mix(in_srgb,var(--tone)_70%,var(--foreground))] ring-1 ring-inset ring-[color-mix(in_srgb,var(--tone)_30%,transparent)]"
-        >
-          {itemGlyph(item)}
-        </span>
+        <InstrumentIcon item={item} />
         <div className="min-w-0">
-          <p className="truncate font-semibold leading-snug">{item.name}</p>
+          <p className="truncate text-sm font-semibold leading-tight">{item.name}</p>
           <p className="truncate font-mono text-xs text-muted-foreground" title={`${item.symbol} · ${itemDetail(item, quote)}`}>
             {item.symbol}
             <span className="hidden sm:inline"> · {itemDetail(item, quote)}</span>
@@ -168,13 +142,13 @@ export function WatchRow({
       </div>
 
       <div className="col-start-2 row-start-1 text-right xl:col-start-3 xl:text-left">
-        <p className="font-mono text-lg font-semibold tabular-nums">{quote ? formatPrice(item.kind, quote.price) : "—"}</p>
+        <p className="font-mono text-base font-semibold tabular-nums">{quote ? formatPrice(item.kind, quote.price) : "—"}</p>
         {!quote && <p className="text-xs text-muted-foreground">{unavailable ? "No price" : "Loading…"}</p>}
       </div>
 
       <div className="col-start-2 row-start-2 flex justify-end xl:col-start-4 xl:row-start-1 xl:justify-start">
         {hasMove ? (
-          <span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-mono text-sm font-semibold tabular-nums ${moveBg} ${moveColor}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[13px] font-semibold tabular-nums ${moveBg} ${moveColor}`}>
             {direction === "flat" ? <span aria-hidden="true">–</span> : <Arrow className="size-3.5" />}
             <span>{formatMove(quote.change!)}</span>
             <span className="font-medium opacity-90">({formatMovePct(quote.changePct!)})</span>
@@ -187,18 +161,22 @@ export function WatchRow({
 
       <div className="col-span-2 xl:col-span-1 xl:col-start-5 xl:row-start-1">
         {rangePos !== null && quote?.low != null && quote.high != null ? (
-          <div role="img" aria-label={`Today's range ${formatRangeValue(quote.low)} to ${formatRangeValue(quote.high)}; the price is ${Math.round(rangePos * 100)}% of the way up`}>
-            <div className="relative h-1.5 rounded-full bg-muted">
+          // One line: the low, the bar, the high - not the numbers stacked under the bar, which cost a row half its height.
+          <div
+            role="img"
+            aria-label={`Today's range ${formatRangeValue(quote.low)} to ${formatRangeValue(quote.high)}; the price is ${Math.round(rangePos * 100)}% of the way up`}
+            className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground"
+          >
+            {/* Fixed-width ends, so the bars start and stop in the same place down the list however long the numbers are. */}
+            <span className="w-14 shrink-0 text-right">{formatRangeValue(quote.low)}</span>
+            <div className="relative h-1.5 min-w-10 flex-1 rounded-full bg-muted">
               <span className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ${fill}`} style={{ width: `${rangePos * 100}%` }} />
               <span
-                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card bg-foreground shadow transition-[left] duration-500"
+                className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card bg-foreground shadow transition-[left] duration-500"
                 style={{ left: `${rangePos * 100}%` }}
               />
             </div>
-            <div className="mt-1.5 flex justify-between font-mono text-xs tabular-nums text-muted-foreground">
-              <span>{formatRangeValue(quote.low)}</span>
-              <span>{formatRangeValue(quote.high)}</span>
-            </div>
+            <span className="w-14 shrink-0">{formatRangeValue(quote.high)}</span>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground xl:text-center">{quote ? "No day range yet" : ""}</p>

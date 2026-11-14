@@ -22,6 +22,8 @@ import {
   describeSort,
   matchesView,
   parseSort,
+  parseWatchTab,
+  WATCH_TABS,
   sortItems,
   withSortOrder,
   type SortState,
@@ -169,10 +171,23 @@ describe("what a quote says", () => {
 });
 
 describe("how an item is drawn", () => {
+  it("reads a remembered tab back, and ignores anything that isn't one of the two", () => {
+    assert.equal(parseWatchTab("india"), "india");
+    assert.equal(parseWatchTab("global"), "global");
+    assert.equal(parseWatchTab("Global"), null);
+    assert.equal(parseWatchTab(""), null);
+    assert.equal(parseWatchTab(null), null);
+    assert.equal(parseWatchTab(undefined), null);
+    assert.equal(parseWatchTab({ tab: "global" }), null);
+    assert.deepEqual([...WATCH_TABS], ["india", "global"]);
+  });
+
   it("uses a commodity's glyph and a name's initials", () => {
     assert.equal(itemGlyph({ kind: "commodity", symbol: "GOLD", name: "Gold" }), "Au");
-    assert.equal(itemGlyph({ kind: "index", symbol: "NIFTY", name: "Nifty 50" }), "N5");
+    assert.equal(itemGlyph({ kind: "index", symbol: "NIFTY", name: "Nifty 50" }), "N50");
     assert.equal(itemGlyph({ kind: "index", symbol: "BANKNIFTY", name: "Bank Nifty" }), "BN");
+    assert.equal(itemGlyph({ kind: "index", symbol: "SENSEX", name: "Sensex" }), "SX");
+    assert.equal(itemGlyph({ kind: "index", symbol: "NIFTYIT", name: "Nifty IT" }), "NI"); // any other index: initials
     assert.equal(itemGlyph({ kind: "equity", symbol: "RELIANCE", name: "Reliance Industries" }), "RI");
     assert.equal(itemGlyph({ kind: "equity", symbol: "TCS", name: "TCS" }), "TC");
   });

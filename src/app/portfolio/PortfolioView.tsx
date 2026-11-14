@@ -7,6 +7,7 @@ import type { SimulatorCandidate } from "@/components/AveragingSimulator";
 import ClosedTodayTable from "@/components/ClosedTodayTable";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ExportMenu, { type ExportFormat } from "@/components/ExportMenu";
+import { ExpectedOpenPanel } from "@/components/ExpectedOpenPanel";
 import LoadingState from "@/components/LoadingState";
 import { InboxIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
@@ -24,7 +25,8 @@ import {
 } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { downloadBlob, downloadCsvFile, downloadJsonFile } from "@/lib/download";
-import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
+import { applyMove, expectedOpenMarketFor, isExpectedOpenItem, type ExpectedOpenItem, type ExpectedOpenMarket } from "@/lib/expectedOpen";
+import { formatAsOf, formatINR, formatLevel, pnlColorClass } from "@/lib/format";
 import {
   calculateEntryPnl,
   deleteLivePortfolioEntry,
@@ -40,9 +42,11 @@ import { buildPortfolioCsv, buildPortfolioReport, exportFilename } from "@/lib/p
 import { showToast } from "@/lib/toast";
 import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
 import { positionContractKey, positionDayPnl } from "@/lib/upstoxSync";
+import { useExpectedOpen } from "@/lib/useExpectedOpen";
 import { useLivePricing } from "@/lib/useLivePricing";
 import { useMargin } from "@/lib/useMargin";
 import { useUpstoxPositions } from "@/lib/useUpstoxPositions";
+import { formatMovePct, moveDirection } from "@/lib/watchlist";
 
 const POLL_MS = 10000;
 
@@ -98,6 +102,36 @@ export default function PortfolioView() {
   const { rows, chainsByGroup, tokenExpired, offline, lastPolledAt, stalePricesAsOf, manualRefreshing, handleManualRefresh } =
     useLivePricing(openEntries, POLL_MS);
   const { totalMargin, marginByEntryId } = useMargin(rows);
+
+  // While MCX is shut: where the natural gas / crude oil underlyings of the open positions are expected to open.
+  const expectedOpen = useExpectedOpen();
+  const heldMarkets = useMemo(
+    () => [...new Set((rows ?? []).flatMap((row) => expectedOpenMarketFor(row.entry.instrument) ?? []))],
+    [rows],
+  );
+  const expectedByMarket = useMemo(() => {
+    const map = new Map<ExpectedOpenMarket, ExpectedOpenItem>();
+    for (const item of expectedOpen.result && !expectedOpen.result.open ? expectedOpen.result.items : []) {
+      if (isExpectedOpenItem(item)) map.set(item.market, item);
+    }
+    return map;
+  }, [expectedOpen.result]);
+  /** Under a position's contract name: where its underlying is expected to open - the same NYMEX move applied to its own price. */
+  function underlyingNote(row: PortfolioRow) {
+    const market = expectedOpenMarketFor(row.entry.instrument);
+    const item = market ? expectedByMarket.get(market) : undefined;
+    if (!item) return null;
+    const spot = row.underlyingSpot ?? item.mcxClose;
+    const color = moveDirection(item.movePct) === "up" ? "text-profit" : moveDirection(item.movePct) === "down" ? "text-danger-fg" : "text-muted-foreground";
+    return (
+      <span
+        className="mt-0.5 block text-xs font-normal text-muted-foreground"
+        title={`MCX last traded at ₹${formatLevel(spot)}. NYMEX ${item.nymex.label} has moved ${formatMovePct(item.movePct)} since, so the underlying is expected to open near there. An estimate - see the note above the table.`}
+      >
+        Underlying opens ≈ ₹{formatLevel(applyMove(spot, item.movePct))} <span className={`font-medium ${color}`}>({formatMovePct(item.movePct)})</span>
+      </span>
+    );
+  }
 
   // Only today's sync counts — positions from an earlier day (the token
   // lapsed overnight and nothing has synced since) aren't today's anything.
@@ -494,6 +528,8 @@ export default function PortfolioView() {
 
         <LivePricingBanners tokenExpired={anyTokenExpired} offline={anyOffline} lastPricesAt={stalePricesAsOf} />
 
+        <ExpectedOpenPanel state={expectedOpen} only={heldMarkets} />
+
         {rows === null || (rows.length === 0 && awaitingFirstSync) ? (
           <LoadingState className="h-40" label="Loading positions from Upstox…" />
         ) : rows.length === 0 ? (
@@ -514,6 +550,7 @@ export default function PortfolioView() {
             onRowClick={(row) => setEditing(row.entry)}
             onSimulate={handleSimulate}
             canSimulate={(row) => simulatableIds.has(row.entry.id)}
+            underlyingNote={underlyingNote}
           />
         )}
 

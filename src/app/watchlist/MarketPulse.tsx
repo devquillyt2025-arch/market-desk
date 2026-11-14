@@ -1,7 +1,8 @@
 "use client";
 
-import { RefreshIcon, TrendingDownIcon, TrendingUpIcon } from "@/components/icons";
-import { formatAsOf } from "@/lib/format";
+import { TrendingDownIcon, TrendingUpIcon } from "@/components/icons";
+
+import { PulseRefresh, StatusPill } from "./PulseParts";
 
 type Breadth = { up: number; down: number; flat: number; total: number };
 
@@ -20,31 +21,31 @@ type MarketPulseProps = {
 /** Open or closed, said in words as well as a dot - colour alone is not a state. */
 function SessionPill({ name, open, hours }: { name: string; open: boolean; hours: string }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background/60 px-3 py-1.5 text-sm" title={`${name} trades ${hours}, Monday to Friday`}>
-      <span aria-hidden="true" className={`size-2 rounded-full ${open ? "bg-profit shadow-[0_0_8px_var(--profit)]" : "bg-muted-foreground/50"}`} />
+    <StatusPill dot={open ? "bg-profit shadow-[0_0_8px_var(--profit)]" : "bg-muted-foreground/50"} title={`${name} trades ${hours}, Monday to Friday`}>
       <span className="font-medium">{name}</span>
       <span className="text-muted-foreground">{open ? "Open" : "Closed"}</span>
-    </span>
+    </StatusPill>
   );
 }
 
 /**
- * The strip under the page header: which exchanges are open (they close at different times - crude trades into the night, the
- * indices stop mid-afternoon), how the whole list is doing as a bar of up / flat / down, and when the numbers are from.
+ * The status line along the bottom of the Watchlist's header card, one row: which exchanges are open (they close at different
+ * times - crude trades into the night, the indices stop mid-afternoon), how the whole list is doing as a bar of up / flat /
+ * down with its counts beside it, and when the numbers are from. No card of its own - the header card holds it.
  */
 export function MarketPulse({ nseOpen, mcxOpen, breadth, lastPolledAt, stale, refreshing, onRefresh }: MarketPulseProps) {
   const share = (n: number) => (breadth.total === 0 ? 0 : (n / breadth.total) * 100);
   const summary = `${breadth.up} up, ${breadth.flat} flat, ${breadth.down} down`;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-4 rounded-2xl border border-border bg-card px-4 py-3.5">
+    <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <SessionPill name="NSE" open={nseOpen} hours="9:15 am to 3:30 pm" />
-        <SessionPill name="MCX" open={mcxOpen} hours="9:00 am to 11:30 pm" />
+        <SessionPill name="MCX" open={mcxOpen} hours="9:00 am to 11:55 pm (11:30 pm in US summer time)" />
       </div>
 
-      <div className="min-w-[14rem] flex-1">
-        <div role="img" aria-label={`Today: ${summary}`} className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-muted">
+      <div className="flex min-w-[15rem] flex-1 items-center gap-3">
+        <div role="img" aria-label={`Today: ${summary}`} className="flex h-2 min-w-16 flex-1 gap-0.5 overflow-hidden rounded-full bg-muted">
           {breadth.total > 0 && (
             <>
               <span className="bg-profit transition-[flex-basis] duration-500" style={{ flexBasis: `${share(breadth.up)}%` }} />
@@ -53,7 +54,7 @@ export function MarketPulse({ nseOpen, mcxOpen, breadth, lastPolledAt, stale, re
             </>
           )}
         </div>
-        <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
+        <p className="flex shrink-0 items-center gap-3 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
           <span className="inline-flex items-center gap-1 text-profit">
             <TrendingUpIcon className="size-3.5" />
             {breadth.up} up
@@ -66,23 +67,8 @@ export function MarketPulse({ nseOpen, mcxOpen, breadth, lastPolledAt, stale, re
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        {lastPolledAt !== null &&
-          (stale ? (
-            <span className="whitespace-nowrap text-xs font-medium text-warning">Last prices {formatAsOf(lastPolledAt)}</span>
-          ) : (
-            <span className="whitespace-nowrap text-xs text-muted-foreground">Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}</span>
-          ))}
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          aria-label="Refresh now"
-          title="Refresh now"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
-        >
-          <RefreshIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
-        </button>
+      <div className="ml-auto">
+        <PulseRefresh lastPolledAt={lastPolledAt} stale={stale} refreshing={refreshing} onRefresh={onRefresh} label="Refresh now" />
       </div>
     </div>
   );

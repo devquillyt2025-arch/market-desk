@@ -16,10 +16,10 @@ import { useDialogFocus } from "@/lib/useDialogFocus";
 import { useSettled } from "@/lib/useSettled";
 import { searchInstruments } from "@/lib/upstox/client";
 import type { InstrumentSearchResult } from "@/lib/upstox/types";
-import { itemGlyph, KIND_LABELS, type WatchSearchResult } from "@/lib/watchlist";
+import { KIND_LABELS, type WatchSearchResult } from "@/lib/watchlist";
 import { suggestedInstruments, type Suggestions } from "@/lib/watchlistSuggestions";
 
-import { toneStyle } from "./watchTone";
+import { InstrumentIcon } from "./InstrumentIcon";
 
 type AddInstrumentModalProps = {
   /** `itemKey`s already on the list - those show "Added". Live, so a row flips as soon as its add lands. */
@@ -37,13 +37,8 @@ const SECTIONS: { id: keyof Suggestions; kind: "index" | "commodity" | "equity" 
 
 function ResultRow({ result, listed, pending, onAdd }: { result: WatchSearchResult; listed: boolean; pending: boolean; onAdd: () => void }) {
   return (
-    <li style={toneStyle(result.kind)} className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-muted/50">
-      <span
-        aria-hidden="true"
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[image:linear-gradient(145deg,color-mix(in_srgb,var(--tone)_28%,var(--card)),color-mix(in_srgb,var(--tone)_8%,var(--card)))] text-sm font-semibold text-[color-mix(in_srgb,var(--tone)_70%,var(--foreground))] ring-1 ring-inset ring-[color-mix(in_srgb,var(--tone)_30%,transparent)]"
-      >
-        {itemGlyph(result)}
-      </span>
+    <li className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-muted/50">
+      <InstrumentIcon item={result} className="size-9 rounded-lg" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{result.name}</p>
         <p className="truncate font-mono text-xs text-muted-foreground">

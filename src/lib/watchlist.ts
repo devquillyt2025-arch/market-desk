@@ -7,6 +7,15 @@
 import { formatLevel } from "@/lib/format";
 import { commodityGlyph, commodityUnit, contractMonthLabel, HEATMAP_COMMODITIES, commodityName } from "@/lib/mcxCommodities";
 
+/** The Watchlist page's two halves: the saved list of Indian instruments, and the global prices MCX follows. */
+export const WATCH_TABS = ["india", "global"] as const;
+export type WatchTab = (typeof WATCH_TABS)[number];
+
+/** A remembered tab read back from storage - or null if it is missing or isn't one of the two. */
+export function parseWatchTab(raw: unknown): WatchTab | null {
+  return (WATCH_TABS as readonly unknown[]).includes(raw) ? (raw as WatchTab) : null;
+}
+
 export const WATCHLIST_KINDS = ["index", "commodity", "equity"] as const;
 export type WatchlistKind = (typeof WATCHLIST_KINDS)[number];
 
@@ -167,9 +176,13 @@ export function marketBreadth(quotes: readonly (WatchQuote | undefined)[]): { up
 
 // --- How an item is drawn --------------------------------------------------------
 
-/** Two characters for the tile: a commodity's glyph (Au, CL), otherwise the initials of its name. */
+/** The three indices the app tracks have a short mark of their own - initials would make Nifty 50 "N5". */
+const INDEX_MARKS: Record<string, string> = { NIFTY: "N50", BANKNIFTY: "BN", SENSEX: "SX" };
+
+/** Two or three characters for the tile: a commodity's glyph (Au, CL), an index's mark (N50, BN, SX), otherwise the initials of its name. */
 export function itemGlyph(item: Pick<WatchlistItem, "kind" | "symbol" | "name">): string {
   if (item.kind === "commodity") return commodityGlyph(item.symbol);
+  if (item.kind === "index" && INDEX_MARKS[item.symbol]) return INDEX_MARKS[item.symbol];
   const words = item.name.trim().split(/[\s\-_/&.]+/).filter(Boolean);
   if (words.length === 0) return item.symbol.slice(0, 2).toUpperCase();
   const letters = words.length === 1 ? Array.from(words[0]).slice(0, 2) : [Array.from(words[0])[0], Array.from(words[1])[0]];

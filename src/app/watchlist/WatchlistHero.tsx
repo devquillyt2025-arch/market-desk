@@ -1,8 +1,13 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { CheckIcon, EyeIcon, PencilIcon, PlusIcon } from "@/components/icons";
+import type { WatchTab } from "@/lib/watchlist";
 
 type WatchlistHeroProps = {
+  /** Which half of the page is showing: the Edit and Add buttons belong to the saved list, so the global prices don't get them. */
+  tab: WatchTab;
   /** Null while the list is still loading. */
   count: number | null;
   /** The list can't be changed yet (its table doesn't exist). */
@@ -10,6 +15,8 @@ type WatchlistHeroProps = {
   editMode: boolean;
   onToggleEdit: () => void;
   onAdd: () => void;
+  /** The status line along the bottom of the card. */
+  children?: ReactNode;
 };
 
 /**
@@ -23,9 +30,9 @@ const GLOW =
 const GRID = "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)";
 const GRID_MASK = "radial-gradient(ellipse 75% 100% at 15% 0%, #000 15%, transparent 72%)";
 
-export function WatchlistHero({ count, readOnly, editMode, onToggleEdit, onAdd }: WatchlistHeroProps) {
+export function WatchlistHero({ tab, count, readOnly, editMode, onToggleEdit, onAdd, children }: WatchlistHeroProps) {
   return (
-    <section aria-labelledby="watchlist-heading" className="relative isolate overflow-hidden rounded-3xl border border-border bg-card p-6 sm:p-8">
+    <section aria-labelledby="watchlist-heading" className="relative isolate overflow-hidden rounded-2xl border border-border bg-card px-4 py-4 sm:px-6 sm:py-5">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10" style={{ background: GLOW }} />
       <div
         aria-hidden="true"
@@ -34,51 +41,67 @@ export function WatchlistHero({ count, readOnly, editMode, onToggleEdit, onAdd }
       />
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
 
-      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-            <EyeIcon className="size-3.5" />
-            Live markets
-          </span>
+      {/* Title and badge on the left, the buttons on the right, the description on a line of its own under them, then the status line - all in this one card. */}
+      <div className="flex min-h-[2.625rem] items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <h1
             id="watchlist-heading"
-            className="mt-4 w-fit bg-gradient-to-r from-foreground from-30% via-accent to-accent-soft bg-clip-text pb-1 text-4xl font-semibold tracking-tight text-transparent sm:text-5xl"
+            className="w-fit bg-gradient-to-r from-foreground from-30% via-accent to-accent-soft bg-clip-text pb-0.5 text-2xl font-semibold tracking-tight text-transparent sm:text-3xl"
           >
             Watchlist
           </h1>
-          <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground sm:text-base">
-            {count === null ? "The instruments you follow" : `${count} instrument${count === 1 ? "" : "s"} you follow`} - live prices, today&apos;s move and range. Add, reorder and
-            remove them; the list follows you across devices.
-          </p>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
+            <EyeIcon className="size-3.5" />
+            Live markets
+          </span>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        {/* The buttons belong to the saved list. On a phone they shrink to their icons so they fit beside the title. */}
+        <div className={`shrink-0 items-center gap-2 ${tab === "india" ? "flex" : "hidden"}`}>
           <button
             type="button"
             onClick={onToggleEdit}
             disabled={readOnly}
             aria-pressed={editMode}
-            className={`flex min-h-11 items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-[background-color,color,border-color,transform] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 ${
+            aria-label={editMode ? "Done editing" : "Edit the list"}
+            title={editMode ? "Done editing" : "Edit the list"}
+            className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-[background-color,color,border-color,transform] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 sm:px-4 ${
               editMode
                 ? "border-foreground bg-foreground text-background hover:opacity-90"
                 : "border-border bg-background/60 text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
           >
             {editMode ? <CheckIcon className="size-4" /> : <PencilIcon className="size-4" />}
-            {editMode ? "Done" : "Edit"}
+            <span className="hidden sm:inline">{editMode ? "Done" : "Edit"}</span>
           </button>
           <button
             type="button"
             onClick={onAdd}
             disabled={readOnly}
             aria-haspopup="dialog"
-            className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-5 py-2.5 text-sm font-semibold text-accent-foreground shadow-[0_10px_28px_-10px_color-mix(in_srgb,var(--accent-solid)_85%,transparent),inset_0_1px_0_rgba(255,255,255,0.22)] transition-[filter,transform] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 active:scale-95 sm:min-h-10"
+            aria-label="Add an instrument"
+            title="Add an instrument"
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-3 py-2.5 text-sm font-semibold text-accent-foreground shadow-[0_10px_28px_-10px_color-mix(in_srgb,var(--accent-solid)_85%,transparent),inset_0_1px_0_rgba(255,255,255,0.22)] transition-[filter,transform] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 active:scale-95 sm:min-h-10 sm:px-5"
           >
             <PlusIcon className="size-4" />
-            Add
+            <span className="hidden sm:inline">Add</span>
           </button>
         </div>
       </div>
+
+      <p className="mt-1 text-sm text-muted-foreground">
+        {tab === "global" ? (
+          "Crude oil, the rupee, natural gas and gold - the prices behind your MCX positions, and where MCX is expected to open."
+        ) : (
+          <>
+            {count === null ? "The instruments you follow" : `${count} instrument${count === 1 ? "" : "s"} you follow`} - live prices, today&apos;s move and range. Add, reorder and
+            remove them; the list follows you across devices.
+          </>
+        )}
+      </p>
+
+      {/* The status line - sessions and breadth, or the state of the global feed - inside the same card, under a hairline. */}
+      {children && <div className="mt-3 border-t border-border/70 pt-3">{children}</div>}
     </section>
   );
 }

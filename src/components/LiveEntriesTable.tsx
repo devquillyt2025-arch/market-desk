@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import type { ReactNode } from "react";
 
 import DatePicker from "@/components/DatePicker";
 import { FlaskIcon } from "@/components/icons";
@@ -36,6 +37,8 @@ type LiveEntriesTableProps = {
    */
   onSimulate?: (row: PortfolioRow) => void;
   canSimulate?: (row: PortfolioRow) => boolean;
+  /** A short line under a row's contract name - Live Portfolio uses it for where an MCX underlying is expected to open. */
+  underlyingNote?: (row: PortfolioRow) => ReactNode;
 };
 
 /**
@@ -45,7 +48,7 @@ type LiveEntriesTableProps = {
  * every row with live data. Delta/Gamma/Theta/Vega/OI aren't shown here —
  * they're still computed per row and available in the edit popup.
  */
-export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimulate, canSimulate }: LiveEntriesTableProps) {
+export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimulate, canSimulate, underlyingNote }: LiveEntriesTableProps) {
   const liveRows = rows.filter((row) => row.status === "ok");
   // Plain column sums. Lots counts every row so it matches the column above
   // it; the price, P&L and brokerage sums need a live price, so they only
@@ -107,7 +110,10 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimu
                     <td className="whitespace-nowrap py-2.5 pl-5 pr-2 text-muted-foreground">
                       {formatCellDate(entry.entry_date)}
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2.5 font-medium">{describeEntryContract(entry)}</td>
+                    <td className="whitespace-nowrap px-2 py-2.5 font-medium">
+                      {describeEntryContract(entry)}
+                      {underlyingNote?.(row)}
+                    </td>
                     <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <DatePicker
                         value={entry.expiry_date ?? ""}

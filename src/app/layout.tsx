@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
+import GlobalMarketsBar from "@/components/GlobalMarketsBar";
+import { GlobalMarketsProvider } from "@/components/GlobalMarketsProvider";
 import MotionProvider from "@/components/MotionProvider";
 import Sidebar from "@/components/Sidebar";
 import ToastHost from "@/components/ToastHost";
@@ -82,19 +84,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to main content
         </a>
         <MotionProvider>
-          <ToastHost />
-          <div className="flex min-h-screen flex-col lg:flex-row">
-            <div className="print:hidden">
-              <Sidebar />
+          <GlobalMarketsProvider>
+            <ToastHost />
+            <div className="flex min-h-screen flex-col lg:flex-row">
+              <div className="print:hidden">
+                <Sidebar />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <GlobalMarketsBar />
+                <main
+                  id="main-content"
+                  tabIndex={-1}
+                  className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10 print:p-0"
+                >
+                  <div className="mx-auto w-full max-w-6xl print:max-w-none">{children}</div>
+                </main>
+              </div>
             </div>
-            <main
-              id="main-content"
-              tabIndex={-1}
-              className="w-full min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10 lg:px-10 print:p-0"
-            >
-              <div className="mx-auto w-full max-w-6xl print:max-w-none">{children}</div>
-            </main>
-          </div>
+          </GlobalMarketsProvider>
         </MotionProvider>
       </body>
     </html>

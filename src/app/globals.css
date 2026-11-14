@@ -340,6 +340,29 @@ body {
   }
 }
 
+/* One ring that grows and fades, played once: the global-prices strip's dot uses it each time a sync lands. */
+@keyframes sync-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+.sync-ping {
+  animation: sync-ping 1s cubic-bezier(0, 0, 0.2, 1) 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-ping {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }

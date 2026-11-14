@@ -24,12 +24,14 @@ import {
   nextSort,
   nextSortOrder,
   parseSort,
+  parseWatchTab,
   sortItems,
   withSortOrder,
   type Mover,
   type SortKey,
   type SortState,
   type WatchSearchResult,
+  type WatchTab,
   type WatchlistItem,
   type WatchlistKind,
 } from "@/lib/watchlist";
@@ -45,13 +47,18 @@ import {
 } from "@/lib/watchlistStore";
 
 import { AddInstrumentModal } from "./AddInstrumentModal";
+import { GlobalMarketsSection } from "./GlobalMarketsSection";
+import { GlobalPulse } from "./GlobalPulse";
 import { MarketPulse } from "./MarketPulse";
-import { WatchRow } from "./WatchRow";
+import { WATCH_COLUMNS, WatchRow } from "./WatchRow";
+import { WatchTabs, watchPanelId, watchTabId } from "./WatchTabs";
 import { WatchToolbar, type KindChip } from "./WatchToolbar";
 import { WatchlistHero } from "./WatchlistHero";
 
 /** Where this device remembers how the list is sorted. A preference about the view, so it stays on the device, like the other tabs' prefs. */
 const SORT_STORAGE_KEY = "marketdesk:watchlist-sort";
+/** Where this device remembers which tab the page was last on. */
+const TAB_STORAGE_KEY = "marketdesk:watchlist-tab";
 
 /** A column header that sorts: click for its natural order, again to reverse, again to go back to your own order. */
 function SortHeader({ sortKey, sort, onSort }: { sortKey: SortKey; sort: SortState | null; onSort: (next: SortState | null) => void }) {
@@ -95,6 +102,9 @@ export default function WatchlistView() {
   /** How the rows are ordered on screen; null is the saved order. Only a view - the saved order is never touched by it. */
   const [sort, setSort] = useState<SortState | null>(null);
   const [sortLoaded, setSortLoaded] = useState(false);
+  /** Indian markets (the saved list) or Global markets (the prices MCX follows). */
+  const [tab, setTab] = useState<WatchTab>("india");
+  const [tabLoaded, setTabLoaded] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const [editMode, setEditMode] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -156,9 +166,31 @@ export default function WatchlistView() {
     }
   }, [sort, sortLoaded]);
 
-  // "/" jumps to the filter box, as it does on the Important Links page - unless you are already typing somewhere.
+  // The tab last used is remembered on this device. Read after mount for the same reason as the sort: no localStorage while rendering on the server.
+  useEffect(() => {
+    try {
+      const saved = parseWatchTab(localStorage.getItem(TAB_STORAGE_KEY));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setTab(saved);
+    } catch {
+      // Storage unavailable: start on the Indian markets.
+    }
+    setTabLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!tabLoaded) return; // don't overwrite what's saved with the default before it has been read
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, tab);
+    } catch {
+      // Storage may be unavailable or full; the tab just won't be remembered.
+    }
+  }, [tab, tabLoaded]);
+
+  // "/" jumps to the filter box, as it does on the Important Links page - unless you are already typing somewhere, or the box isn't on screen.
   useEffect(() => {
     function handleKey(e: globalThis.KeyboardEvent) {
+      if (tab !== "india") return;
       if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
@@ -168,7 +200,7 @@ export default function WatchlistView() {
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, []);
+  }, [tab]);
 
   // The session pills need the time, but only to the minute.
   useEffect(() => {
@@ -176,7 +208,8 @@ export default function WatchlistView() {
     return () => clearInterval(id);
   }, []);
 
-  const live = useWatchlistQuotes(items);
+  // Upstox quotes are only polled while the Indian markets tab is showing - the global prices run on their own feeds.
+  const live = useWatchlistQuotes(tab === "india" ? items : null);
   const stale = live.tokenExpired || live.offline || live.loadError !== null;
 
   const kindsPresent = WATCHLIST_KINDS.filter((kind) => items?.some((item) => item.kind === kind));
@@ -331,132 +364,148 @@ export default function WatchlistView() {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }} className="flex flex-col gap-6">
       <WatchlistHero
+        tab={tab}
         count={items ? items.length : null}
         readOnly={storageMissing}
         editMode={editMode}
         onToggleEdit={() => setEditMode((prev) => !prev)}
         onAdd={() => setAddOpen(true)}
-      />
+      >
+        {tab === "india" ? (
+          <MarketPulse nseOpen={nseOpen} mcxOpen={mcxOpen} breadth={breadth} lastPolledAt={live.lastPolledAt} stale={stale} refreshing={live.manualRefreshing} onRefresh={() => void live.refresh()} />
+        ) : (
+          <GlobalPulse />
+        )}
+      </WatchlistHero>
 
-      {storageMissing && (
-        <div role="status" className="flex items-start gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-          <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-          <p className="min-w-0 text-muted-foreground">
-            <span className="font-medium text-foreground">This is the starting watchlist, and it can&apos;t be changed yet.</span> To add, remove and reorder - and keep the list across
-            devices - run <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">{WATCHLIST_MIGRATION}</code> in your Supabase SQL editor (or
-            with <code className="break-words rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">supabase db push</code>), then reload this page.
-          </p>
-        </div>
-      )}
+      <WatchTabs tab={tab} onChange={setTab} />
 
-      <MarketPulse nseOpen={nseOpen} mcxOpen={mcxOpen} breadth={breadth} lastPolledAt={live.lastPolledAt} stale={stale} refreshing={live.manualRefreshing} onRefresh={() => void live.refresh()} />
-
-      <LivePricingBanners tokenExpired={live.tokenExpired} offline={live.offline} lastPricesAt={live.lastPolledAt} />
-
-      {live.loadError && !live.tokenExpired && !live.offline && (
-        <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-danger-fg">
-          <AlertCircleIcon className="size-4 shrink-0" />
-          <span className="flex-1">Couldn&apos;t refresh prices - {live.loadError}. Retrying automatically.</span>
-        </div>
-      )}
-
-      {items === null ? (
-        <LoadingState className="h-64" label="Loading watchlist…" />
-      ) : items.length === 0 ? (
-        <div className="relative isolate flex flex-col items-center gap-5 overflow-hidden rounded-3xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 bg-[image:radial-gradient(50%_70%_at_50%_0%,color-mix(in_srgb,var(--accent-solid)_16%,transparent),transparent_70%)]"
-          />
-          <span aria-hidden="true" className="flex size-16 items-center justify-center rounded-2xl bg-[image:linear-gradient(145deg,color-mix(in_srgb,var(--accent)_32%,var(--card)),color-mix(in_srgb,var(--accent)_10%,var(--card)))] text-accent shadow-xl ring-1 ring-inset ring-accent/35">
-            <EyeIcon className="size-7" />
-          </span>
-          <div className="max-w-sm">
-            <p className="text-lg font-semibold tracking-tight">Your watchlist is empty</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Add the indices, stocks and commodities you follow to see their live price, move and range in one place.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-5 py-2.5 text-sm font-semibold text-accent-foreground shadow-[0_10px_28px_-10px_color-mix(in_srgb,var(--accent-solid)_85%,transparent),inset_0_1px_0_rgba(255,255,255,0.22)] transition-[filter,transform] hover:brightness-110 active:scale-95 sm:min-h-10"
-          >
-            <PlusIcon className="size-4" />
-            Add your first instrument
-          </button>
+      {tab === "global" ? (
+        <div role="tabpanel" id={watchPanelId("global")} aria-labelledby={watchTabId("global")}>
+          <GlobalMarketsSection />
         </div>
       ) : (
-        <>
-          <WatchToolbar
-            text={text}
-            onText={setText}
-            searchRef={searchRef}
-            sort={sort}
-            onSort={applySort}
-            mover={mover}
-            onMover={setMover}
-            moverCounts={moverCounts}
-            kinds={kindChips}
-            activeKind={activeFilter}
-            onKind={setFilter}
-            shown={visible.length}
-            total={items.length}
-            onClearFilters={clearFilters}
-          />
-
-          {visible.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-border bg-card/50 px-6 py-14 text-center">
-              <p className="font-medium">Nothing on your watchlist matches</p>
-              <p className="text-sm text-muted-foreground">
-                {mover && !text.trim() && activeFilter === null ? `None of your instruments is ${mover === "up" ? "up" : "down"} today.` : "Try fewer words, or show everything again."}
+        <div role="tabpanel" id={watchPanelId("india")} aria-labelledby={watchTabId("india")} className="flex flex-col gap-6">
+          {storageMissing && (
+            <div role="status" className="flex items-start gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+              <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-warning" />
+              <p className="min-w-0 text-muted-foreground">
+                <span className="font-medium text-foreground">This is the starting watchlist, and it can&apos;t be changed yet.</span> To add, remove and reorder - and keep the list across
+                devices - run <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">{WATCHLIST_MIGRATION}</code> in your Supabase SQL editor (or
+                with <code className="break-words rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">supabase db push</code>), then reload this page.
               </p>
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="mt-1 min-h-10 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted active:scale-95"
-              >
-                Clear filters
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-3xl border border-border bg-card">
-              {/* The column headers sort, on the wide layout (1280px and up); below that the Sort control in the toolbar does the same. */}
-              <div className="hidden grid-cols-[1.5rem_minmax(0,2.3fr)_minmax(0,1.2fr)_minmax(0,1.8fr)_minmax(0,1.3fr)_6.5rem] gap-x-4 border-b border-border bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground xl:grid">
-                <span />
-                <SortHeader sortKey="name" sort={sort} onSort={applySort} />
-                <SortHeader sortKey="price" sort={sort} onSort={applySort} />
-                <SortHeader sortKey="change" sort={sort} onSort={applySort} />
-                <SortHeader sortKey="range" sort={sort} onSort={applySort} />
-                <span />
-              </div>
-              <ol aria-label="Watchlist" className="divide-y divide-border">
-                {visible.map((item, index) => (
-                  <WatchRow
-                    key={item.id}
-                    item={item}
-                    quote={live.quotes[item.itemKey]}
-                    unavailable={live.missing.has(item.itemKey)}
-                    stale={stale}
-                    index={index}
-                    count={visible.length}
-                    readOnly={storageMissing}
-                    reorderLocked={reorderLocked}
-                    editMode={editMode}
-                    dragging={draggedId === item.id}
-                    dropEdge={dropEdgeFor(item)}
-                    onMove={handleMove}
-                    onRemove={setPendingRemove}
-                    onDragStart={handleDragStart}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                    onDragEnd={handleDragEnd}
-                  />
-                ))}
-              </ol>
             </div>
           )}
 
-          {live.loading && <p className="text-center text-sm text-muted-foreground">Fetching live prices…</p>}
-        </>
+
+          <LivePricingBanners tokenExpired={live.tokenExpired} offline={live.offline} lastPricesAt={live.lastPolledAt} />
+
+          {live.loadError && !live.tokenExpired && !live.offline && (
+            <div className="flex items-center gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-danger-fg">
+              <AlertCircleIcon className="size-4 shrink-0" />
+              <span className="flex-1">Couldn&apos;t refresh prices - {live.loadError}. Retrying automatically.</span>
+            </div>
+          )}
+
+          {items === null ? (
+            <LoadingState className="h-64" label="Loading watchlist…" />
+          ) : items.length === 0 ? (
+            <div className="relative isolate flex flex-col items-center gap-5 overflow-hidden rounded-3xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 -z-10 bg-[image:radial-gradient(50%_70%_at_50%_0%,color-mix(in_srgb,var(--accent-solid)_16%,transparent),transparent_70%)]"
+              />
+              <span aria-hidden="true" className="flex size-16 items-center justify-center rounded-2xl bg-[image:linear-gradient(145deg,color-mix(in_srgb,var(--accent)_32%,var(--card)),color-mix(in_srgb,var(--accent)_10%,var(--card)))] text-accent shadow-xl ring-1 ring-inset ring-accent/35">
+                <EyeIcon className="size-7" />
+              </span>
+              <div className="max-w-sm">
+                <p className="text-lg font-semibold tracking-tight">Your watchlist is empty</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Add the indices, stocks and commodities you follow to see their live price, move and range in one place.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddOpen(true)}
+                className="flex min-h-11 items-center gap-2 rounded-xl bg-accent-solid px-5 py-2.5 text-sm font-semibold text-accent-foreground shadow-[0_10px_28px_-10px_color-mix(in_srgb,var(--accent-solid)_85%,transparent),inset_0_1px_0_rgba(255,255,255,0.22)] transition-[filter,transform] hover:brightness-110 active:scale-95 sm:min-h-10"
+              >
+                <PlusIcon className="size-4" />
+                Add your first instrument
+              </button>
+            </div>
+          ) : (
+            <>
+              <WatchToolbar
+                text={text}
+                onText={setText}
+                searchRef={searchRef}
+                sort={sort}
+                onSort={applySort}
+                mover={mover}
+                onMover={setMover}
+                moverCounts={moverCounts}
+                kinds={kindChips}
+                activeKind={activeFilter}
+                onKind={setFilter}
+                shown={visible.length}
+                total={items.length}
+                onClearFilters={clearFilters}
+              />
+
+              {visible.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-border bg-card/50 px-6 py-14 text-center">
+                  <p className="font-medium">Nothing on your watchlist matches</p>
+                  <p className="text-sm text-muted-foreground">
+                    {mover && !text.trim() && activeFilter === null ? `None of your instruments is ${mover === "up" ? "up" : "down"} today.` : "Try fewer words, or show everything again."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="mt-1 min-h-10 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted active:scale-95"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-3xl border border-border bg-card">
+                  {/* The column headers sort, on the wide layout (1280px and up); below that the Sort control in the toolbar does the same. */}
+                  <div className={`hidden gap-x-4 border-b border-border bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground xl:grid ${WATCH_COLUMNS}`}>
+                    <span />
+                    <SortHeader sortKey="name" sort={sort} onSort={applySort} />
+                    <SortHeader sortKey="price" sort={sort} onSort={applySort} />
+                    <SortHeader sortKey="change" sort={sort} onSort={applySort} />
+                    <SortHeader sortKey="range" sort={sort} onSort={applySort} />
+                    <span />
+                  </div>
+                  <ol aria-label="Watchlist" className="divide-y divide-border">
+                    {visible.map((item, index) => (
+                      <WatchRow
+                        key={item.id}
+                        item={item}
+                        quote={live.quotes[item.itemKey]}
+                        unavailable={live.missing.has(item.itemKey)}
+                        stale={stale}
+                        index={index}
+                        count={visible.length}
+                        readOnly={storageMissing}
+                        reorderLocked={reorderLocked}
+                        editMode={editMode}
+                        dragging={draggedId === item.id}
+                        dropEdge={dropEdgeFor(item)}
+                        onMove={handleMove}
+                        onRemove={setPendingRemove}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        onDragEnd={handleDragEnd}
+                      />
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {live.loading && <p className="text-center text-sm text-muted-foreground">Fetching live prices…</p>}
+            </>
+          )}
+        </div>
       )}
 
       <p role="status" aria-live="polite" className="sr-only">
