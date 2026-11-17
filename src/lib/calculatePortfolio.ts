@@ -8,6 +8,7 @@
 
 import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
+import { atmIvOfRows, spotOfRows } from "@/lib/strategyFutures";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
 import {
@@ -238,7 +239,7 @@ function findStrikeRow(chain: UpstoxOptionChainResult, entry: TrackableEntry) {
 /** Every strike row in a chain carries the same underlying spot, so any one that has it will do. */
 function anySpot(chain: UpstoxOptionChainResult): number | null {
   if (isUpstoxOptionChainError(chain)) return null;
-  return chain.data.find((row) => row.underlying_spot_price != null)?.underlying_spot_price ?? null;
+  return spotOfRows(chain.data);
 }
 
 function nearestReportedIv(chain: UpstoxOptionChainResult, entry: TrackableEntry): number | null {
@@ -260,17 +261,8 @@ function nearestReportedIv(chain: UpstoxOptionChainResult, entry: TrackableEntry
  * the one the options of its own expiry trade at.
  */
 function atmIv(chain: UpstoxOptionChainResult, spot: number | null): number | null {
-  if (isUpstoxOptionChainError(chain) || spot == null) return null;
-  let best: { distance: number; iv: number } | null = null;
-  for (const row of chain.data) {
-    const strike = Number(row.strike_price);
-    if (!Number.isFinite(strike)) continue;
-    const ivs = [row.call_options?.option_greeks?.iv, row.put_options?.option_greeks?.iv].filter((v): v is number => v != null && v > 0);
-    if (ivs.length === 0) continue;
-    const distance = Math.abs(strike - spot);
-    if (best === null || distance < best.distance) best = { distance, iv: ivs.reduce((a, b) => a + b, 0) / ivs.length };
-  }
-  return best?.iv ?? null;
+  if (isUpstoxOptionChainError(chain)) return null;
+  return atmIvOfRows(chain.data, spot);
 }
 
 function legOf(strikeRow: NonNullable<ReturnType<typeof findStrikeRow>>, entry: TrackableEntry): UpstoxOptionLeg | null {

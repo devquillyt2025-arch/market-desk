@@ -40,3 +40,16 @@ describe("suggestedInstruments", () => {
     }
   });
 });
+
+describe("GIFT Nifty as a suggestion", () => {
+  it("heads the indices, with where it trades", () => {
+    const first = suggestedInstruments(new Set()).indices[0];
+    assert.deepEqual(first, { kind: "index", itemKey: "GLOBAL_INDEX|SGX NIFTY", symbol: "GIFTNIFTY", name: "GIFT Nifty", detail: "NSE IX · GIFT City" });
+  });
+
+  it("is left out once it is on the list, and the NSE ones keep their own detail", () => {
+    const some = suggestedInstruments(new Set(["GLOBAL_INDEX|SGX NIFTY"]));
+    assert.ok(!some.indices.some((s) => s.symbol === "GIFTNIFTY"));
+    assert.ok(some.indices.every((s) => s.detail === "NSE index"));
+  });
+});

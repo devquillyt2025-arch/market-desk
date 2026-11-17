@@ -29,9 +29,10 @@ function isSavedLeg(value: unknown): value is DraftLeg {
     typeof v.id === "string" &&
     typeof v.enabled === "boolean" &&
     (v.side === "buy" || v.side === "sell") &&
-    (v.type === "CE" || v.type === "PE") &&
+    (v.type === "CE" || v.type === "PE" || v.type === "FUT") &&
     typeof v.strike === "number" &&
-    v.strike > 0 &&
+    // A future has no strike - it is saved as 0.
+    (v.type === "FUT" ? v.strike === 0 : v.strike > 0) &&
     typeof v.expiry === "string" &&
     ISO_DATE.test(v.expiry) &&
     typeof v.lots === "number" &&

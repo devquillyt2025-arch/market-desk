@@ -4,6 +4,8 @@ import { describe, it } from "node:test";
 
 import {
   DEFAULT_WATCHLIST,
+  GIFT_NIFTY,
+  GIFT_NIFTY_KEY,
   changedPositions,
   commodityItemKey,
   dayRangePosition,
@@ -334,5 +336,26 @@ describe("parseSort", () => {
     assert.equal(parseSort({ key: "volume", dir: "asc" }), null);
     assert.equal(parseSort({ key: "price", dir: "sideways" }), null);
     assert.equal(parseSort({ key: "price" }), null);
+  });
+});
+
+describe("GIFT Nifty on the list", () => {
+  it("is an index, kept under Upstox's key for it", () => {
+    assert.equal(GIFT_NIFTY_KEY, "GLOBAL_INDEX|SGX NIFTY");
+    assert.deepEqual(GIFT_NIFTY, { kind: "index", itemKey: "GLOBAL_INDEX|SGX NIFTY", symbol: "GIFTNIFTY", name: "GIFT Nifty" });
+  });
+
+  it("has a short mark of its own, and says where it trades", () => {
+    assert.equal(itemGlyph({ kind: "index", symbol: "GIFTNIFTY", name: "GIFT Nifty" }), "GN");
+    assert.equal(itemDetail({ kind: "index", itemKey: GIFT_NIFTY_KEY, symbol: "GIFTNIFTY" }), "NSE IX · GIFT City");
+    assert.equal(itemDetail({ kind: "index", itemKey: "GLOBAL_INDEX|DOW JONES", symbol: "DJI" }), "Global index");
+  });
+
+  it("is added by choice: a fresh list stays the three indices and the commodities, as the migration seeds it", () => {
+    assert.ok(!DEFAULT_WATCHLIST.some((s) => s.itemKey === GIFT_NIFTY_KEY));
+  });
+
+  it("is priced and shown as a level in points, like the other indices", () => {
+    assert.equal(formatPrice(GIFT_NIFTY.kind, 25361.5), "25,361.50"); // no ₹ - it is a level, not a price
   });
 });

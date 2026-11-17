@@ -8,7 +8,7 @@
 
 import { commodityName, commodityUnit, contractMonthLabel, isMcxCommodity } from "@/lib/mcxCommodities";
 import type { WatchSearchResult } from "@/lib/watchlist";
-import { commodityItemKey } from "@/lib/watchlist";
+import { commodityItemKey, GIFT_NIFTY } from "@/lib/watchlist";
 import type { McxFuture } from "@/lib/upstox/mcx";
 
 /** The typed query, tidied - or null when it's too short to be worth a search (or absurdly long). */
@@ -45,6 +45,18 @@ export function searchCommodities(futures: ReadonlyMap<string, McxFuture>, query
     });
   }
   return hits.sort((a, b) => a.rank - b.rank || a.result.name.localeCompare(b.result.name)).slice(0, limit).map((h) => h.result);
+}
+
+/**
+ * Global indices the Watchlist can hold. Upstox's search never returns these (a search for "gift" finds only Nifty
+ * indices), so they are matched here, on the words people use for them. Just GIFT Nifty for now.
+ */
+export function searchGlobalIndices(query: string): WatchSearchResult[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  const haystack = `${GIFT_NIFTY.name} ${GIFT_NIFTY.symbol} sgx nifty nse ix gift city`.toLowerCase();
+  if (!terms.every((term) => haystack.includes(term))) return [];
+  return [{ ...GIFT_NIFTY, detail: "NSE IX · GIFT City" }];
 }
 
 function rowsOf(body: unknown): Record<string, unknown>[] {

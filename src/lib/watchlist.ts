@@ -48,6 +48,14 @@ export function commodityItemKey(symbol: string): string {
   return `MCX_COM|${symbol}`;
 }
 
+/**
+ * GIFT Nifty - the Nifty 50 futures traded at NSE IX in GIFT City, from 6:30 am to 2:45 am, so it moves while the Indian
+ * market is shut and is read as a hint of where Nifty will open. Upstox files it among its global indices, under the key
+ * below (named after the SGX Nifty it replaced); it is quoted like any index, so it is kept on the list as one.
+ */
+export const GIFT_NIFTY_KEY = "GLOBAL_INDEX|SGX NIFTY";
+export const GIFT_NIFTY: Omit<WatchlistSeed, "sortOrder"> = { kind: "index", itemKey: GIFT_NIFTY_KEY, symbol: "GIFTNIFTY", name: "GIFT Nifty" };
+
 const INDEX_SEEDS: Omit<WatchlistSeed, "sortOrder">[] = [
   { kind: "index", itemKey: "NSE_INDEX|Nifty 50", symbol: "NIFTY", name: "Nifty 50" },
   { kind: "index", itemKey: "NSE_INDEX|Nifty Bank", symbol: "BANKNIFTY", name: "Bank Nifty" },
@@ -177,7 +185,7 @@ export function marketBreadth(quotes: readonly (WatchQuote | undefined)[]): { up
 // --- How an item is drawn --------------------------------------------------------
 
 /** The three indices the app tracks have a short mark of their own - initials would make Nifty 50 "N5". */
-const INDEX_MARKS: Record<string, string> = { NIFTY: "N50", BANKNIFTY: "BN", SENSEX: "SX" };
+const INDEX_MARKS: Record<string, string> = { NIFTY: "N50", BANKNIFTY: "BN", SENSEX: "SX", GIFTNIFTY: "GN" };
 
 /** Two or three characters for the tile: a commodity's glyph (Au, CL), an index's mark (N50, BN, SX), otherwise the initials of its name. */
 export function itemGlyph(item: Pick<WatchlistItem, "kind" | "symbol" | "name">): string {
@@ -196,7 +204,10 @@ export function itemDetail(item: Pick<WatchlistItem, "kind" | "itemKey" | "symbo
     const unit = commodityUnit(item.symbol);
     return [month === "MCX" ? "MCX" : `MCX ${month}`, unit].filter(Boolean).join(" · ");
   }
-  if (item.kind === "index") return item.itemKey.startsWith("BSE_") ? "BSE index" : "NSE index";
+  if (item.kind === "index") {
+    if (item.itemKey === GIFT_NIFTY_KEY) return "NSE IX · GIFT City";
+    return item.itemKey.startsWith("BSE_") ? "BSE index" : item.itemKey.startsWith("GLOBAL_") ? "Global index" : "NSE index";
+  }
   return item.itemKey.startsWith("BSE_") ? "BSE" : "NSE";
 }
 

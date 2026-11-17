@@ -8,7 +8,8 @@
  * "Reward : Risk" (what pays the most for the risk). The tab
  * strip sits where the Risk panel's title used to, with its verdict pill and
  * warning count right beside it, so the existing read is unchanged and the
- * others sit next to it rather than over the page.
+ * others sit next to it rather than over the page. The What-if lab and the RRR planner can be switched off from the
+ * "Tabs" menu at the strip's right end; the other three are always shown.
  */
 
 import { useRef, useState, type KeyboardEvent } from "react";
@@ -17,11 +18,14 @@ import AveragingSimulator, { type SimulatorCandidate } from "@/components/Averag
 import { pillButton, thinScroll } from "@/components/averaging/ui";
 import FutureSimulator from "@/components/FutureSimulator";
 import RewardRiskPanel from "@/components/RewardRiskPanel";
+import InsightsTabsMenu from "@/components/InsightsTabsMenu";
 import RiskProbabilityPanel, { RiskHeaderBadges, RiskLiveStatus } from "@/components/RiskProbabilityPanel";
 import RrrPlanner from "@/components/RrrPlanner";
 import WhatIfLab from "@/components/WhatIfLab";
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import type { RiskAnalysis } from "@/lib/calculateRisk";
+import { isInsightsTabShown, type OptionalInsightsTab } from "@/lib/insightsTabPrefs";
+import { useInsightsTabPrefs } from "@/lib/useInsightsTabPrefs";
 import type { UpstoxOptionChainResult } from "@/lib/upstox/types";
 
 export type InsightsTab = "risk" | "simulate" | "whatif" | "planner" | "rrr";
@@ -33,9 +37,6 @@ const TABS: { id: InsightsTab; label: string }[] = [
   { id: "planner", label: "RRR planner" },
   { id: "rrr", label: "Reward : Risk" },
 ];
-
-/** The one tab that works without any positions - the others read live prices. */
-const PLANNER_ONLY = TABS.filter((t) => t.id === "planner");
 
 type ModelInputs = {
   rows: PortfolioRow[] | null;
@@ -160,7 +161,9 @@ export default function PortfolioInsights({
   chains,
 }: PortfolioInsightsProps) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  const tabs = hasPositions ? TABS : PLANNER_ONLY;
+  const [tabPrefs, saveTabPrefs] = useInsightsTabPrefs();
+  // Without a priced position only the planner is offered (see isInsightsTabShown); otherwise every tab but the ones switched off.
+  const tabs = TABS.filter((t) => isInsightsTabShown(t.id, hasPositions, tabPrefs));
   const tab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
   // The planner is only built once its tab has been opened, then kept mounted so what was typed there survives a glance elsewhere.
   const [plannerOpened, setPlannerOpened] = useState(tab === "planner");
@@ -174,9 +177,20 @@ export default function PortfolioInsights({
   if (tab === "whatif" && !labOpened) setLabOpened(true);
   const [rrrOpened, setRrrOpened] = useState(tab === "rrr");
   if (tab === "rrr" && !rrrOpened) setRrrOpened(true);
+  // A tab switched off is torn down, and builds afresh the next time it is opened - not in the background the moment it is switched back on.
+  const plannerOff = hasPositions && !tabPrefs.planner;
+  const labOff = hasPositions && !tabPrefs.whatif;
+  if (plannerOff && plannerOpened) setPlannerOpened(false);
+  if (labOff && labOpened) setLabOpened(false);
   const live = { rows, chains, nowMs, paused };
   const labInputs = useHeldWhileHidden(tab === "whatif", live);
   const rrrInputs = useHeldWhileHidden(tab === "rrr", live);
+
+  function handleTabShown(id: OptionalInsightsTab, shown: boolean) {
+    saveTabPrefs({ ...tabPrefs, [id]: shown });
+    // Hiding the tab on show hands the view to the first one that remains, so turning it back on doesn't jump back to it.
+    if (!shown && tab === id) onTabChange(tabs[0].id);
+  }
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const current = tabs.findIndex((t) => t.id === tab);
@@ -231,13 +245,18 @@ export default function PortfolioInsights({
           {tab === "risk" && analysis && <RiskHeaderBadges analysis={analysis} />}
         </div>
 
-        {tab === "risk" && analysis && <RiskLiveStatus analysis={analysis} asOf={asOf} paused={paused} />}
-        {tab === "simulate" && (
-          <LiveHint paused={paused}>{`${candidates.length + futureIds.length} position${candidates.length + futureIds.length === 1 ? "" : "s"} to simulate`}</LiveHint>
-        )}
-        {tab === "whatif" && <LiveHint paused={paused}>tries every exit, add, hedge and new trade</LiveHint>}
-        {tab === "rrr" && <LiveHint paused={paused}>ranks every idea by reward for the risk</LiveHint>}
-        {tab === "planner" && <span className="text-xs text-muted-foreground">Independent of your positions and live prices</span>}
+        {/* Pinned to the right edge (ml-auto) even when the strip wraps onto its own line, so the menu always opens inward. */}
+        <div className="ml-auto flex items-center gap-x-4 gap-y-1">
+          {tab === "risk" && analysis && <RiskLiveStatus analysis={analysis} asOf={asOf} paused={paused} />}
+          {tab === "simulate" && (
+            <LiveHint paused={paused}>{`${candidates.length + futureIds.length} position${candidates.length + futureIds.length === 1 ? "" : "s"} to simulate`}</LiveHint>
+          )}
+          {tab === "whatif" && <LiveHint paused={paused}>tries every exit, add, hedge and new trade</LiveHint>}
+          {tab === "rrr" && <LiveHint paused={paused}>ranks every idea by reward for the risk</LiveHint>}
+          {tab === "planner" && <span className="text-xs text-muted-foreground">Independent of your positions and live prices</span>}
+          {/* With no position there is only the planner to show, so there is nothing to choose between. */}
+          {hasPositions && <InsightsTabsMenu prefs={tabPrefs} onChange={handleTabShown} />}
+        </div>
       </div>
 
       <div
@@ -275,7 +294,7 @@ export default function PortfolioInsights({
         aria-labelledby="insights-tab-whatif"
         hidden={tab !== "whatif"}
       >
-        {labOpened && <WhatIfLab rows={labInputs.rows} chains={labInputs.chains} nowMs={labInputs.nowMs} paused={labInputs.paused} />}
+        {labOpened && !labOff && <WhatIfLab rows={labInputs.rows} chains={labInputs.chains} nowMs={labInputs.nowMs} paused={labInputs.paused} />}
       </div>
 
       <div
@@ -284,7 +303,7 @@ export default function PortfolioInsights({
         aria-labelledby="insights-tab-planner"
         hidden={tab !== "planner"}
       >
-        {plannerOpened && <RrrPlanner />}
+        {plannerOpened && !plannerOff && <RrrPlanner />}
       </div>
 
       <div

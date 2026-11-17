@@ -966,6 +966,8 @@ export function simulationInputsFromLegs(
   const groups = new Map<string, { type: LegType; strike: number; expiry: string; lots: number; cost: number }>();
   for (const leg of legs) {
     const price = Number(leg.price);
+    // A future isn't averaged down like a bought option; the strategy's futures are simulated on Live Portfolio's Simulate tab.
+    if (leg.type === "FUT") continue;
     if (!leg.enabled || leg.side !== "buy" || !(leg.lots > 0) || leg.price.trim() === "" || !(price > 0)) continue;
     if (!(expiryCloseMs(leg.expiry, instrument) > nowMs)) continue;
     const id = `${leg.type}-${leg.strike}-${leg.expiry}`;

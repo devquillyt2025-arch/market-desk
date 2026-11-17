@@ -14,6 +14,11 @@
  * portfolio valued at any chosen earlier moment. POP uses the zero-drift
  * lognormal at the earliest expiry and excludes brokerage — a market-implied
  * estimate, not a forecast.
+ *
+ * An index future can sit in the strategy too. It has no strike or IV of its own: it is the index plus its gap to
+ * the index (the basis, measured from the future's own quote), a gap that closes to zero by the future's expiry, so
+ * its value is `spot + basis x (the share of that gap still to run)`. Its delta is 1 and it has no gamma, theta or
+ * vega; its volatility (used only for the probability of profit) is the at-the-money IV of its expiry.
  */
 
 import { impliedVolFromPrice, normCdf, normalizeIv } from "@/lib/calculateRisk";
@@ -30,20 +35,24 @@ const MIN_SD_PCT = 0.02;
 
 export type LegSide = "buy" | "sell";
 export type LegType = "CE" | "PE";
+/** What a leg of the strategy can be: an option, or an index future (which has no strike - its `strike` is 0). */
+export type StrategyLegType = LegType | "FUT";
 
 export type StrategyLeg = {
   id: string;
   enabled: boolean;
   side: LegSide;
-  type: LegType;
+  type: StrategyLegType;
   strike: number;
   /** ISO yyyy-mm-dd. */
   expiry: string;
   lots: number;
   /** Entry price per unit (₹). */
   price: number;
-  /** Implied vol (percent, as Upstox reports it) for this strike — the fallback when the entered price can't be inverted. */
+  /** Implied vol (percent, as Upstox reports it) for this strike — the fallback when the entered price can't be inverted. For a future, the at-the-money IV of its expiry. */
   chainIv: number | null;
+  /** A future only: how far it trades above the index today (its last price less the index level). Null until its quote has loaded, and the leg is left out until then. */
+  basis?: number | null;
 };
 
 export type PricedLeg = StrategyLeg & {
@@ -51,6 +60,8 @@ export type PricedLeg = StrategyLeg & {
   qty: number;
   sigma: number;
   closeMs: number;
+  /** A future: the moment `basis` was measured, from which it runs down to zero at `closeMs`. */
+  basisFromMs: number;
 };
 
 export type Greeks = { delta: number; gamma: number; theta: number; vega: number };
@@ -136,25 +147,39 @@ function blackScholes(spot: number, strike: number, t: number, sigma: number, is
 /** `instrument` only matters for an MCX commodity, whose expiry day runs into the night (23:30 or 23:55) rather than to 15:30. */
 export function priceLegs(legs: StrategyLeg[], spot: number, nowMs: number, lotSize: number, instrument?: Instrument): PricedLeg[] {
   return legs
-    .filter((l) => l.enabled && l.lots > 0 && l.strike > 0 && l.price >= 0)
+    .filter((l) => l.enabled && l.lots > 0 && (isFutureLeg(l) ? l.basis != null : l.strike > 0) && l.price >= 0)
     .map((l) => {
       const closeMs = expiryCloseMs(l.expiry, instrument);
       const t = Math.max(closeMs - nowMs, 0) / YEAR_MS;
       const chain = l.chainIv != null && l.chainIv > 0 ? normalizeIv(l.chainIv) : null;
       // The market's vol values the option today; the entered price is only the cost basis. Solving vol
       // from the entered price would make an old position look like it was just opened at today's spot.
-      const solved = chain === null ? impliedVolFromPrice(spot, l.strike, t, l.price, l.type === "CE") : null;
+      const solved = chain === null && !isFutureLeg(l) ? impliedVolFromPrice(spot, l.strike, t, l.price, l.type === "CE") : null;
       return {
         ...l,
         sign: l.side === "buy" ? 1 : -1,
         qty: l.lots * lotSize,
         sigma: chain ?? solved ?? FALLBACK_IV,
         closeMs,
+        basisFromMs: nowMs,
       };
     });
 }
 
+/** A future leg as opposed to an option (its strike is 0, and it has no CE/PE). */
+export function isFutureLeg(leg: { type: StrategyLegType }): boolean {
+  return leg.type === "FUT";
+}
+
+/** What one unit of a future is worth with the index at `spot` at `atMs`: the index, plus the part of today's gap that has not yet closed. */
+function futureValue(leg: PricedLeg, spot: number, atMs: number): number {
+  const span = leg.closeMs - leg.basisFromMs;
+  const left = span > 0 ? Math.min(Math.max((leg.closeMs - atMs) / span, 0), 1) : 0;
+  return spot + (leg.basis ?? 0) * left;
+}
+
 function legValue(leg: PricedLeg, spot: number, atMs: number): BsResult {
+  if (isFutureLeg(leg)) return { price: futureValue(leg, spot, atMs), delta: 1, gamma: 0, theta: 0, vega: 0 };
   return blackScholes(spot, leg.strike, (leg.closeMs - atMs) / YEAR_MS, leg.sigma, leg.type === "CE");
 }
 
@@ -196,7 +221,8 @@ export function analyzeStrategy(legs: PricedLeg[], spot: number, nowMs: number):
   const expiryMs = earliestExpiryMs(legs);
   if (expiryMs === null || !(spot > 0)) return null;
 
-  const netPremium = legs.reduce((acc, l) => acc - l.sign * l.price * l.qty, 0);
+  // A future has no premium - it is a position, not a payment - so it adds nothing to what the strategy pays or collects.
+  const netPremium = legs.reduce((acc, l) => (isFutureLeg(l) ? acc : acc - l.sign * l.price * l.qty), 0);
 
   // P&L is piecewise-smooth with kinks at strikes, so a dense grid that also
   // includes every strike finds both extremes; the net call slope past the
@@ -204,11 +230,12 @@ export function analyzeStrategy(legs: PricedLeg[], spot: number, nowMs: number):
   const hi = spot * 3;
   const grid: number[] = [];
   for (let i = 0; i <= EXTREMES_STEPS; i++) grid.push((hi * i) / EXTREMES_STEPS);
-  for (const l of legs) grid.push(l.strike);
+  for (const l of legs) if (!isFutureLeg(l)) grid.push(l.strike);
   grid.sort((a, b) => a - b);
   const values = grid.map((s) => strategyPnl(legs, s, expiryMs));
 
-  const callSlope = legs.reduce((acc, l) => acc + (l.type === "CE" ? l.sign * l.qty : 0), 0);
+  // A future gains a point for every point the index gains, like a call far in the money - it is as unbounded as one.
+  const callSlope = legs.reduce((acc, l) => acc + (l.type === "PE" ? 0 : l.sign * l.qty), 0);
   const maxProfit = callSlope > 0 ? null : Math.max(...values, 0);
   const maxLoss = callSlope < 0 ? null : Math.max(-Math.min(...values), 0);
 
@@ -226,7 +253,9 @@ export function analyzeStrategy(legs: PricedLeg[], spot: number, nowMs: number):
   // the money among those that still have time value.
   const T = Math.max(expiryMs - nowMs, 0) / YEAR_MS;
   const live = legs.filter((l) => l.closeMs > nowMs);
-  const ref = live.length ? live.reduce((best, l) => (Math.abs(l.strike - spot) < Math.abs(best.strike - spot) ? l : best)) : null;
+  // A future is always at the money, whatever the `strike` it carries.
+  const distanceFromSpot = (l: PricedLeg) => (isFutureLeg(l) ? 0 : Math.abs(l.strike - spot));
+  const ref = live.length ? live.reduce((best, l) => (distanceFromSpot(l) < distanceFromSpot(best) ? l : best)) : null;
   const sd = ref ? ref.sigma * Math.sqrt(T) : 0;
   let pop: number | null = null;
   if (sd > 0) {
@@ -259,7 +288,7 @@ export function analyzeStrategy(legs: PricedLeg[], spot: number, nowMs: number):
 /** Spot range worth drawing: wide enough for the strikes and a couple of standard deviations either side. */
 export function chartDomain(legs: PricedLeg[], spot: number, sdPct: number): [number, number] {
   const half = spot * Math.max(sdPct, MIN_SD_PCT) * 2.5;
-  const strikes = legs.map((l) => l.strike);
+  const strikes = legs.filter((l) => !isFutureLeg(l)).map((l) => l.strike);
   const pad = spot * 0.02;
   const lo = Math.min(spot - half, ...strikes.map((k) => k - pad));
   const hi = Math.max(spot + half, ...strikes.map((k) => k + pad));

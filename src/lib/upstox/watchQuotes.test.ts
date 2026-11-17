@@ -122,3 +122,41 @@ describe("parseQuoteEntry", () => {
     near(q?.prevClose ?? null, 49);
   });
 });
+
+describe("GIFT Nifty - a global index on the list", () => {
+  const gift = { itemKey: "GLOBAL_INDEX|SGX NIFTY", kind: "index", symbol: "GIFTNIFTY" };
+
+  it("is accepted as an index, beside the others", () => {
+    const nifty = { itemKey: "NSE_INDEX|Nifty 50", kind: "index", symbol: "NIFTY" };
+    assert.deepEqual(parseWatchRequest({ items: [nifty, gift] }), [nifty, gift]);
+  });
+
+  it("is quoted under its own key, like any index", () => {
+    assert.deepEqual(resolveQuoteKey({ itemKey: gift.itemKey, kind: "index", symbol: gift.symbol }, new Map()), { key: "GLOBAL_INDEX|SGX NIFTY", contract: null });
+  });
+
+  it("still refuses a global key filed as anything but an index, and a global key that could smuggle in a second key", () => {
+    assert.equal(parseWatchRequest({ items: [{ ...gift, kind: "equity" }] }), null);
+    assert.equal(parseWatchRequest({ items: [{ ...gift, itemKey: "GLOBAL_EQ|SGX NIFTY" }] }), null);
+    assert.equal(parseWatchRequest({ items: [{ ...gift, itemKey: "GLOBAL_INDEX|SGX NIFTY,NSE_EQ|INE002A01018" }] }), null);
+    assert.equal(parseWatchRequest({ items: [{ ...gift, itemKey: "GLOBAL_INDEX|SGX|NIFTY" }] }), null);
+    assert.equal(parseWatchRequest({ items: [{ ...gift, itemKey: "GLOBAL_INDEX|" }] }), null);
+    assert.equal(parseWatchRequest({ items: [{ ...gift, itemKey: "MCX_INDEX|SGX NIFTY" }] }), null);
+  });
+
+  it("reduces Upstox's own answer for it (17 Nov 2026, evening) to a price and the day's move", () => {
+    const entry = {
+      ohlc: { open: 25289, high: 25558.5, low: 25256.5, close: 25361.5 },
+      instrument_token: "GLOBAL_INDEX|SGX NIFTY",
+      last_price: 25361.5,
+      volume: null,
+      net_change: -16.5,
+    };
+    const quote = parseQuoteEntry(entry, null);
+    near(quote?.price ?? null, 25361.5);
+    near(quote?.prevClose ?? null, 25378); // the price less the change, as for every other index
+    near(quote?.change ?? null, -16.5);
+    near(quote?.changePct ?? null, (-16.5 / 25378) * 100, 1e-9);
+    assert.deepEqual([quote?.open, quote?.high, quote?.low, quote?.volume], [25289, 25558.5, 25256.5, null]);
+  });
+});

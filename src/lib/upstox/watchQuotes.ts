@@ -17,10 +17,11 @@ export type WatchRequestItem = { itemKey: string; kind: WatchlistKind; symbol: s
 export const MAX_WATCH_ITEMS = 60;
 
 /**
- * An Upstox index or equity key: `NSE_EQ|INE002A01018`, `NSE_INDEX|Nifty 50`. Letters, digits and a few
- * punctuation marks the names use - no comma (it separates keys), no slash, no second pipe.
+ * An Upstox index or equity key: `NSE_EQ|INE002A01018`, `NSE_INDEX|Nifty 50` - or a global index, `GLOBAL_INDEX|SGX NIFTY`,
+ * which is how GIFT Nifty is filed. Letters, digits and a few punctuation marks the names use - no comma (it separates
+ * keys), no slash, no second pipe.
  */
-const UPSTOX_KEY = /^(NSE|BSE)_(INDEX|EQ)\|[A-Za-z0-9 &._+()%-]{1,48}$/;
+const UPSTOX_KEY = /^(?:(?:NSE|BSE)_(INDEX|EQ)|GLOBAL_(INDEX))\|[A-Za-z0-9 &._+()%-]{1,48}$/;
 const COMMODITY_SYMBOL = /^[A-Z0-9]{2,20}$/;
 
 function validItem(raw: unknown): WatchRequestItem | null {
@@ -34,7 +35,7 @@ function validItem(raw: unknown): WatchRequestItem | null {
   }
   const wanted = kind === "index" ? "INDEX" : "EQ";
   const match = UPSTOX_KEY.exec(itemKey);
-  return match && match[2] === wanted ? { itemKey, kind: kind as WatchlistKind, symbol } : null;
+  return match && (match[1] ?? match[2]) === wanted ? { itemKey, kind: kind as WatchlistKind, symbol } : null;
 }
 
 /** The request body as a clean, de-duplicated list - or null when it isn't one, or when any entry in it is not valid. */

@@ -4,18 +4,19 @@
  *   1. a strategy file written by this tab's own Export, and
  *   2. a plain array of trade entries — exactly what Live Portfolio, Paper
  *      Trade and Trade Entries export — so any of those files can be dropped
- *      straight in. Only open (hold) option positions become legs.
+ *      straight in. Only open (hold) option and index-future positions become legs.
  */
 
-import type { LegSide, LegType } from "@/lib/calculateStrategy";
+import type { LegSide, LegType, StrategyLegType } from "@/lib/calculateStrategy";
 import type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
-import { INSTRUMENTS, type Instrument, type TradeEntry } from "@/lib/types";
+import { INSTRUMENTS, isIndexInstrument, type Instrument, type TradeEntry } from "@/lib/types";
 
 export type DraftLeg = {
   id: string;
   enabled: boolean;
   side: LegSide;
-  type: LegType;
+  /** CE / PE, or FUT for an index future (which has no strike: `strike` is 0). */
+  type: StrategyLegType;
   strike: number;
   /** ISO yyyy-mm-dd. */
   expiry: string;
@@ -37,19 +38,27 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isInstrument = (v: unknown): v is Instrument => (INSTRUMENTS as readonly unknown[]).includes(v);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
-/** An open option position with everything a leg needs. */
+/** An open index future: no strike and no CE/PE, just the expiry of its contract month - how the journal and Live Portfolio's sync record one. */
+export function isFutureRow(entry: TradeEntry): boolean {
+  return entry.strike_price == null && entry.option_type == null && entry.expiry_date != null && isIndexInstrument(entry.instrument);
+}
+
+/** An open option position with everything a leg needs - or an open index future, which needs only its expiry. */
 export function isImportableEntry(entry: TradeEntry): boolean {
-  return entry.status === "hold" && entry.strike_price != null && entry.option_type != null && entry.expiry_date != null;
+  if (entry.status !== "hold") return false;
+  if (isFutureRow(entry)) return true;
+  return entry.strike_price != null && entry.option_type != null && entry.expiry_date != null;
 }
 
 export function tradeEntryToLeg(entry: TradeEntry, priceMode: PriceMode): DraftLegInput | null {
   if (!isImportableEntry(entry)) return null;
   const entryPrice = entry.side === "sell" ? entry.sell_price : entry.buy_price;
+  const future = isFutureRow(entry);
   return {
     enabled: true,
     side: entry.side,
-    type: entry.option_type as LegType,
-    strike: entry.strike_price as number,
+    type: future ? "FUT" : (entry.option_type as LegType),
+    strike: future ? 0 : (entry.strike_price as number),
     expiry: entry.expiry_date as string,
     lots: entry.lots,
     price: priceMode === "entry" ? String(entryPrice) : "",
@@ -109,7 +118,7 @@ export function buildStrategyExport(instrument: Instrument, legs: DraftLeg[]) {
 export type ParsedStrategy = {
   instrument: Instrument;
   legs: DraftLegInput[];
-  /** Rows in the file that couldn't become a leg (closed, not an option, or a different underlying). */
+  /** Rows in the file that couldn't become a leg (closed, not an option or future, or a different underlying). */
   skipped: number;
 };
 
@@ -119,8 +128,11 @@ function parseFileLeg(raw: unknown, index: number): DraftLegInput {
   };
   if (!isObject(raw)) return fail("isn't an object");
   if (raw.side !== "buy" && raw.side !== "sell") return fail("needs side \"buy\" or \"sell\"");
-  if (raw.type !== "CE" && raw.type !== "PE") return fail("needs type \"CE\" or \"PE\"");
-  if (typeof raw.strike !== "number" || !(raw.strike > 0)) return fail("needs a positive strike");
+  if (raw.type !== "CE" && raw.type !== "PE" && raw.type !== "FUT") return fail("needs type \"CE\", \"PE\" or \"FUT\"");
+  // A future has no strike (it is written as 0); an option needs a real one.
+  if (raw.type === "FUT" ? raw.strike !== 0 && raw.strike != null : typeof raw.strike !== "number" || !(raw.strike > 0)) {
+    return fail(raw.type === "FUT" ? "is a future, which has no strike" : "needs a positive strike");
+  }
   if (typeof raw.expiry !== "string" || !ISO_DATE.test(raw.expiry)) return fail("needs an expiry as yyyy-mm-dd");
   if (typeof raw.lots !== "number" || !Number.isInteger(raw.lots) || raw.lots < 1) return fail("needs whole-number lots");
   if (raw.price != null && (typeof raw.price !== "number" || !(raw.price >= 0))) return fail("has an invalid price");
@@ -128,7 +140,7 @@ function parseFileLeg(raw: unknown, index: number): DraftLegInput {
     enabled: raw.enabled !== false,
     side: raw.side,
     type: raw.type,
-    strike: raw.strike,
+    strike: raw.type === "FUT" ? 0 : (raw.strike as number),
     expiry: raw.expiry,
     lots: raw.lots,
     price: raw.price == null ? "" : String(raw.price),
@@ -159,7 +171,7 @@ export function parseStrategyImport(data: unknown): ParsedStrategy {
     }
     // One strategy has one underlying — keep the one with the most open legs.
     const best = [...byInstrument.entries()].sort((a, b) => b[1].length - a[1].length)[0];
-    if (!best) throw new Error("No open option positions found in this file.");
+    if (!best) throw new Error("No open option or future positions found in this file.");
     skipped += [...byInstrument.values()].reduce((acc, l) => acc + l.length, 0) - best[1].length;
     return { instrument: best[0], legs: best[1], skipped };
   }

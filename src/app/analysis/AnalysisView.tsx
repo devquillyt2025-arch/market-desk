@@ -20,6 +20,7 @@ import {
   defaultExpiryFor,
   expiryCloseMs,
   istDateString,
+  isFutureLeg,
   legGreeks,
   priceLegs,
   sampleCurves,
@@ -33,6 +34,7 @@ import { simulationInputsFromLegs } from "@/lib/averaging";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { loadLastSpots, saveLastSpot, type StoredSpot } from "@/lib/lastKnownPrices";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
+import { atmIvOfRows, futureBasisOf, spotOfRows } from "@/lib/strategyFutures";
 import {
   buildStrategyExport,
   parseStrategyImport,
@@ -52,8 +54,14 @@ import {
   type Instrument,
   type TradeEntry,
 } from "@/lib/types";
-import { fetchExpiries, fetchMargin, fetchOptionChain } from "@/lib/upstox/client";
-import { isUpstoxOptionChainError, type UpstoxOptionChainResult, type UpstoxOptionChainStrike } from "@/lib/upstox/types";
+import { fetchExpiries, fetchFutureQuote, fetchMargin, fetchOptionChain } from "@/lib/upstox/client";
+import {
+  isUpstoxFutureQuoteError,
+  isUpstoxOptionChainError,
+  type UpstoxFutureQuoteResult,
+  type UpstoxOptionChainResult,
+  type UpstoxOptionChainStrike,
+} from "@/lib/upstox/types";
 
 /** One-line leg row from md up: [include] [B/S] [expiry] [strike] [CE/PE] [lots] [price] [delete]. Narrower screens wrap instead. */
 const LEG_GRID =
@@ -198,6 +206,8 @@ export default function AnalysisView() {
   const [legs, setLegs] = useState<DraftLeg[]>([]);
   const [spotOverride, setSpotOverride] = useState("");
   const [chains, setChains] = useState<Record<string, UpstoxOptionChainStrike[]>>({});
+  // An index future in the strategy is valued from its own quote (the option chain has no row for it), per `underlying|expiry`.
+  const [futureQuotes, setFutureQuotes] = useState<Record<string, UpstoxFutureQuoteResult | undefined>>({});
   const [chainStatus, setChainStatus] = useState<ChainStatus>("ok");
   const [refreshing, setRefreshing] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -306,7 +316,8 @@ export default function AnalysisView() {
     (expiry: string, rows: UpstoxOptionChainStrike[], overwrite: boolean) => {
       setLegs((prev) =>
         prev.map((l) => {
-          if (l.expiry !== expiry || (!overwrite && l.price !== "")) return l;
+          // A future's price comes from its own quote (see the effect below), not from the chain.
+          if (l.type === "FUT" || l.expiry !== expiry || (!overwrite && l.price !== "")) return l;
           const { ltp } = findQuote(rows, l.strike, l.type);
           return ltp === null ? l : { ...l, price: String(ltp) };
         }),
@@ -324,7 +335,7 @@ export default function AnalysisView() {
       const results = await Promise.all(
         fresh.map(async (expiry): Promise<readonly [string, UpstoxOptionChainResult]> => {
           try {
-            const held = [...new Set(legsRef.current.filter((l) => l.expiry === expiry).map((l) => l.strike))];
+            const held = [...new Set(legsRef.current.filter((l) => l.expiry === expiry && l.type !== "FUT").map((l) => l.strike))];
             return [expiry, await fetchOptionChain(inst, expiry, held)] as const;
           } catch {
             return [expiry, { error: "network_error" }] as const;
@@ -383,6 +394,49 @@ export default function AnalysisView() {
     return () => clearInterval(id);
   }, [instrument, neededExpiries, loadChains]);
 
+  // The quote of each future in the strategy, kept current alongside the chains. A blank price (an import at "current
+  // market price") is filled from it; a failed poll leaves the last good quote in place rather than blanking the leg.
+  const futureExpiries = [...new Set(legs.filter((l) => l.type === "FUT" && l.expiry >= today).map((l) => l.expiry))].sort().join(",");
+  useEffect(() => {
+    if (!hydrated || !futureExpiries) return;
+    let cancelled = false;
+    const inst = instrument;
+    async function load() {
+      const results = await Promise.all(
+        splitExpiries(futureExpiries).map(async (expiry) => {
+          try {
+            return [expiry, await fetchFutureQuote(inst, expiry)] as const;
+          } catch {
+            return [expiry, { error: "network_error" } as UpstoxFutureQuoteResult] as const;
+          }
+        }),
+      );
+      if (cancelled || instrumentRef.current !== inst) return;
+      const good = results.filter(([, quote]) => !isUpstoxFutureQuoteError(quote));
+      if (good.length === 0) return;
+      setFutureQuotes((prev) => {
+        const next = { ...prev };
+        for (const [expiry, quote] of good) next[`${inst}|${expiry}`] = quote;
+        return next;
+      });
+      const ltpByExpiry = new Map(good.map(([expiry, quote]) => [expiry, isUpstoxFutureQuoteError(quote) ? 0 : quote.ltp]));
+      setLegs((prev) =>
+        prev.map((l) => {
+          const ltp = ltpByExpiry.get(l.expiry);
+          return l.type === "FUT" && l.price === "" && ltp ? { ...l, price: String(ltp) } : l;
+        }),
+      );
+    }
+    void load();
+    const id = setInterval(() => {
+      if (!tokenExpiredRef.current && !document.hidden) void load();
+    }, CHAIN_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [hydrated, instrument, futureExpiries]);
+
   async function handleRefreshPrices() {
     setRefreshing(true);
     try {
@@ -406,13 +460,35 @@ export default function AnalysisView() {
   // --- Legs ------------------------------------------------------------------
 
   const quoteFor = useCallback(
-    (leg: Pick<DraftLeg, "expiry" | "strike" | "type">) =>
-      findQuote(chains[`${instrument}|${leg.expiry}`], leg.strike, leg.type),
-    [chains, instrument],
+    (leg: Pick<DraftLeg, "expiry" | "strike" | "type">) => {
+      const rows = chains[`${instrument}|${leg.expiry}`];
+      if (leg.type !== "FUT") return findQuote(rows, leg.strike, leg.type);
+      // A future has no strike or IV of its own: its price is its own quote, its volatility the at-the-money one of its expiry.
+      const quote = futureQuotes[`${instrument}|${leg.expiry}`];
+      const live = quote && !isUpstoxFutureQuoteError(quote) ? quote : null;
+      return {
+        ltp: live && live.ltp > 0 ? live.ltp : null,
+        iv: atmIvOfRows(rows, spotOfRows(rows)),
+        delta: 1,
+        gamma: 0,
+        theta: 0,
+        key: live?.instrumentKey ?? null,
+      };
+    },
+    [chains, futureQuotes, instrument],
+  );
+
+  /** How far a future trades above the index (its quote less the index level of its expiry's chain) - null until both have loaded. */
+  const futureBasisFor = useCallback(
+    (leg: Pick<DraftLeg, "expiry">) =>
+      futureBasisOf(quoteFor({ expiry: leg.expiry, strike: 0, type: "FUT" }).ltp, spotOfRows(chains[`${instrument}|${leg.expiry}`])),
+    [quoteFor, chains, instrument],
   );
 
   function addLeg() {
     const last = legs[legs.length - 1];
+    // The strike and CE/PE to start from are the last option's - a future has neither.
+    const lastOption = [...legs].reverse().find((l) => l.type !== "FUT");
     const expiry = last?.expiry ?? defaultExpiry;
     if (!expiry) {
       // A commodity's expiry list hasn't arrived (or has none listed) - there is nothing to default the leg to.
@@ -422,8 +498,8 @@ export default function AnalysisView() {
     const atm = spot ? Math.round(spot / step) * step : 0;
     const draft = {
       expiry,
-      strike: last?.strike ?? atm,
-      type: last?.type ?? ("CE" as LegType),
+      strike: lastOption?.strike ?? atm,
+      type: lastOption && lastOption.type !== "FUT" ? lastOption.type : ("CE" as LegType),
     };
     const ltp = quoteFor(draft).ltp;
     setLegs((prev) => [
@@ -476,7 +552,15 @@ export default function AnalysisView() {
     const withIds: DraftLeg[] = incoming.map((l) => {
       // Live-priced legs: use the chain if it's already cached; otherwise the
       // blank price is filled when that expiry's chain arrives.
-      const cached = l.price === "" ? findQuote(chains[`${inst}|${l.expiry}`], l.strike, l.type).ltp : null;
+      const futureQuote = futureQuotes[`${inst}|${l.expiry}`];
+      const cached =
+        l.price !== ""
+          ? null
+          : l.type === "FUT"
+            ? futureQuote && !isUpstoxFutureQuoteError(futureQuote)
+              ? futureQuote.ltp
+              : null
+            : findQuote(chains[`${inst}|${l.expiry}`], l.strike, l.type).ltp;
       return { ...l, id: newId(), price: cached !== null ? String(cached) : l.price };
     });
     const extend = mode === "add" && inst === instrument;
@@ -577,6 +661,9 @@ export default function AnalysisView() {
     [dropsExpired, nowMs, instrument],
   );
   const leftOutCount = legs.filter((l) => l.enabled && isLeftOut(l)).length;
+  // A future is measured against the index, so until its own quote and its expiry's chain have both arrived it can't be placed.
+  const isWaiting = (l: DraftLeg) => l.enabled && l.type === "FUT" && !isLeftOut(l) && futureBasisFor(l) === null;
+  const waitingCount = legs.filter(isWaiting).length;
 
   const strategyLegs: StrategyLeg[] = useMemo(
     () =>
@@ -590,8 +677,9 @@ export default function AnalysisView() {
         lots: l.lots,
         price: l.price.trim() === "" ? NaN : Number(l.price),
         chainIv: quoteFor(l).iv,
+        basis: l.type === "FUT" ? futureBasisFor(l) : undefined,
       })),
-    [legs, quoteFor, isLeftOut],
+    [legs, quoteFor, futureBasisFor, isLeftOut],
   );
 
   // `instrument` makes an MCX option run into the night (23:30 or 23:55) on its expiry day rather than to 15:30.
@@ -692,6 +780,13 @@ export default function AnalysisView() {
     });
 
   const hasLegs = priced.length > 0;
+  // What an index future is measured against - said once, under the legs, because the curves depend on it.
+  const futureLeg = priced.find(isFutureLeg);
+  const futureNote = futureLeg
+    ? `${INSTRUMENT_LABELS[instrument]} future is measured against the index: it trades ${Math.abs(Math.round(futureLeg.basis ?? 0)).toLocaleString("en-IN")} points ${
+        (futureLeg.basis ?? 0) >= 0 ? "above" : "below"
+      } it today, a gap that closes to nothing by ${new Date(`${futureLeg.expiry}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}, and the curves for later dates include that. It has no premium, so it adds nothing to Net Premium.`
+    : null;
   const netPremiumText = metrics
     ? `${metrics.netPremium >= 0 ? "Get" : "Pay"} ${formatINR(Math.abs(metrics.netPremium))}`
     : "—";
@@ -842,7 +937,7 @@ export default function AnalysisView() {
           >
             <InboxIcon className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              No legs yet. Click Add Leg to pick contracts from the option chain, or use Import to bring in positions from Live Portfolio or Paper Trade.
+              No legs yet. Click Add Leg to pick contracts from the option chain, or use Import to bring in positions (options and index futures) from Live Portfolio or Paper Trade.
             </p>
           </div>
         ) : (
@@ -863,9 +958,15 @@ export default function AnalysisView() {
             {legs.map((leg) => (
               <div
                 key={leg.id}
-                title={leg.enabled && isLeftOut(leg) ? "Expired — left out of the analysis while other legs are still live" : undefined}
+                title={
+                  leg.enabled && isLeftOut(leg)
+                    ? "Expired — left out of the analysis while other legs are still live"
+                    : isWaiting(leg)
+                      ? "Waiting for this future's price and the index level — left out until they arrive"
+                      : undefined
+                }
                 className={`flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 ${LEG_GRID} ${
-                  leg.enabled && !isLeftOut(leg) ? "" : "opacity-50"
+                  leg.enabled && !isLeftOut(leg) && !isWaiting(leg) ? "" : "opacity-50"
                 }`}
               >
                 <input
@@ -892,21 +993,37 @@ export default function AnalysisView() {
                     triggerClassName="flex w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30"
                   />
                 </div>
-                <Stepper
-                  value={leg.strike}
-                  step={step}
-                  min={step}
-                  onChange={(v) => updateLeg(leg.id, { strike: v })}
-                  width="w-24 md:w-auto md:min-w-0 md:flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={() => updateLeg(leg.id, { type: leg.type === "CE" ? "PE" : "CE" })}
-                  title="Switch call / put"
-                  className="h-8 w-12 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-muted md:w-full"
-                >
-                  {leg.type}
-                </button>
+                {leg.type === "FUT" ? (
+                  <>
+                    <span
+                      className="text-center text-sm text-muted-foreground md:min-w-0"
+                      title="An index future has no strike - it moves point for point with the index"
+                    >
+                      Future
+                    </span>
+                    <span className="flex h-8 w-12 items-center justify-center rounded-lg border border-border text-sm font-medium text-muted-foreground md:w-full">
+                      FUT
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Stepper
+                      value={leg.strike}
+                      step={step}
+                      min={step}
+                      onChange={(v) => updateLeg(leg.id, { strike: v })}
+                      width="w-24 md:w-auto md:min-w-0 md:flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateLeg(leg.id, { type: leg.type === "CE" ? "PE" : "CE" })}
+                      title="Switch call / put"
+                      className="h-8 w-12 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-muted md:w-full"
+                    >
+                      {leg.type}
+                    </button>
+                  </>
+                )}
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className="text-xs text-muted-foreground md:hidden">Lots</span>
                   <Stepper
@@ -937,13 +1054,20 @@ export default function AnalysisView() {
                 </button>
               </div>
             ))}
+            {futureNote && <p className="px-1 pt-1 text-xs text-muted-foreground">{futureNote}</p>}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-sm text-muted-foreground">
               <span>
-                Lot size {lotSize} · {legs.filter((l) => l.enabled).length - leftOutCount} of {legs.length} legs included
+                Lot size {lotSize} · {legs.filter((l) => l.enabled).length - leftOutCount - waitingCount} of {legs.length} legs included
                 {leftOutCount > 0 && (
                   <>
                     {" "}
                     · <span className="text-warning">{leftOutCount} expired, left out</span>
+                  </>
+                )}
+                {waitingCount > 0 && (
+                  <>
+                    {" "}
+                    · <span className="text-warning">{waitingCount} waiting for a future&apos;s price</span>
                   </>
                 )}
               </span>
@@ -963,14 +1087,23 @@ export default function AnalysisView() {
           <p className="mt-3 text-sm text-muted-foreground">
             {legs.length > 0 && !spot
               ? "Waiting for the spot price — enter it above if live data isn't available."
-              : legs.length > 0
+              : waitingCount > 0 && !hasLegs
+                ? "Waiting for the future's price and the index level — they load with the option chain of its expiry."
+                : legs.length > 0
                 ? "Enter a price for at least one included leg to see the analysis."
                 : "Add legs above to see the payoff, probability of profit and Greeks."}
           </p>
         ) : (
           <>
             <dl className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
-              <Tile label="Max Profit" hint="Best P&L at the earliest expiry">
+              <Tile
+                label="Max Profit"
+                hint={
+                  futureLeg && metrics.maxProfit !== null
+                    ? "Best P&L at the earliest expiry. With a short future that is only reached if the index fell to zero."
+                    : "Best P&L at the earliest expiry"
+                }
+              >
                 {metrics.maxProfit === null ? (
                   <span className="text-profit">Unlimited</span>
                 ) : (
@@ -1205,13 +1338,13 @@ export default function AnalysisView() {
                           <tr key={l.id} className="border-b border-border/60">
                             <td className="py-2 pr-3 font-sans">
                               <span className={l.side === "buy" ? "text-info" : "text-danger-fg"}>{l.side === "buy" ? "B" : "S"}</span>{" "}
-                              {l.strike} {l.type} · {l.lots}L
+                              {l.type === "FUT" ? "Future" : `${l.strike} ${l.type}`} · {l.lots}L
                             </td>
                             <td className="px-3 py-2 text-right">{g.delta.toFixed(1)}</td>
                             <td className="px-3 py-2 text-right">{g.gamma.toFixed(3)}</td>
                             <td className="px-3 py-2 text-right">{whole(g.theta)}</td>
                             <td className="px-3 py-2 text-right">{whole(g.vega)}</td>
-                            <td className="py-2 pl-3 text-right">{(l.sigma * 100).toFixed(1)}%</td>
+                            <td className="py-2 pl-3 text-right">{l.type === "FUT" ? "—" : `${(l.sigma * 100).toFixed(1)}%`}</td>
                           </tr>
                         );
                       })}
@@ -1243,7 +1376,7 @@ export default function AnalysisView() {
                   onSelect={setSimulatingId}
                   nowMs={nowMs}
                   apply={averagingApply}
-                  emptyMessage="Nothing to simulate yet. Add a bought (B) call or put leg with a price and a live quote — sold legs, switched-off legs and expired contracts are skipped."
+                  emptyMessage="Nothing to simulate yet. Add a bought (B) call or put leg with a price and a live quote — sold legs, switched-off legs and expired contracts are skipped. A future is simulated on Live Portfolio's Simulate tab."
                   note="Simulation only — nothing is placed; the button just adds a leg to this strategy. Treats this as a naked long leg; your other legs are ignored."
                 />
               </div>

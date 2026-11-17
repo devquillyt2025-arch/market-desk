@@ -1,7 +1,7 @@
 /**
  * Server-side proxy behind the Watchlist's "Add" popup: `GET ?q=reliance` -> `{ results: { indices, commodities, stocks } }`.
  *
- * Stocks and indices come from Upstox's own search endpoint (two small calls, in parallel). Commodities are searched
+ * Stocks and indices come from Upstox's own search endpoint (two small calls, in parallel); GIFT Nifty, which that search doesn't know, is matched locally. Commodities are searched
  * locally in the MCX contract list - Upstox's search would return one row per expiry month for each, and the
  * list wants one. A source that is down just leaves its section empty; only an expired token is an error, since
  * it would fail every call the same way.
@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 
 import { isUpstoxGetError, upstoxErrorResponse, upstoxGet } from "@/lib/upstox/api";
-import { cleanQuery, mapEquityRows, mapIndexRows, searchCommodities } from "@/lib/upstox/instrumentSearch";
+import { cleanQuery, mapEquityRows, mapIndexRows, searchCommodities, searchGlobalIndices } from "@/lib/upstox/instrumentSearch";
 import { getMcxContracts, isMcxError } from "@/lib/upstox/mcx";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
 import type { WatchSearchResult } from "@/lib/watchlist";
@@ -41,7 +41,11 @@ export async function GET(request: Request) {
   }
 
   const stocks: WatchSearchResult[] = isUpstoxGetError(equityResult) ? [] : mapEquityRows(equityResult.body);
-  const indices: WatchSearchResult[] = isUpstoxGetError(indexResult) ? [] : mapIndexRows(indexResult.body, 6, query);
+  // GIFT Nifty is one of Upstox's global indices, which its search never returns - matched locally and listed after the NSE / BSE ones.
+  const indices: WatchSearchResult[] = [
+    ...(isUpstoxGetError(indexResult) ? [] : mapIndexRows(indexResult.body, 6, query)),
+    ...searchGlobalIndices(query),
+  ];
   const commodities: WatchSearchResult[] = isMcxError(mcx) ? [] : searchCommodities(mcx.futures, query);
 
   // Every source failing is an outage to report, not "no matches".

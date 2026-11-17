@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { cleanQuery, mapEquityRows, mapIndexRows, searchCommodities } from "@/lib/upstox/instrumentSearch";
+import { cleanQuery, mapEquityRows, mapIndexRows, searchCommodities, searchGlobalIndices } from "@/lib/upstox/instrumentSearch";
 import type { McxFuture } from "@/lib/upstox/mcx";
 
 const fut = (symbol: string, name: string, expiry = "2026-11-19"): [string, McxFuture] => [symbol, { symbol, name, key: `MCX_FO|${symbol}`, expiry, tradingSymbol: `${symbol} FUT` }];
@@ -118,5 +118,21 @@ describe("mapIndexRows", () => {
       { kind: "index", itemKey: "NSE_INDEX|Nifty 50", symbol: "NIFTY", name: "Nifty 50", detail: "NSE index" },
       { kind: "index", itemKey: "BSE_INDEX|SENSEX", symbol: "SENSEX", name: "BSE SENSEX", detail: "BSE index" },
     ]);
+  });
+});
+
+describe("searchGlobalIndices - GIFT Nifty, which Upstox's own search never returns", () => {
+  const gift = { kind: "index", itemKey: "GLOBAL_INDEX|SGX NIFTY", symbol: "GIFTNIFTY", name: "GIFT Nifty", detail: "NSE IX · GIFT City" };
+
+  it("finds it by the words people use for it", () => {
+    for (const q of ["gift", "GIFT Nifty", "gift nifty", "giftnifty", "sgx", "sgx nifty", "nse ix", "gift city", "nifty"]) {
+      assert.deepEqual(searchGlobalIndices(q), [gift], q);
+    }
+  });
+
+  it("is not offered for anything else", () => {
+    for (const q of ["reliance", "gold", "nifty bank", "nifty 50", "vix", "sensex", ""]) {
+      assert.deepEqual(searchGlobalIndices(q), [], q);
+    }
   });
 });

@@ -2,7 +2,7 @@
 
 /**
  * "Import from Live Portfolio / Paper Trade" picker for the Analysis tab.
- * Lists the source's open option positions (one underlying at a time, since
+ * Lists the source's open option and index-future positions (one underlying at a time, since
  * a strategy has one), lets the user tick which to bring in, and whether to
  * replace or extend the legs already on screen.
  */
@@ -104,7 +104,10 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
     () =>
       (entries ?? [])
         .filter(isImportableEntry)
-        .sort((a, b) => (a.expiry_date! === b.expiry_date! ? a.strike_price! - b.strike_price! : a.expiry_date! < b.expiry_date! ? -1 : 1)),
+        // By expiry, then strike - a future (no strike) first in its month.
+        .sort((a, b) =>
+          a.expiry_date! === b.expiry_date! ? Number(a.strike_price ?? 0) - Number(b.strike_price ?? 0) : a.expiry_date! < b.expiry_date! ? -1 : 1,
+        ),
     [entries],
   );
   const counts = useMemo(() => {
@@ -175,8 +178,8 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
             </p>
           ) : open.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No open option positions in {SOURCE_LABELS[source]}. Positions need a strike, CE/PE, expiry and the
-              &quot;Hold&quot; status.
+              No open option or future positions in {SOURCE_LABELS[source]}. Options need a strike, CE/PE, expiry and the
+              &quot;Hold&quot; status; a future needs its expiry and that status.
             </p>
           ) : (
             <>
@@ -235,7 +238,7 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
                           {e.side === "buy" ? "B" : "S"}
                         </span>
                         <span className="font-medium">
-                          {e.strike_price!.toFixed(0)} {e.option_type}
+                          {e.strike_price == null ? "Future" : `${e.strike_price.toFixed(0)} ${e.option_type}`}
                         </span>
                         <span className="text-muted-foreground">
                           {new Date(`${e.expiry_date}T00:00:00Z`).toLocaleDateString("en-IN", {
@@ -258,7 +261,7 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prices</span>
                   <Radio value="entry" current={priceMode} onChange={setPriceMode} label="Entry price" hint="What the position was opened at" />
-                  <Radio value="live" current={priceMode} onChange={setPriceMode} label="Current market price" hint="Live LTP from the option chain" />
+                  <Radio value="live" current={priceMode} onChange={setPriceMode} label="Current market price" hint="Live LTP from the option chain (a future's own quote)" />
                 </div>
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Legs on screen</span>
