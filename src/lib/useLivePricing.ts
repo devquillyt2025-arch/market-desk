@@ -11,17 +11,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   computePortfolioRow,
-  isTrackableEntry,
+  futureGroupKey,
+  isFutureEntry,
+  isTrackedEntry,
   portfolioGroupKey,
   toLegSnapshot,
+  type FutureQuotes,
   type LegSnapshots,
   type PortfolioRow,
 } from "@/lib/calculatePortfolio";
 import { loadLegSnapshots, saveLegSnapshots } from "@/lib/lastKnownPrices";
 import { showToast } from "@/lib/toast";
 import type { TradeEntry } from "@/lib/types";
-import { fetchOptionChain } from "@/lib/upstox/client";
-import { isUpstoxOptionChainError, type UpstoxOptionChainResult } from "@/lib/upstox/types";
+import { fetchFutureQuote, fetchOptionChain } from "@/lib/upstox/client";
+import {
+  isUpstoxFutureQuoteError,
+  isUpstoxOptionChainError,
+  type UpstoxFutureQuoteResult,
+  type UpstoxOptionChainResult,
+} from "@/lib/upstox/types";
 
 const DEFAULT_POLL_MS = 10000;
 
@@ -39,7 +47,7 @@ export type LivePricingState = {
    */
   stalePricesAsOf: number | null;
   manualRefreshing: boolean;
-  /** Number of distinct instrument+expiry groups being polled — 0 means the refresh button has nothing to do. */
+  /** Number of distinct instrument+expiry groups being polled (option chains and futures) — 0 means the refresh button has nothing to do. */
   groupCount: number;
   handleManualRefresh: () => Promise<void>;
 };
@@ -47,6 +55,8 @@ export type LivePricingState = {
 /** `openEntries` should already be filtered to whichever entries this table considers "still open". */
 export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAULT_POLL_MS): LivePricingState {
   const [chainsByGroup, setChainsByGroup] = useState<Record<string, UpstoxOptionChainResult | undefined>>({});
+  // An index future has no row in a chain, so its quote is polled on its own and kept beside the chains.
+  const [futureQuotes, setFutureQuotes] = useState<FutureQuotes>({});
   const [tokenExpired, setTokenExpired] = useState(false);
   const [offline, setOffline] = useState(false);
   const [lastPolledAt, setLastPolledAt] = useState<number | null>(null);
@@ -73,21 +83,31 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
   // scheduled tick, and without duplicating the polling logic.
   const pollOnceRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
 
+  // A future's expiry is polled for its option chain too: the chain is where the index level and the volatility the
+  // risk and what-if models measure a future against come from, and what a hedge for it would be priced from.
   const groupKeys = useMemo(() => {
     if (!openEntries) return [];
     const set = new Set(
-      openEntries.filter(isTrackableEntry).map((e) => portfolioGroupKey(e.instrument, e.expiry_date)),
+      openEntries.filter(isTrackedEntry).map((e) => portfolioGroupKey(e.instrument, e.expiry_date)),
     );
     return [...set].sort();
   }, [openEntries]);
   const groupKeysDep = groupKeys.join(",");
+
+  // Each distinct future held, as its futureGroupKey.
+  const futureKeys = useMemo(() => {
+    if (!openEntries) return [];
+    const set = new Set(openEntries.filter(isFutureEntry).map((e) => futureGroupKey(e.instrument, e.expiry_date)));
+    return [...set].sort();
+  }, [openEntries]);
+  const futureKeysDep = futureKeys.join(",");
 
   useEffect(() => {
     entriesRef.current = openEntries;
   }, [openEntries]);
 
   useEffect(() => {
-    if (groupKeys.length === 0) return;
+    if (groupKeys.length === 0 && futureKeys.length === 0) return;
     let cancelled = false;
 
     async function pollOnce(force = false) {
@@ -98,33 +118,55 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       // a new token at /settings).
       if (tokenExpiredRef.current && !force) return;
 
-      const results = await Promise.all(
-        groupKeys.map(async (key) => {
-          const [instrument, expiry] = key.split("|");
-          // A commodity's chain is a window around the money, so the strikes held are named to be sure they are in it.
-          const held = (entriesRef.current ?? [])
-            .filter((e) => e.instrument === instrument && e.expiry_date === expiry && e.strike_price != null)
-            .map((e) => Number(e.strike_price));
-          try {
-            const data = await fetchOptionChain(instrument as TradeEntry["instrument"], expiry, held);
-            return [key, data] as const;
-          } catch {
-            // fetch() itself rejecting (as opposed to resolving with a non-ok
-            // status, which the route always turns into a normal { error }
-            // body) means the request never reached the server at all — a
-            // dropped connection, not anything Upstox- or app-specific.
-            return [key, { error: "network_error" }] as const;
-          }
-        }),
-      );
+      const [results, futureResults] = await Promise.all([
+        Promise.all(
+          groupKeys.map(async (key) => {
+            const [instrument, expiry] = key.split("|");
+            // A commodity's chain is a window around the money, so the strikes held are named to be sure they are in it.
+            const held = (entriesRef.current ?? [])
+              .filter((e) => e.instrument === instrument && e.expiry_date === expiry && e.strike_price != null)
+              .map((e) => Number(e.strike_price));
+            try {
+              const data = await fetchOptionChain(instrument as TradeEntry["instrument"], expiry, held);
+              return [key, data] as const;
+            } catch {
+              // fetch() itself rejecting (as opposed to resolving with a non-ok
+              // status, which the route always turns into a normal { error }
+              // body) means the request never reached the server at all — a
+              // dropped connection, not anything Upstox- or app-specific.
+              return [key, { error: "network_error" }] as const;
+            }
+          }),
+        ),
+        Promise.all(
+          futureKeys.map(async (key) => {
+            const [, instrument, expiry] = key.split("|");
+            try {
+              const data = await fetchFutureQuote(instrument as TradeEntry["instrument"], expiry);
+              return [key, data] as const;
+            } catch {
+              // Same as above: the request never reached the server.
+              return [key, { error: "network_error" }] as const;
+            }
+          }),
+        ),
+      ]);
       if (cancelled) return;
 
       const next: Record<string, UpstoxOptionChainResult> = {};
+      const nextFutures: Record<string, UpstoxFutureQuoteResult> = {};
       let anyTokenExpired = false;
       let anyNetworkError = false;
       for (const [key, data] of results) {
         next[key] = data;
         if (isUpstoxOptionChainError(data)) {
+          if (data.error === "token_expired") anyTokenExpired = true;
+          if (data.error === "network_error") anyNetworkError = true;
+        }
+      }
+      for (const [key, data] of futureResults) {
+        nextFutures[key] = data;
+        if (isUpstoxFutureQuoteError(data)) {
           if (data.error === "token_expired") anyTokenExpired = true;
           if (data.error === "network_error") anyNetworkError = true;
         }
@@ -136,7 +178,7 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       lastKnownRef.current ??= loadLegSnapshots();
       const fresh: LegSnapshots = {};
       for (const entry of entriesRef.current ?? []) {
-        const snapshot = toLegSnapshot(computePortfolioRow(entry, next), polledAt);
+        const snapshot = toLegSnapshot(computePortfolioRow(entry, next, undefined, nextFutures), polledAt);
         if (snapshot) fresh[snapshot.key] = snapshot.snapshot;
       }
       if (Object.keys(fresh).length > 0) {
@@ -145,6 +187,7 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       }
 
       setChainsByGroup(next);
+      setFutureQuotes(nextFutures);
       setLastKnown(lastKnownRef.current);
       setLastPolledAt(polledAt);
 
@@ -182,8 +225,8 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
       cancelled = true;
       clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- groupKeys is derived fresh each render; groupKeysDep is its stable identity for this effect.
-  }, [groupKeysDep, pollMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- groupKeys and futureKeys are derived fresh each render; their Dep strings are their stable identity for this effect.
+  }, [groupKeysDep, futureKeysDep, pollMs]);
 
   async function handleManualRefresh() {
     setManualRefreshing(true);
@@ -195,8 +238,8 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
   }
 
   const rows: PortfolioRow[] | null = useMemo(
-    () => (openEntries ? openEntries.map((entry) => computePortfolioRow(entry, chainsByGroup, lastKnown)) : null),
-    [openEntries, chainsByGroup, lastKnown],
+    () => (openEntries ? openEntries.map((entry) => computePortfolioRow(entry, chainsByGroup, lastKnown, futureQuotes)) : null),
+    [openEntries, chainsByGroup, futureQuotes, lastKnown],
   );
 
   const stalePricesAsOf = useMemo(() => {
@@ -215,7 +258,7 @@ export function useLivePricing(openEntries: TradeEntry[] | null, pollMs = DEFAUL
     lastPolledAt,
     stalePricesAsOf,
     manualRefreshing,
-    groupCount: groupKeys.length,
+    groupCount: groupKeys.length + futureKeys.length,
     handleManualRefresh,
   };
 }

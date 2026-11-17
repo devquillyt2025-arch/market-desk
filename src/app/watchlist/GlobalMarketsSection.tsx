@@ -39,12 +39,13 @@ function GlobalRow({ item, reference, freshest, quiet, loading }: GlobalRowProps
   const notes = [item.key === "WTI_INR" ? "WTI × USD/INR" : null, quote && (stale || lagging) ? `${stale ? "last price" : "as of"} ${formatAsOf(quote.asOf, reference)}` : null].filter(Boolean);
 
   return (
-    <tr className={`border-t border-border/60 transition-colors duration-700 first:border-t-0 ${flash.on ? (flash.dir === "up" ? "bg-profit/10" : "bg-loss/15") : ""} ${stale ? "opacity-70" : ""}`}>
+    // A stale row isn't dimmed (that put the figures at ~3:1 contrast, and they are read most when markets are shut); its amber "last price …" note says it.
+    <tr className={`border-t border-border/60 transition-colors duration-700 first:border-t-0 ${flash.on ? (flash.dir === "up" ? "bg-profit/10" : "bg-loss/15") : ""}`}>
       <td className="py-2.5 pr-3" title={item.title}>
         <p className="font-medium">
           {item.label} <span className="ml-1 text-xs font-normal text-muted-foreground">{item.unit}</span>
         </p>
-        {notes.length > 0 && <p className={`text-xs ${stale ? "text-warning" : "text-muted-foreground"}`}>{notes.join(" · ")}</p>}
+        {notes.length > 0 && <p className={`text-xs ${stale ? "text-warning-strong" : "text-muted-foreground"}`}>{notes.join(" · ")}</p>}
       </td>
       <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums">
         {quote ? item.format(quote.price) : loading ? <span className="inline-block h-3 w-14 animate-pulse rounded bg-muted align-middle" /> : "—"}

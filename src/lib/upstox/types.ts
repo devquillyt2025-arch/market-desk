@@ -64,6 +64,26 @@ export function isUpstoxOptionChainError(
 }
 
 /**
+ * What this app's own /api/upstox/future-quote route returns for one index future — reduced from Upstox's
+ * `GET /v2/market-quote/quotes`. Live Portfolio prices a futures position from this, since a future has no row
+ * in an option chain.
+ */
+export type UpstoxFutureQuoteSuccess = {
+  instrumentKey: string;
+  ltp: number;
+  /** The previous session's close - the baseline for today's move. Null when Upstox's quote doesn't allow working it out. */
+  prevClose: number | null;
+  oi: number | null;
+  volume: number | null;
+};
+export type UpstoxFutureQuoteError = { error: string; detail?: string };
+export type UpstoxFutureQuoteResult = UpstoxFutureQuoteSuccess | UpstoxFutureQuoteError;
+
+export function isUpstoxFutureQuoteError(result: UpstoxFutureQuoteResult): result is UpstoxFutureQuoteError {
+  return "error" in result;
+}
+
+/**
  * Shape of Upstox's `POST /v2/charges/margin` request/response — the actual
  * SPAN + exposure margin blocked for a position, not just the premium value.
  * A sold option's margin is many times its premium; a bought option's is
@@ -175,7 +195,7 @@ export function isUpstoxMarginError(result: UpstoxMarginResult): result is Upsto
 }
 
 /**
- * One open (or squared-off-today) index or commodity option position, as this app's own
+ * One open (or squared-off-today) index or commodity option position, or index future, as this app's own
  * /api/upstox/positions route returns it — reduced from Upstox's
  * `GET /v2/portfolio/short-term-positions` and already matched to its
  * contract, so unlike Upstox's own shape it carries strike/CE-PE/expiry
@@ -185,8 +205,9 @@ export function isUpstoxMarginError(result: UpstoxMarginResult): result is Upsto
 export type UpstoxPosition = {
   instrumentKey: string;
   instrument: Instrument;
-  strike: number;
-  optionType: TradeEntryOptionType;
+  /** Null for a future - which has no strike and no CE/PE, only the expiry of its contract month. */
+  strike: number | null;
+  optionType: TradeEntryOptionType | null;
   /** yyyy-mm-dd. */
   expiry: string;
   /** Units in a lot. Quantities below are in units too - MCX positions are reduced to that (Upstox counts them in lots). */
@@ -215,7 +236,7 @@ export type UpstoxPosition = {
 
 export type UpstoxPositionsSuccess = {
   positions: UpstoxPosition[];
-  /** Positions in anything other than Nifty / Bank Nifty / Sensex or MCX crude oil / gold / natural gas options (stocks, futures, other indices and commodities) — left out. */
+  /** Positions in anything other than Nifty / Bank Nifty / Sensex options and futures or MCX crude oil / gold / natural gas options (stocks, other indices, other commodities' futures) — left out. */
   otherCount: number;
 };
 export type UpstoxPositionsError = { error: string; detail?: string };

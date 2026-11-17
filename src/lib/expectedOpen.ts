@@ -18,7 +18,7 @@
  */
 
 import { isMarketOpen } from "@/lib/averaging";
-import type { Instrument } from "@/lib/types";
+import { mcxSessionCloseIst, type Instrument } from "@/lib/types";
 
 export const EXPECTED_OPEN_MARKETS = ["NATURALGAS", "CRUDEOIL"] as const;
 export type ExpectedOpenMarket = (typeof EXPECTED_OPEN_MARKETS)[number];
@@ -102,6 +102,22 @@ export function nextMcxOpenMs(nowMs: number): number {
     if (open > nowMs && weekday >= 1 && weekday <= 5) return open;
   }
   return istDayStart + DAY_MS + 9 * 3_600_000;
+}
+
+/**
+ * When MCX's most recent scheduled session ended before `nowMs`: the latest weekday close at or before it. The fallback for the
+ * moment NYMEX's price is read at when Upstox doesn't say when a contract last traded - the schedule can't know a holiday or a
+ * part-day session the way the last trade does, but a close that is a few minutes out costs far less than no estimate.
+ */
+export function lastScheduledCloseMs(nowMs: number): number {
+  for (let back = 0; back < 10; back++) {
+    const iso = new Date(nowMs + IST_OFFSET_MS - back * DAY_MS).toISOString().slice(0, 10);
+    const weekday = new Date(`${iso}T00:00:00Z`).getUTCDay();
+    if (weekday < 1 || weekday > 5) continue;
+    const close = Date.parse(`${iso}T${mcxSessionCloseIst(iso)}:00+05:30`);
+    if (close <= nowMs) return close;
+  }
+  return nowMs;
 }
 
 /** NYMEX's own last update older than this means it is shut too (its weekend, or the daily break): the price is its last, not a live one. */

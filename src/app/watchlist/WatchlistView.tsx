@@ -397,7 +397,6 @@ export default function WatchlistView() {
             </div>
           )}
 
-
           <LivePricingBanners tokenExpired={live.tokenExpired} offline={live.offline} lastPricesAt={live.lastPolledAt} />
 
           {live.loadError && !live.tokenExpired && !live.offline && (

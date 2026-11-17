@@ -122,6 +122,7 @@ async function basketMargin(legs: BookLeg[]): Promise<{ value: number; hedged: b
 function MarginCheck({ book, move }: { book: Book; move: Evaluated }) {
   const [state, setState] = useState<MarginState>({ status: "idle" });
   const sells = move.applied.legs.some((l) => l.isShort);
+  const onlyFutures = move.applied.legs.length > 0 && move.applied.legs.every((l) => l.isFuture);
 
   async function check() {
     setState({ status: "loading" });
@@ -141,7 +142,12 @@ function MarginCheck({ book, move }: { book: Book; move: Evaluated }) {
         <div className="min-w-0">
           <p className="text-sm font-medium">Margin Upstox would block</p>
           <p className="text-xs text-muted-foreground">
-            {sells ? "This move sells options, which block margin on top of the premium." : "Buying options blocks little beyond the premium."} Asks Upstox for the whole book, before and after.
+            {onlyFutures
+              ? "A future blocks margin whether you are long or short."
+              : sells
+                ? "This move sells options, which block margin on top of the premium."
+                : "Buying options blocks little beyond the premium."}{" "}
+            Asks Upstox for the whole book, before and after.
           </p>
         </div>
         <button

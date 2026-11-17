@@ -33,7 +33,7 @@ export function PulseRefresh({ lastPolledAt, stale, refreshing, onRefresh, label
     <div className="flex items-center gap-1.5">
       {lastPolledAt !== null &&
         (stale ? (
-          <span className="whitespace-nowrap text-xs font-medium text-warning">Last prices {formatAsOf(lastPolledAt)}</span>
+          <span className="whitespace-nowrap text-xs font-medium text-warning-strong">Last prices {formatAsOf(lastPolledAt)}</span>
         ) : (
           <span className="whitespace-nowrap text-xs text-muted-foreground" title={title}>
             Updated {new Date(lastPolledAt).toLocaleTimeString("en-IN")}

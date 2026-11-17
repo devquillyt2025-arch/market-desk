@@ -13,6 +13,7 @@ import {
   expectedOpenMarketFor,
   impliedOpen,
   isExpectedOpenItem,
+  lastScheduledCloseMs,
   mcxState,
   nextMcxOpenMs,
   nymexContractFor,
@@ -178,6 +179,20 @@ describe("whether MCX is trading", () => {
     assert.equal(nextMcxOpenMs(at("2026-11-16T10:00:00+05:30")), at("2026-11-17T09:00:00+05:30")); // after it
     assert.equal(nextMcxOpenMs(at("2026-11-12T23:58:00+05:30")), at("2026-11-13T09:00:00+05:30")); // Thursday night -> Friday
     assert.equal(nextMcxOpenMs(at("2026-11-15T12:00:00+05:30")), at("2026-11-16T09:00:00+05:30")); // Sunday
+  });
+});
+
+describe("the scheduled close, for when Upstox doesn't say when MCX last traded", () => {
+  it("is the latest weekday close at or before now", () => {
+    assert.equal(lastScheduledCloseMs(SAT_NIGHT), at("2026-11-13T23:55:00+05:30")); // Saturday -> Friday's close
+    assert.equal(lastScheduledCloseMs(at("2026-11-16T08:00:00+05:30")), at("2026-11-13T23:55:00+05:30")); // Monday before the open
+    assert.equal(lastScheduledCloseMs(at("2026-11-12T20:00:00+05:30")), at("2026-11-11T23:55:00+05:30")); // Thursday evening -> Wednesday's
+    assert.equal(lastScheduledCloseMs(at("2026-11-16T23:56:00+05:30")), at("2026-11-16T23:55:00+05:30")); // just after Monday's close
+    assert.equal(lastScheduledCloseMs(at("2026-11-16T23:54:00+05:30")), at("2026-11-13T23:55:00+05:30")); // a minute before it
+  });
+
+  it("uses the summer close in summer", () => {
+    assert.equal(lastScheduledCloseMs(at("2026-07-16T12:00:00+05:30")), at("2026-07-15T23:30:00+05:30"));
   });
 });
 

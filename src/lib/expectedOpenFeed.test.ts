@@ -133,6 +133,22 @@ describe("the expected-open feed", () => {
     assert.ok(second.items.every(isExpectedOpenItem));
   });
 
+  it("falls back to the scheduled close when Upstox gives no time of the last trade, instead of waiting for ever", async () => {
+    const yahoo = fakeYahoo(PRICES);
+    const noTime = async () =>
+      new Map([
+        ["MCX_FO|1", { price: 307.9, lastTradeMs: null }],
+        ["MCX_FO|2", { price: 8372, lastTradeMs: null }],
+      ]);
+    const result = await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl, getQuotes: noTime }));
+    assert.ok(!("error" in result));
+    assert.ok(result.items.every(isExpectedOpenItem));
+    const [gas] = result.items;
+    assert.ok(isExpectedOpenItem(gas));
+    assert.equal(gas.mcxClosedAt, null);
+    assert.ok(Math.abs(gas.expectedOpen - 307.9 * (3.236 / 3.255)) < 1e-9);
+  });
+
   it("reports a market Yahoo has no price for, and still gives the other", async () => {
     const yahoo = fakeYahoo({ "NGZ26.NYM": PRICES["NGZ26.NYM"] });
     const result = await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl }));

@@ -219,7 +219,7 @@ describe("buildPortfolioReport", () => {
     assert.equal(report.summary.totalLots, report.positions.reduce((s, p) => s + p.lots, 0));
     assert.equal(report.summary.totalQuantity, report.positions.reduce((s, p) => s + p.quantity, 0));
     // Total Value is the live (else entry) mark across every open row, like the tile.
-    assert.equal(report.summary.totalValue, report.positions.reduce((s, p) => s + p.value, 0));
+    assert.equal(report.summary.totalValue, report.positions.reduce((s, p) => s + (p.value ?? 0), 0));
     assert.equal(report.summary.unrealizedPnl, report.positions.reduce((s, p) => s + (p.pnl ?? 0), 0));
     assert.equal(report.summary.brokerageIfClosed, 184.37 * 3);
     assert.equal(report.summary.todayPnl, -1234.5);

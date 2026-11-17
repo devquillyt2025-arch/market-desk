@@ -358,7 +358,7 @@ function drawSummary(ctx: Ctx, report: PortfolioReport) {
     ctx,
     [
       { label: "Total Invested (Margin)", value: s.totalMargin === null ? "-" : rs(s.totalMargin), hint: "Blocked by Upstox" },
-      { label: "Total Value", value: rs(s.totalValue), hint: "Open positions at current price" },
+      { label: "Total Value", value: s.totalValue === null ? "-" : rs(s.totalValue), hint: "Open positions at current price" },
       {
         label: "Unrealized P&L",
         value: rs(s.unrealizedPnl),
@@ -434,7 +434,7 @@ function drawPositions(ctx: Ctx, report: PortfolioReport) {
       int(p.quantity),
       price(p.entryPrice),
       price(p.livePrice),
-      rs(p.value),
+      p.value === null ? "-" : rs(p.value),
       { text: p.pnl === null ? "-" : rs(p.pnl), color: pnlColor(p.pnl), bold: true },
       { text: p.pnlPct === null ? "-" : signed(p.pnlPct), color: pnlColor(p.pnlPct) },
       p.margin === null ? "-" : rs(p.margin),
@@ -453,7 +453,7 @@ function drawPositions(ctx: Ctx, report: PortfolioReport) {
             int(summary.totalQuantity),
             "",
             "",
-            rs(summary.totalValue),
+            summary.totalValue === null ? "-" : rs(summary.totalValue),
             { text: rs(summary.unrealizedPnl), color: pnlColor(summary.unrealizedPnl) },
             "",
             summary.totalMargin === null ? "-" : rs(summary.totalMargin),

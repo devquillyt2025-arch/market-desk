@@ -93,10 +93,11 @@ function describeContract(input: Pick<AddTradeEntryInput, "instrument" | "strike
  * DB columns) rather than form input — shared by any view displaying a
  * TradeEntry, so Trade Entries' table and Live Portfolio read identically.
  */
-export function describeEntryContract(entry: Pick<TradeEntry, "instrument" | "strike_price" | "option_type">): string {
-  return entry.strike_price != null && entry.option_type
-    ? `${entry.instrument} ${entry.strike_price.toFixed(0)} ${entry.option_type}`
-    : INSTRUMENT_LABELS[entry.instrument];
+export function describeEntryContract(entry: Pick<TradeEntry, "instrument" | "strike_price" | "option_type"> & Partial<Pick<TradeEntry, "expiry_date">>): string {
+  if (entry.strike_price != null && entry.option_type) return `${entry.instrument} ${entry.strike_price.toFixed(0)} ${entry.option_type}`;
+  // No strike or CE/PE but an expiry: a future (the contract month is the expiry column beside it).
+  if (entry.strike_price == null && !entry.option_type && entry.expiry_date) return `${entry.instrument} FUT`;
+  return INSTRUMENT_LABELS[entry.instrument];
 }
 
 export async function addTradeEntry(input: AddTradeEntryInput): Promise<void> {

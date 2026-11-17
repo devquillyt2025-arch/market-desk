@@ -14,6 +14,7 @@
 import {
   assembleExpectedOpen,
   EXPECTED_OPEN_MARKETS,
+  lastScheduledCloseMs,
   nymexContractFor,
   parseMcxQuote,
   type ExpectedOpenError,
@@ -124,9 +125,10 @@ async function build(token: string, deps: Required<Pick<ExpectedOpenDeps, "fetch
   const filled = await Promise.all(
     gathered.map(async (input): Promise<MarketInput> => {
       if (!needed.has(input.market) || !input.mcx || !input.nymex) return input;
-      const closeMs = input.mcx.lastTradeMs;
+      // The moment MCX last traded; the scheduled close if Upstox didn't say (otherwise this would wait for ever).
+      const closeMs = input.mcx.lastTradeMs ?? lastScheduledCloseMs(nowMs);
       const [atClose, current] = await Promise.all([
-        closeMs === null ? Promise.resolve(null) : nymexAtClose(input.nymex.symbol, closeMs, nowMs, deps.fetchImpl),
+        nymexAtClose(input.nymex.symbol, closeMs, nowMs, deps.fetchImpl),
         fetchYahooChart(input.nymex.symbol, "?interval=1d&range=1d", deps.fetchImpl).then(parseYahooMeta),
       ]);
       return { ...input, nymex: { ...input.nymex, atClose, now: current ? { price: current.price, asOf: current.asOf } : null } };

@@ -125,8 +125,8 @@ export function ExpectedOpenPanel({ state, only, bare = false, className = "" }:
       </ul>
 
       {nymexShut.length > 0 && (
-        <p className="mt-3 text-xs text-warning">
-          NYMEX is shut too, so this uses its last price (as of {formatAsOf(nymexShut[0].nymex.asOf)}). It updates when NYMEX reopens, early Monday.
+        <p className="mt-3 text-xs text-warning-strong">
+          NYMEX is shut too, so this uses its last price (as of {formatAsOf(nymexShut[0].nymex.asOf)}). It updates when NYMEX reopens.
         </p>
       )}
 

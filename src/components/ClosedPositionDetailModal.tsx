@@ -80,6 +80,7 @@ export default function ClosedPositionDetailModal({ position: p, onClose }: Prop
     instrument: p.instrument,
     strike_price: p.strike,
     option_type: p.optionType,
+    expiry_date: p.expiry,
   });
 
   const isProfit = netPnl >= 0;
@@ -120,12 +121,14 @@ export default function ClosedPositionDetailModal({ position: p, onClose }: Prop
               </span>
               <span
                 className={`rounded-md border px-2 py-0.5 font-mono text-[11px] font-bold ${
-                  p.optionType === "CE"
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                    : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                  p.optionType === null
+                    ? "border-border bg-muted/60 text-muted-foreground"
+                    : p.optionType === "CE"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      : "border-rose-500/30 bg-rose-500/10 text-rose-400"
                 }`}
               >
-                {p.optionType}
+                {p.optionType ?? "FUT"}
               </span>
               <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -337,9 +340,9 @@ export default function ClosedPositionDetailModal({ position: p, onClose }: Prop
                   </span>
                 </div>
                 <div>
-                  <span className="block text-[11px] text-muted-foreground">Strike &amp; Type</span>
+                  <span className="block text-[11px] text-muted-foreground">{p.strike === null ? "Contract" : "Strike & Type"}</span>
                   <span className="font-mono text-sm font-medium text-foreground">
-                    {p.strike} {p.optionType}
+                    {p.strike === null ? "Future" : `${p.strike} ${p.optionType}`}
                   </span>
                 </div>
                 <div>

@@ -1,8 +1,8 @@
 /**
  * Pure matching + math for the Live Portfolio tab. No React, no fetching —
- * takes already-fetched option-chain responses (keyed by group) and
- * already-fetched open trade entries, and produces one display row per
- * entry. Reuses tradeEntriesStore's calculateEntryPnl and
+ * takes already-fetched option-chain responses (keyed by group), index-future
+ * quotes and already-fetched open trade entries, and produces one display row
+ * per entry. Reuses tradeEntriesStore's calculateEntryPnl and
  * calculateBrokerage.ts as-is rather than reimplementing either.
  */
 
@@ -11,7 +11,9 @@ import { round2 } from "@/lib/calculateTrade";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
 import {
+  isUpstoxFutureQuoteError,
   isUpstoxOptionChainError,
+  type UpstoxFutureQuoteResult,
   type UpstoxOptionChainResult,
   type UpstoxOptionLeg,
   type UpstoxPosition,
@@ -22,11 +24,37 @@ export function portfolioGroupKey(instrument: string, expiryDate: string): strin
   return `${instrument}|${expiryDate}`;
 }
 
+/** `(instrument, expiry_date)` pair identifying one future's quote — kept apart from the option groups, which can share that very pair (a monthly option and the future expire together). */
+export function futureGroupKey(instrument: string, expiryDate: string): string {
+  return `FUT|${instrument}|${expiryDate}`;
+}
+
 type TrackableEntry = TradeEntry & {
   strike_price: number;
   option_type: TradeEntryOptionType;
   expiry_date: string;
 };
+
+/**
+ * An index future: no strike, no CE/PE, just the expiry of its contract month. That is how the journal already
+ * records the futures of Upstox's P&L report, and what Live Portfolio's sync writes for a futures position - so
+ * no new column is needed. (The entry form refuses a strike or CE/PE without the rest, so a half-filled option
+ * never looks like this.)
+ */
+type FutureEntry = TradeEntry & {
+  strike_price: null;
+  option_type: null;
+  expiry_date: string;
+};
+
+export function isFutureEntry(entry: TradeEntry): entry is FutureEntry {
+  return entry.strike_price == null && entry.option_type == null && entry.expiry_date != null;
+}
+
+/** An entry whose live price can be fetched: an option with its strike, CE/PE and expiry, or a future with its expiry. */
+export function isTrackedEntry(entry: TradeEntry): entry is TrackableEntry | FutureEntry {
+  return isTrackableEntry(entry) || isFutureEntry(entry);
+}
 
 /** Entries this tab can track live: open, with strike/CE-PE/expiry all set (see TradeEntryModal's "all or nothing" rule). */
 export function isTrackableEntry(entry: TradeEntry): entry is TrackableEntry {
@@ -103,14 +131,19 @@ export type LegSnapshot = GreeksAndOi & {
 /** Last good snapshot per contract, keyed by legSnapshotKey. */
 export type LegSnapshots = Record<string, LegSnapshot>;
 
-/** One contract — the same strike can sit in several open positions, and they all share one last price. */
-export function legSnapshotKey(entry: TrackableEntry): string {
-  return `${entry.instrument}|${entry.expiry_date}|${entry.strike_price}|${entry.option_type}`;
+/**
+ * One contract — the same strike can sit in several open positions, and they all share one last price. A
+ * future's key ends in FUT in place of its strike and CE/PE (positionContractKey in upstoxSync.ts writes the same).
+ */
+export function legSnapshotKey(entry: TrackableEntry | FutureEntry): string {
+  return isFutureEntry(entry)
+    ? `${entry.instrument}|${entry.expiry_date}|FUT`
+    : `${entry.instrument}|${entry.expiry_date}|${entry.strike_price}|${entry.option_type}`;
 }
 
 /** Null unless the row holds a current (not already stale) live price. */
 export function toLegSnapshot(row: PortfolioRow, at: number): { key: string; snapshot: LegSnapshot } | null {
-  if (row.status !== "ok" || row.stale || row.liveLtp == null || !isTrackableEntry(row.entry)) return null;
+  if (row.status !== "ok" || row.stale || row.liveLtp == null || !isTrackedEntry(row.entry)) return null;
   return {
     key: legSnapshotKey(row.entry),
     snapshot: {
@@ -221,6 +254,25 @@ function nearestReportedIv(chain: UpstoxOptionChainResult, entry: TrackableEntry
   return best?.iv ?? null;
 }
 
+/**
+ * The at-the-money implied volatility of a chain, in percent as Upstox reports it: the strike nearest `spot` that has
+ * one, averaged over its call and put when both do. A future has no volatility of its own, so the risk model borrows
+ * the one the options of its own expiry trade at.
+ */
+function atmIv(chain: UpstoxOptionChainResult, spot: number | null): number | null {
+  if (isUpstoxOptionChainError(chain) || spot == null) return null;
+  let best: { distance: number; iv: number } | null = null;
+  for (const row of chain.data) {
+    const strike = Number(row.strike_price);
+    if (!Number.isFinite(strike)) continue;
+    const ivs = [row.call_options?.option_greeks?.iv, row.put_options?.option_greeks?.iv].filter((v): v is number => v != null && v > 0);
+    if (ivs.length === 0) continue;
+    const distance = Math.abs(strike - spot);
+    if (best === null || distance < best.distance) best = { distance, iv: ivs.reduce((a, b) => a + b, 0) / ivs.length };
+  }
+  return best?.iv ?? null;
+}
+
 function legOf(strikeRow: NonNullable<ReturnType<typeof findStrikeRow>>, entry: TrackableEntry): UpstoxOptionLeg | null {
   return (entry.option_type === "CE" ? strikeRow.call_options : strikeRow.put_options) ?? null;
 }
@@ -259,7 +311,7 @@ const EMPTY_LIVE_FIELDS = {
 
 /** A row with a live price — either fresh from a chain or the last snapshot standing in for one. */
 function pricedRow(
-  entry: TrackableEntry,
+  entry: TrackableEntry | FutureEntry,
   entryPrice: number,
   liveLtp: number,
   instrumentKey: string | null,
@@ -269,7 +321,8 @@ function pricedRow(
   const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
   const livePnl = calculateEntryPnl({ instrument: entry.instrument, lots: entry.lots, buyPrice, sellPrice });
   const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
-  const brokerageIfClosed = calculateBrokerage(optionsSegmentFor(entry.instrument), [{ buyPrice, sellPrice }], qty).totalCharges;
+  const segment = isFutureEntry(entry) ? "FUTURES" : optionsSegmentFor(entry.instrument);
+  const brokerageIfClosed = calculateBrokerage(segment, [{ buyPrice, sellPrice }], qty).totalCharges;
 
   return {
     entry,
@@ -284,6 +337,58 @@ function pricedRow(
   };
 }
 
+/** The latest quote per future, keyed by futureGroupKey. */
+export type FutureQuotes = Record<string, UpstoxFutureQuoteResult | undefined>;
+
+/**
+ * A future has no row in an option chain: its price comes from its own quote, and it has no Greeks and no IV of its
+ * own. If the option chain of its expiry is loaded, that supplies the index level (`underlyingSpot`) and the at-the-money
+ * volatility (`nearbyIv`) the risk and what-if models need - a future is the index plus a gap (the basis), and those two
+ * numbers are what let them be measured against it. Without that chain the row is still a plain price-and-P&L line.
+ */
+function computeFutureRow(
+  entry: FutureEntry,
+  entryPrice: number,
+  futureQuotes: FutureQuotes | undefined,
+  lastKnown: LegSnapshots | undefined,
+  chainsByGroup: Record<string, UpstoxOptionChainResult | undefined>,
+): PortfolioRow {
+  const quote = futureQuotes?.[futureGroupKey(entry.instrument, entry.expiry_date)];
+  const chain = chainsByGroup[portfolioGroupKey(entry.instrument, entry.expiry_date)];
+  const spot = chain && !isUpstoxOptionChainError(chain) ? anySpot(chain) : null;
+  const iv = chain ? atmIv(chain, spot) : null;
+  if (!quote) return { entry, entryPrice, status: "loading", ...EMPTY_LIVE_FIELDS };
+
+  if (isUpstoxFutureQuoteError(quote)) {
+    const snapshot = isOutage(quote.error) ? lastKnown?.[legSnapshotKey(entry)] : undefined;
+    if (snapshot) {
+      const { at, ltp, instrumentKey, ...greeksAndOi } = snapshot;
+      return pricedRow(entry, entryPrice, ltp, instrumentKey, greeksAndOi, { stale: true, asOf: at });
+    }
+    return { entry, entryPrice, status: "error", errorMessage: quote.error, ...EMPTY_LIVE_FIELDS };
+  }
+
+  return pricedRow(
+    entry,
+    entryPrice,
+    quote.ltp,
+    quote.instrumentKey,
+    {
+      prevClose: quote.prevClose,
+      delta: null,
+      gamma: null,
+      theta: null,
+      vega: null,
+      oi: quote.oi,
+      iv: null,
+      volume: quote.volume,
+      underlyingSpot: spot,
+      nearbyIv: iv,
+    },
+    { stale: false, asOf: null },
+  );
+}
+
 /**
  * `lastKnown` is the fallback for an outage (token expired, no connection):
  * a contract whose poll failed keeps the last price it was seen at, flagged
@@ -295,8 +400,11 @@ export function computePortfolioRow(
   entry: TradeEntry,
   chainsByGroup: Record<string, UpstoxOptionChainResult | undefined>,
   lastKnown?: LegSnapshots,
+  futureQuotes?: FutureQuotes,
 ): PortfolioRow {
   const entryPrice = entry.side === "sell" ? entry.sell_price : entry.buy_price;
+
+  if (isFutureEntry(entry)) return computeFutureRow(entry, entryPrice, futureQuotes, lastKnown, chainsByGroup);
 
   if (!isTrackableEntry(entry)) {
     return { entry, entryPrice, status: "untracked", ...EMPTY_LIVE_FIELDS };
@@ -371,7 +479,11 @@ export function summariseClosedPosition(position: UpstoxPosition): ClosedPositio
   const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
   const charges =
     buyAvg != null && sellAvg != null
-      ? calculateBrokerage(optionsSegmentFor(position.instrument), [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity).totalCharges
+      ? calculateBrokerage(
+          position.optionType === null ? "FUTURES" : optionsSegmentFor(position.instrument),
+          [{ buyPrice: buyAvg, sellPrice: sellAvg }],
+          position.buyQuantity,
+        ).totalCharges
       : null;
   return { position, buyAvg, sellAvg, pnl: round2(position.sellValue - position.buyValue), charges };
 }

@@ -8,11 +8,13 @@ import type { HeatmapRange } from "@/lib/heatmap/ranges";
 import { isCommodityInstrument, type Instrument } from "@/lib/types";
 import type { WatchlistItem } from "@/lib/watchlist";
 import {
+  isUpstoxFutureQuoteError,
   isUpstoxHeatmapError,
   isUpstoxMarginError,
   isUpstoxOptionChainError,
   isUpstoxVolatilityError,
   type InstrumentSearchResult,
+  type UpstoxFutureQuoteResult,
   type UpstoxHeatmapResult,
   type UpstoxWatchlistResult,
   type UpstoxMarginInstrumentRequest,
@@ -38,6 +40,18 @@ export async function fetchOptionChain(instrument: Instrument, expiry: string, s
   if (!res.ok && !isUpstoxOptionChainError(body)) {
     // Defensive fallback — the route always returns { error } on a non-ok
     // status, but don't let a malformed response masquerade as chain data.
+    return { error: `Request failed with status ${res.status}` };
+  }
+  return body;
+}
+
+/** One index future's live quote - what prices a futures position, which has no row in an option chain. */
+export async function fetchFutureQuote(instrument: Instrument, expiry: string): Promise<UpstoxFutureQuoteResult> {
+  const res = await fetch(`/api/upstox/future-quote?${new URLSearchParams({ instrument, expiry })}`, { cache: "no-store" });
+  const body: UpstoxFutureQuoteResult = await res.json();
+
+  if (!res.ok && !isUpstoxFutureQuoteError(body)) {
+    // Same defensive fallback as fetchOptionChain.
     return { error: `Request failed with status ${res.status}` };
   }
   return body;

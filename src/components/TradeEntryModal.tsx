@@ -121,6 +121,7 @@ export default function TradeEntryModal({
   // same substitution the table row makes, so this form's P&L is the row's
   // Live P&L instead of a stale hand-typed placeholder.
   const liveLtp = live?.ltp ?? null;
+  const hasGreeks = live != null && [live.delta, live.gamma, live.theta, live.vega].some((greek) => greek != null);
   const followingLive = status === "hold" && liveLtp != null && !pendingLegTouched;
   const followBuy = followingLive && side === "sell";
   const followSell = followingLive && side === "buy";
@@ -145,11 +146,13 @@ export default function TradeEntryModal({
     Number.isFinite(parsedBuyPrice) &&
     Number.isFinite(parsedSellPrice);
   const parsedStrikePrice = Number(strikePrice);
-  // Strike/CE-PE/Expiry travel together — either all three are set (an
-  // options contract Live Portfolio can track) or none are (a non-options
-  // entry), never a partial combination.
+  // A strike and a CE/PE only make sense with each other and an expiry — all
+  // three set is an options contract Live Portfolio can track, never a
+  // partial combination. An expiry on its own is a future (no strike, no
+  // CE/PE - how Upstox's futures are recorded), and none of the three is a
+  // non-F&O entry.
   const contractFieldsFilled = [strikePrice.trim() !== "", optionType !== "", expiryDate.trim() !== ""];
-  const hasStrikeMismatch = contractFieldsFilled.some(Boolean) && !contractFieldsFilled.every(Boolean);
+  const hasStrikeMismatch = (contractFieldsFilled[0] || contractFieldsFilled[1]) && !contractFieldsFilled.every(Boolean);
   const previewPnl = hasValidPrices
     ? calculateEntryPnl({ instrument, lots, buyPrice: parsedBuyPrice, sellPrice: parsedSellPrice })
     : null;
@@ -164,7 +167,7 @@ export default function TradeEntryModal({
       return;
     }
     if (hasStrikeMismatch) {
-      setFormError("Enter Strike Price, CE/PE, and Expiry Date together, or leave all three blank.");
+      setFormError("An option needs Strike Price, CE/PE and Expiry Date together. For a future, leave Strike and CE/PE blank and set just the Expiry Date.");
       return;
     }
     if (strikePrice.trim() !== "" && !Number.isFinite(parsedStrikePrice)) {
@@ -427,23 +430,28 @@ export default function TradeEntryModal({
                   </dd>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 sm:grid-cols-5">
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Delta</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.delta, 3)}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Gamma</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.gamma, 4)}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Theta</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.theta, 2)}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Vega</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatGreek(live.vega, 2)}</dd>
-                </div>
+              <div className={`mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 ${hasGreeks ? "sm:grid-cols-5" : ""}`}>
+                {/* A future has no Greeks - only its open interest is worth showing. */}
+                {hasGreeks && (
+                  <>
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Delta</dt>
+                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.delta, 3)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Gamma</dt>
+                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.gamma, 4)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Theta</dt>
+                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.theta, 2)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Vega</dt>
+                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.vega, 2)}</dd>
+                    </div>
+                  </>
+                )}
                 <div>
                   <dt className="text-[11px] text-muted-foreground">OI</dt>
                   <dd className="font-mono text-sm tabular-nums">{formatOi(live.oi)}</dd>

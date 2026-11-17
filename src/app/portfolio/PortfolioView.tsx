@@ -17,7 +17,8 @@ import TradeEntryModal from "@/components/TradeEntryModal";
 import { simulationInputs } from "@/lib/averaging";
 import {
   calculateTodayPnl,
-  isTrackableEntry,
+  isFutureEntry,
+  isTrackedEntry,
   legSnapshotKey,
   syntheticPrices,
   toLivePositionInfo,
@@ -47,6 +48,7 @@ import { useLivePricing } from "@/lib/useLivePricing";
 import { useMargin } from "@/lib/useMargin";
 import { useUpstoxPositions } from "@/lib/useUpstoxPositions";
 import { formatMovePct, moveDirection } from "@/lib/watchlist";
+import { buildBook } from "@/lib/whatIf";
 
 const POLL_MS = 10000;
 
@@ -104,11 +106,12 @@ export default function PortfolioView() {
   const { totalMargin, marginByEntryId } = useMargin(rows);
 
   // While MCX is shut: where the natural gas / crude oil underlyings of the open positions are expected to open.
-  const expectedOpen = useExpectedOpen();
   const heldMarkets = useMemo(
     () => [...new Set((rows ?? []).flatMap((row) => expectedOpenMarketFor(row.entry.instrument) ?? []))],
     [rows],
   );
+  // Only asked while an MCX natural gas or crude position is held - an index-only book has no use for it, and each poll costs Upstox and Yahoo calls.
+  const expectedOpen = useExpectedOpen(heldMarkets.length > 0);
   const expectedByMarket = useMemo(() => {
     const map = new Map<ExpectedOpenMarket, ExpectedOpenItem>();
     for (const item of expectedOpen.result && !expectedOpen.result.open ? expectedOpen.result.items : []) {
@@ -159,12 +162,15 @@ export default function PortfolioView() {
   const portfolioStats = useMemo(() => {
     if (!rows) return null;
     const today = todayISODate();
+    // "Total Value" is the options' premium value. A future's price is an index level - a contract worth a few lakh
+    // of rupees of exposure, not of premium - so adding it in would drown the figure; its P&L still counts below.
     let value = 0;
     let unrealizedPnl = 0;
     for (const row of rows) {
       const qty = row.entry.lots * DEFAULT_LOT_SIZES[row.entry.instrument];
-      value += (row.liveLtp ?? row.entryPrice) * qty;
       unrealizedPnl += row.livePnl ?? 0;
+      if (isFutureEntry(row.entry)) continue;
+      value += (row.liveLtp ?? row.entryPrice) * qty;
     }
 
     let todayPnl: number | null = null;
@@ -172,7 +178,7 @@ export default function PortfolioView() {
     if (todaysPositions && todaysPositions.length > 0) {
       const liveLtpByContract = new Map<string, number>();
       for (const row of rows) {
-        if (row.status === "ok" && row.liveLtp != null && isTrackableEntry(row.entry)) {
+        if (row.status === "ok" && row.liveLtp != null && isTrackedEntry(row.entry)) {
           liveLtpByContract.set(legSnapshotKey(row.entry), row.liveLtp);
         }
       }
@@ -188,7 +194,9 @@ export default function PortfolioView() {
         if (rowToday !== null) todayPnl = (todayPnl ?? 0) + rowToday;
       }
     }
-    return { value, unrealizedPnl, todayPnl, bookedToday };
+    // Null when nothing is an option (a futures-only book): there is no premium to value, and "₹0" would read as worthless.
+    const hasOptions = rows.some((row) => !isFutureEntry(row.entry));
+    return { value: hasOptions ? value : null, unrealizedPnl, todayPnl, bookedToday };
   }, [rows, todaysPositions]);
 
   // The moment the figures being analysed are from: the poll timestamp (not
@@ -241,9 +249,18 @@ export default function PortfolioView() {
         : [];
     });
   }, [rows, riskAsOf]);
-  const simulatableIds = useMemo(() => new Set(simulatorCandidates.map((c) => c.id)), [simulatorCandidates]);
+  // A future is simulated by adding or exiting lots, not averaged. It is offered once the model can place it: priced, with
+  // an index level and volatility from the option chain of its expiry (the same test the What-if lab applies to a book).
+  const futureIds = useMemo(
+    () => (rows && riskAsOf !== null ? buildBook(rows, riskAsOf).legs.filter((l) => l.isFuture).map((l) => l.id) : []),
+    [rows, riskAsOf],
+  );
+  const simulatableIds = useMemo(
+    () => new Set([...simulatorCandidates.map((c) => c.id), ...futureIds]),
+    [simulatorCandidates, futureIds],
+  );
 
-  /** The row's "Simulate averaging" button: pick that position, open its tab and bring the tab into view. */
+  /** The row's "Simulate" button: pick that position, open its tab and bring the tab into view. */
   function handleSimulate(row: PortfolioRow) {
     setSimulatingId(row.entry.id);
     setInsightsTab("simulate");
@@ -462,7 +479,9 @@ export default function PortfolioView() {
           </div>
           <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Total Value</dt>
-            <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatINR(portfolioStats.value)}</dd>
+            <dd className="mt-1 font-mono text-xl font-semibold tabular-nums">
+              {portfolioStats.value === null ? "—" : formatINR(portfolioStats.value)}
+            </dd>
           </div>
           <div className="rounded-xl border border-border bg-background p-4">
             <dt className="text-xs text-muted-foreground">Unrealized P&amp;L</dt>
@@ -557,7 +576,7 @@ export default function PortfolioView() {
         {upstox.otherCount > 0 && (
           <p className="text-xs text-muted-foreground">
             {upstox.otherCount} Upstox position{upstox.otherCount === 1 ? " isn't" : "s aren't"} shown — Live Portfolio
-            tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil, gold and natural gas options, only.
+            tracks Nifty, Bank Nifty and Sensex options and futures, and MCX crude oil, gold and natural gas options, only.
           </p>
         )}
       </div>
@@ -579,6 +598,7 @@ export default function PortfolioView() {
             asOf={riskAnalysis ? riskAsOf : (heldRisk?.at ?? null)}
             paused={riskPaused}
             candidates={simulatorCandidates}
+            futureIds={futureIds}
             selectedId={simulatingId}
             onSelectCandidate={setSimulatingId}
             nowMs={riskAsOf}

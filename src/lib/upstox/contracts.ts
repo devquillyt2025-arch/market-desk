@@ -24,6 +24,15 @@ export type OptionContract = {
   lotSize: number;
 };
 
+/**
+ * What a position's instrument token stands for. An option has a strike and a CE/PE; an index future has neither
+ * (both null) and is told apart by exactly that - its expiry is the contract month.
+ */
+export type PositionContract = Omit<OptionContract, "strike" | "optionType"> & {
+  strike: number | null;
+  optionType: TradeEntryOptionType | null;
+};
+
 type ContractsResult = { contracts: Map<string, OptionContract> } | UpstoxGetError;
 
 let cache: { day: string; contracts: Map<string, OptionContract> } | null = null;

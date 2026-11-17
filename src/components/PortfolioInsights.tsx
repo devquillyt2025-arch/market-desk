@@ -2,7 +2,7 @@
 
 /**
  * The tabbed read-out under Live Portfolio's positions: "Risk & Probability"
- * (how bad can this get), "Simulate averaging" (what if I add lots),
+ * (how bad can this get), "Simulate" (what if I add lots - averaging for a bought option, adding or exiting for a future),
  * "What-if lab" (what's the best thing to do with the whole book), "RRR planner"
  * (what win rate and reward-for-the-risk a plan needs - no positions involved) and
  * "Reward : Risk" (what pays the most for the risk). The tab
@@ -14,7 +14,8 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import AveragingSimulator, { type SimulatorCandidate } from "@/components/AveragingSimulator";
-import { thinScroll } from "@/components/averaging/ui";
+import { pillButton, thinScroll } from "@/components/averaging/ui";
+import FutureSimulator from "@/components/FutureSimulator";
 import RewardRiskPanel from "@/components/RewardRiskPanel";
 import RiskProbabilityPanel, { RiskHeaderBadges, RiskLiveStatus } from "@/components/RiskProbabilityPanel";
 import RrrPlanner from "@/components/RrrPlanner";
@@ -27,7 +28,7 @@ export type InsightsTab = "risk" | "simulate" | "whatif" | "planner" | "rrr";
 
 const TABS: { id: InsightsTab; label: string }[] = [
   { id: "risk", label: "Risk & Probability" },
-  { id: "simulate", label: "Simulate averaging" },
+  { id: "simulate", label: "Simulate" },
   { id: "whatif", label: "What-if lab" },
   { id: "planner", label: "RRR planner" },
   { id: "rrr", label: "Reward : Risk" },
@@ -68,6 +69,59 @@ function LiveHint({ paused, children }: { paused: boolean; children: string }) {
   );
 }
 
+const SIMULATE_EMPTY =
+  "Nothing to simulate yet. This works on open bought calls and puts, and on index futures, that have a live price — sold options and rows still waiting for prices are skipped.";
+
+/**
+ * The Simulate tab. A bought option is averaged (premium, decay, the strike's volatility); a future has none of that, so
+ * it gets its own - add or exit lots. With both held, a switch picks which; the row's "Simulate" button lands on the right one.
+ */
+function SimulateTab({
+  candidates,
+  futureIds,
+  selectedId,
+  onSelect,
+  rows,
+  chains,
+  nowMs,
+  paused,
+}: {
+  candidates: SimulatorCandidate[];
+  futureIds: string[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  rows: PortfolioRow[] | null;
+  chains: Record<string, UpstoxOptionChainResult | undefined>;
+  nowMs: number | null;
+  paused: boolean;
+}) {
+  const optionSelected = candidates.some((c) => c.id === selectedId);
+  const futureSelected = futureIds.includes(selectedId ?? "");
+  // What was picked wins; otherwise the options, which were here first.
+  const showFuture = futureSelected || (!optionSelected && candidates.length === 0 && futureIds.length > 0);
+  const both = candidates.length > 0 && futureIds.length > 0;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {both && (
+        <div role="group" aria-label="What to simulate" className="flex flex-wrap gap-2">
+          <button type="button" aria-pressed={!showFuture} onClick={() => onSelect(candidates[0].id)} className={pillButton(!showFuture)}>
+            Options · averaging
+          </button>
+          <button type="button" aria-pressed={showFuture} onClick={() => onSelect(futureIds[0])} className={pillButton(showFuture)}>
+            Futures · add or exit lots
+          </button>
+        </div>
+      )}
+      {showFuture ? (
+        <FutureSimulator rows={rows} chains={chains} nowMs={nowMs} paused={paused} selectedId={selectedId} onSelect={onSelect} />
+      ) : (
+        <AveragingSimulator candidates={candidates} selectedId={selectedId} onSelect={onSelect} nowMs={nowMs} emptyMessage={SIMULATE_EMPTY} />
+      )}
+    </div>
+  );
+}
+
 type PortfolioInsightsProps = {
   tab: InsightsTab;
   onTabChange: (tab: InsightsTab) => void;
@@ -79,6 +133,8 @@ type PortfolioInsightsProps = {
   /** True while polling is paused and the figures are the last good read. */
   paused: boolean;
   candidates: SimulatorCandidate[];
+  /** The futures that can be simulated (priced, with an index level and volatility to measure them by), as entry ids. */
+  futureIds: string[];
   selectedId: string | null;
   onSelectCandidate: (id: string) => void;
   /** When the simulator's prices are from. */
@@ -96,6 +152,7 @@ export default function PortfolioInsights({
   asOf,
   paused,
   candidates,
+  futureIds,
   selectedId,
   onSelectCandidate,
   nowMs,
@@ -176,7 +233,7 @@ export default function PortfolioInsights({
 
         {tab === "risk" && analysis && <RiskLiveStatus analysis={analysis} asOf={asOf} paused={paused} />}
         {tab === "simulate" && (
-          <LiveHint paused={paused}>{`${candidates.length} position${candidates.length === 1 ? "" : "s"} to simulate`}</LiveHint>
+          <LiveHint paused={paused}>{`${candidates.length + futureIds.length} position${candidates.length + futureIds.length === 1 ? "" : "s"} to simulate`}</LiveHint>
         )}
         {tab === "whatif" && <LiveHint paused={paused}>tries every exit, add, hedge and new trade</LiveHint>}
         {tab === "rrr" && <LiveHint paused={paused}>ranks every idea by reward for the risk</LiveHint>}
@@ -199,11 +256,15 @@ export default function PortfolioInsights({
         hidden={tab !== "simulate"}
       >
         {simulateOpened && (
-          <AveragingSimulator
+          <SimulateTab
             candidates={candidates}
+            futureIds={futureIds}
             selectedId={selectedId}
             onSelect={onSelectCandidate}
+            rows={rows}
+            chains={chains}
             nowMs={nowMs}
+            paused={paused}
           />
         )}
       </div>

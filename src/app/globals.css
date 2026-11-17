@@ -340,6 +340,11 @@ body {
   }
 }
 
+/* The warning amber pulled toward the text colour, for small amber text: plain --warning is 4.4:1 on the light card, just under the 4.5:1 that small text needs. */
+.text-warning-strong {
+  color: color-mix(in srgb, var(--warning) 75%, var(--foreground));
+}
+
 /* One ring that grows and fades, played once: the global-prices strip's dot uses it each time a sync lands. */
 @keyframes sync-ping {
   from {

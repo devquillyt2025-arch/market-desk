@@ -83,8 +83,11 @@ function Tile({
 function PositionRow({ p }: { p: PositionRisk }) {
   const { entry } = p.row;
   const isShort = entry.side === "sell";
-  const itmLabel = p.itmPct > 0 ? `ITM ${p.itmPct.toFixed(1)}%` : `OTM ${Math.abs(p.itmPct).toFixed(1)}%`;
-  const itmClass = p.itmPct > 0 ? (isShort ? "text-danger-fg" : "text-profit") : "text-muted-foreground";
+  const itmLabel = p.isFuture ? "Future" : p.itmPct > 0 ? `ITM ${p.itmPct.toFixed(1)}%` : `OTM ${Math.abs(p.itmPct).toFixed(1)}%`;
+  const itmClass = p.isFuture ? "text-muted-foreground" : p.itmPct > 0 ? (isShort ? "text-danger-fg" : "text-profit") : "text-muted-foreground";
+  const breakevenHint = p.isFuture
+    ? `The index level where this future breaks even - your entry price less the ₹${Math.round(p.futureBasis ?? 0)} the future trades above the index today.`
+    : undefined;
 
   return (
     <tr className="border-b border-border last:border-0">
@@ -117,7 +120,7 @@ function PositionRow({ p }: { p: PositionRisk }) {
         </div>
       </td>
       <td className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${itmClass}`}>{itmLabel}</td>
-      <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+      <td title={breakevenHint} className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
         {p.breakeven.toFixed(0)} <span className="text-xs">({signedPct(p.breakevenMovePct)})</span>
       </td>
       <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
@@ -276,13 +279,13 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false, s
           label="Max Profit"
           value={analysis.maxProfit === null ? "Unlimited" : formatINR(analysis.maxProfit)}
           valueClass="text-profit"
-          hint="Best case at expiry"
+          hint={analysis.maxProfitIsRemote ? "Only if the index fell to zero" : "Best case at expiry"}
         />
         <Tile
           label="Risk : Reward"
           value={riskPerReward === null ? "—" : `${riskPerReward.toFixed(1)} : 1`}
           valueClass={riskPerReward !== null && riskPerReward > 2 ? "text-warning" : undefined}
-          hint={riskPerReward === null ? "One side is unbounded" : "₹ risked per ₹1 of upside"}
+          hint={riskPerReward === null ? (analysis.maxProfitIsRemote ? "The best case isn't a reward to plan on" : "One side is unbounded") : "₹ risked per ₹1 of upside"}
         />
         <Tile
           label="Expected P&L"
@@ -377,6 +380,18 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false, s
         Probabilities use each option&apos;s live implied volatility, zero drift, and assume all underlyings move together.
         Figures are at expiry and exclude brokerage — a guide to what to watch, not a forecast.
       </p>
+      {analysis.positions.some((p) => p.isFuture) && (
+        <p className="text-xs text-muted-foreground">
+          A future is measured against the index, with the gap between them held where it is today
+          {analysis.positions
+            .filter((p) => p.isFuture && p.futureBasis !== null)
+            .map((p) => ` (${p.contract}: ₹${Math.round(p.futureBasis ?? 0)} above the index)`)
+            .join("")}
+          , so its breakeven is an index level and its P&amp;L at today&apos;s level is what the table shows. It uses the at-the-money
+          implied volatility of its expiry, since a future has none of its own. Holding it to expiry would also close that gap,
+          which is left out because the market&apos;s drift is assumed to pay for it.
+        </p>
+      )}
     </div>
   );
 }

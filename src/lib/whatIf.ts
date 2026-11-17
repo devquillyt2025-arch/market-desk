@@ -115,9 +115,17 @@ export type BookLeg = ModelLeg & {
   instrumentKey: string | null;
   ivEstimated: boolean;
   thin: boolean;
-  /** Per-unit broker Greeks; null when missing. */
+  /** Per-unit broker Greeks; null when missing. A future's delta is 1 and it has no decay. */
   delta: number | null;
   theta: number | null;
+  /**
+   * An index future, modelled as a call struck at 0 (see ModelLeg). Its `premium` and `ltp` are then in index terms -
+   * the real prices less `basis` - so exiting or adding at `ltp` books exactly the P&L the table shows. Anything priced
+   * for real (brokerage, the margin basket, what a card says it trades at) puts the basis back.
+   */
+  isFuture?: boolean;
+  /** ₹ per unit the future trades above the index; 0 (or absent) for an option. */
+  basis?: number;
 };
 
 export type Book = {
@@ -130,7 +138,9 @@ export type Book = {
 
 export type Change =
   | { kind: "reduce"; legId: string; lots: number; /** Defaults to the live price. */ price?: number }
-  | { kind: "open"; groupKey: string; side: Side; type: OptionType; strike: number; lots: number; /** Defaults to the live price. */ price?: number };
+  | { kind: "open"; groupKey: string; side: Side; type: OptionType; strike: number; lots: number; /** Defaults to the live price. */ price?: number }
+  /** More lots of a future already held, the same way round. (An option is added to with an `open` at its own strike.) `price` is in index terms like the leg's `ltp`; it defaults to the live price. */
+  | { kind: "addLeg"; legId: string; lots: number; price?: number };
 
 export type Family = "reduce" | "add" | "sell" | "buy" | "spread" | "book";
 
@@ -301,6 +311,15 @@ export function pickFocus(unders: Underlying[], book: Pick<Book, "legs">, chosen
 
 const legLabel = (instrument: Instrument, strike: number, type: OptionType) => `${INSTRUMENT_LABELS[instrument]} ${strike} ${type}`;
 
+/** "Nifty future · 29 Dec" - the expiry tells two months apart. */
+function futureLabel(instrument: Instrument, expiry: string): string {
+  const date = new Date(`${expiry}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  return `${INSTRUMENT_LABELS[instrument]} future · ${date}`;
+}
+
+/** What a leg really trades at right now: for a future, its index-terms price with the basis put back. */
+export const livePrice = (leg: Pick<BookLeg, "ltp" | "basis">): number => leg.ltp + (leg.basis ?? 0);
+
 /** The open positions the Risk tab can model, as legs. Anything it can't model is counted in `skipped`, not guessed at. */
 export function buildBook(rows: PortfolioRow[], nowMs: number): Book {
   const now = new Date(nowMs);
@@ -310,7 +329,38 @@ export function buildBook(rows: PortfolioRow[], nowMs: number): Book {
   for (const row of rows) {
     const model = toLeg(row, now, today);
     const entry = row.entry;
-    if (!model || !(model.t > 0) || entry.strike_price == null || entry.option_type == null) {
+    if (model?.isFuture && model.t > 0 && row.liveLtp != null) {
+      legs.push({
+        isShort: model.isShort,
+        isCall: true,
+        strike: 0,
+        premium: model.premium,
+        qty: model.qty,
+        spot: model.spot,
+        sigma: model.sigma,
+        t: model.t,
+        groupKey: model.groupKey,
+        id: entry.id,
+        held: true,
+        label: futureLabel(entry.instrument, model.expiry),
+        instrument: entry.instrument,
+        expiry: model.expiry,
+        type: "CE",
+        lots: entry.lots,
+        lotSize: DEFAULT_LOT_SIZES[entry.instrument],
+        // Index terms: the live price less the basis is the index level itself.
+        ltp: model.spot,
+        instrumentKey: row.instrumentKey,
+        ivEstimated: false,
+        thin: false,
+        delta: 1,
+        theta: 0,
+        isFuture: true,
+        basis: row.liveLtp - model.spot,
+      });
+      continue;
+    }
+    if (!model || model.isFuture || !(model.t > 0) || entry.strike_price == null || entry.option_type == null) {
       skipped += 1;
       continue;
     }
@@ -340,7 +390,8 @@ export function buildBook(rows: PortfolioRow[], nowMs: number): Book {
       theta: row.theta,
     });
   }
-  return { legs, skipped, premiumCapital: legs.reduce((acc, l) => acc + l.premium * l.qty, 0) };
+  // Premium in play: a future has none (its "premium" is the whole index level) and would drown the rest of the book.
+  return { legs, skipped, premiumCapital: legs.reduce((acc, l) => acc + (l.isFuture ? 0 : l.premium * l.qty), 0) };
 }
 
 /** A leg a move would open, priced at `price` from the chain's quote; null when no vol can be found to model it. */
@@ -378,9 +429,10 @@ function openLeg(u: Underlying, q: ChainQuote, side: Side, lots: number, price: 
 
 // --- Applying a move ----------------------------------------------------------------
 
-function orderCharges(instrument: Instrument, side: Side, price: number, qty: number): number {
+/** Brokerage, taxes and fees of one order at its real `price` - the futures rates for a future, the options rates for an option. */
+function orderCharges(instrument: Instrument, side: Side, price: number, qty: number, isFuture = false): number {
   const leg = side === "sell" ? { sellPrice: price, buyPrice: 0 } : { buyPrice: price, sellPrice: 0 };
-  return calculateBrokerage(optionsSegmentFor(instrument), [leg], qty).totalCharges;
+  return calculateBrokerage(isFuture ? "FUTURES" : optionsSegmentFor(instrument), [leg], qty).totalCharges;
 }
 
 export function applyChanges(book: Book, unders: Underlying[], changes: Change[]): Applied {
@@ -409,11 +461,30 @@ export function applyChanges(book: Book, unders: Underlying[], changes: Change[]
     const qty = lots * leg.lotSize;
     const price = c.price ?? leg.ltp;
     const pnl = (leg.isShort ? leg.premium - price : price - leg.premium) * qty;
-    const fee = orderCharges(leg.instrument, leg.isShort ? "buy" : "sell", price, qty);
+    const fee = orderCharges(leg.instrument, leg.isShort ? "buy" : "sell", price + (leg.basis ?? 0), qty, leg.isFuture);
     booked += pnl;
-    cash += (leg.isShort ? -price : price) * qty;
+    // Closing an option pays (or receives) its premium; closing a future moves only the profit or loss on it.
+    cash += leg.isFuture ? pnl : (leg.isShort ? -price : price) * qty;
     charges += fee;
     bump(leg.groupKey, pnl - fee);
+  }
+
+  for (const c of changes) {
+    if (c.kind !== "addLeg") continue;
+    const leg = book.legs.find((l) => l.id === c.legId);
+    if (!leg || !leg.isFuture) {
+      problems.push("A position in this move isn't open any more.");
+      continue;
+    }
+    const lots = Math.max(Math.floor(c.lots), 0);
+    if (lots <= 0) continue;
+    const price = c.price ?? leg.ltp;
+    // A new leg at today's price, beside the one held - the payoffs add, which is the blended average without the bookkeeping.
+    created.push({ ...leg, id: `new-${created.length}`, held: false, lots, qty: lots * leg.lotSize, premium: price, ltp: leg.ltp });
+    const fee = orderCharges(leg.instrument, leg.isShort ? "sell" : "buy", price + (leg.basis ?? 0), lots * leg.lotSize, true);
+    // Opening a future costs only its charges up front (the margin it blocks is checked separately).
+    charges += fee;
+    bump(leg.groupKey, -fee);
   }
 
   for (const c of changes) {
@@ -518,7 +589,9 @@ const WEIGHTS: Record<Goal, { pop: number; ev: number; tail: number; deep: numbe
 
 /** The yardstick money is measured against: what's in play, or what the book can already lose, whichever is bigger. */
 export function bookScale(book: Book, base: Outcome): number {
-  return Math.max(1, book.premiumCapital, base.maxLoss ?? 0, Math.abs(base.p5));
+  // A long future's worst case is the index going to zero - far past anything to measure a rupee against.
+  const worst = base.worstIsRemote && book.legs.some((l) => l.isFuture) ? 0 : (base.maxLoss ?? 0);
+  return Math.max(1, book.premiumCapital, worst, Math.abs(base.p5));
 }
 
 /** Extra 1-in-20 bad case a move adds, as a share of the book's scale (0 when it adds none). */
@@ -577,9 +650,22 @@ export function generateActions(book: Book, unders: Underlying[], focusKey: stri
         family: "reduce",
         bucket: `reduce:${leg.id}`,
         headline: k === n ? `${noun} all ${plural(n, "lot")}` : `${noun} ${k} of ${plural(n, "lot")}`,
-        detail: `${leg.label} · at ${rupee2(leg.ltp)}${k === n ? "" : ` · keep ${plural(n - k, "lot")}`}`,
+        detail: `${leg.label} · at ${rupee2(livePrice(leg))}${k === n ? "" : ` · keep ${plural(n - k, "lot")}`}`,
         changes: [{ kind: "reduce", legId: leg.id, lots: k }],
       });
+    }
+    if (leg.isFuture) {
+      for (const k of lotSteps([1, n * 0.5, n], Math.max(n * 2, 1))) {
+        actions.push({
+          id: `add:${leg.id}:${k}`,
+          family: "add",
+          bucket: `add:${leg.id}`,
+          headline: `${leg.isShort ? "Sell" : "Buy"} ${plural(k, "more lot")}`,
+          detail: `${leg.label} · at ${rupee2(livePrice(leg))} · ${n} → ${n + k} lots`,
+          changes: [{ kind: "addLeg", legId: leg.id, lots: k }],
+        });
+      }
+      continue;
     }
     const u = unders.find((x) => x.key === leg.groupKey);
     const quote = u?.byContract.get(contractKey(leg.type, leg.strike));
@@ -624,7 +710,8 @@ export function generateActions(book: Book, unders: Underlying[], focusKey: stri
     const spreadLots = lotSteps([1, 2, heldMax], 30);
     // Around the money, and around every strike already held - so a short strike can be protected with a wing beyond it.
     const centres = [focus.strikes.indexOf(focus.atm)];
-    const held = book.legs.filter((l) => l.groupKey === focus.key);
+    // A held future has no strike to centre a window on (the money is covered already), and no contract to skip over.
+    const held = book.legs.filter((l) => l.groupKey === focus.key && !l.isFuture);
     for (const l of held) {
       const at = focus.strikes.reduce((best, s, i) => (Math.abs(s - l.strike) < Math.abs(focus.strikes[best] - l.strike) ? i : best), 0);
       centres.push(at);
@@ -904,7 +991,8 @@ export function buildComparisonCurve(book: Book, applied: Applied, groupKey: str
 
   const sd = involved.reduce((acc, l) => acc + l.sigma * Math.sqrt(l.t), 0) / involved.length;
   const half = spot * Math.max(sd, 0.02) * 2.5;
-  const strikes = involved.map((l) => l.strike);
+  // A future has no strike to keep in view (its "strike" of 0 would stretch the chart down to nothing).
+  const strikes = involved.filter((l) => !l.isFuture).map((l) => l.strike);
   const pad = spot * 0.02;
   const lo = Math.max(Math.min(spot - half, ...strikes.map((k) => k - pad)), spot * 0.2);
   const hi = Math.max(spot + half, ...strikes.map((k) => k + pad));
@@ -969,7 +1057,7 @@ export function marginBasket(legs: BookLeg[]): { items: UpstoxMarginInstrumentRe
       missing += 1;
       continue;
     }
-    const cur = net.get(l.instrumentKey) ?? { qty: 0, price: l.ltp };
+    const cur = net.get(l.instrumentKey) ?? { qty: 0, price: livePrice(l) };
     cur.qty += (l.isShort ? -1 : 1) * l.qty;
     net.set(l.instrumentKey, cur);
   }
@@ -998,7 +1086,8 @@ export function builderChanges(moves: BuilderMove[], book: Book, focus: Pick<Und
       if (book.legs.some((l) => l.id === m.legId)) out.push({ kind: "reduce", legId: m.legId, lots: m.lots });
     } else if (m.kind === "add") {
       const leg = book.legs.find((l) => l.id === m.legId);
-      if (leg) out.push({ kind: "open", groupKey: leg.groupKey, side: leg.isShort ? "sell" : "buy", type: leg.type, strike: leg.strike, lots: m.lots });
+      if (leg?.isFuture) out.push({ kind: "addLeg", legId: leg.id, lots: m.lots });
+      else if (leg) out.push({ kind: "open", groupKey: leg.groupKey, side: leg.isShort ? "sell" : "buy", type: leg.type, strike: leg.strike, lots: m.lots });
     } else if (focus && m.strike !== null) {
       out.push({ kind: "open", groupKey: focus.key, side: m.side, type: m.type, strike: m.strike, lots: m.lots });
     }
@@ -1012,6 +1101,10 @@ export function describeChanges(changes: Change[], book: Book): string {
     if (c.kind === "reduce") {
       const leg = book.legs.find((l) => l.id === c.legId);
       return `${leg?.isShort ? "buy back" : "sell"} ${plural(c.lots, "lot")} of ${leg?.label ?? "a position"}`;
+    }
+    if (c.kind === "addLeg") {
+      const leg = book.legs.find((l) => l.id === c.legId);
+      return `${leg?.isShort ? "sell" : "buy"} ${plural(c.lots, "more lot")} of ${leg?.label ?? "a position"}`;
     }
     const [instrument] = c.groupKey.split("|");
     return `${c.side} ${plural(c.lots, "lot")} of ${legLabel(instrument as Instrument, c.strike, c.type)}`;

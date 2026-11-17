@@ -20,7 +20,7 @@ export function GlobalPulse() {
   return (
     <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-3">
       <StatusPill dot={dot} title="Prices come from Yahoo Finance's public feed, which runs about 10 minutes behind the exchanges.">
-        <span className={problem ? "font-medium text-warning" : "text-muted-foreground"}>{summary}</span>
+        <span className={problem ? "font-medium text-warning-strong" : "text-muted-foreground"}>{summary}</span>
       </StatusPill>
       <div className="ml-auto">
         <PulseRefresh

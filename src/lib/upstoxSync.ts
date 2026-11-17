@@ -15,9 +15,11 @@ import type { AddTradeEntryInput } from "@/lib/tradeEntriesStore";
 import type { LivePortfolioEntry, TradeEntry } from "@/lib/types";
 import type { UpstoxClosedTrade, UpstoxPnlReportSuccess, UpstoxPosition } from "@/lib/upstox/types";
 
-/** Same format as calculatePortfolio's legSnapshotKey, so a position can find its live-priced row. */
+/** Same format as calculatePortfolio's legSnapshotKey, so a position can find its live-priced row - a future ends in FUT, having no strike or CE/PE. */
 export function positionContractKey(p: Pick<UpstoxPosition, "instrument" | "expiry" | "strike" | "optionType">): string {
-  return `${p.instrument}|${p.expiry}|${p.strike}|${p.optionType}`;
+  return p.strike === null || p.optionType === null
+    ? `${p.instrument}|${p.expiry}|FUT`
+    : `${p.instrument}|${p.expiry}|${p.strike}|${p.optionType}`;
 }
 
 function entryToInput(entry: TradeEntry): AddTradeEntryInput {
@@ -53,13 +55,10 @@ export type PositionSyncPlan = {
 };
 
 function holdsContract(entry: TradeEntry, p: UpstoxPosition): boolean {
-  return (
-    entry.instrument === p.instrument &&
-    entry.strike_price != null &&
-    Number(entry.strike_price) === p.strike &&
-    entry.option_type === p.optionType &&
-    entry.expiry_date === p.expiry
-  );
+  if (entry.instrument !== p.instrument || entry.expiry_date !== p.expiry) return false;
+  // A future has neither a strike nor a CE/PE - on the position or on the row that mirrors it.
+  if (p.strike === null || p.optionType === null) return entry.strike_price == null && entry.option_type == null;
+  return entry.strike_price != null && Number(entry.strike_price) === p.strike && entry.option_type === p.optionType;
 }
 
 /**
@@ -89,8 +88,8 @@ export function planPositionSync(entries: LivePortfolioEntry[], positions: Upsto
         input: {
           entryDate,
           instrument: p.instrument,
-          strikePrice: p.strike,
-          optionType: p.optionType,
+          strikePrice: p.strike ?? undefined,
+          optionType: p.optionType ?? undefined,
           expiryDate: p.expiry,
           lots,
           side,

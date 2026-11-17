@@ -32,7 +32,9 @@ function Tile({ item, reference }: { item: StripItem; reference: number }) {
   const shown = percent === undefined ? null : Number(percent.toFixed(2));
 
   return (
-    <li title={tileTitle(item, reference, stale)} className={`flex shrink-0 items-baseline gap-1.5 ${stale ? "opacity-60" : ""}`}>
+    // Not dimmed when stale: these are read at night and on weekends, when markets are shut, and fading the figures to ~60% took them
+    // below readable contrast (2.7:1). The "· Closed" tag beside the label and the tooltip's age say it instead.
+    <li title={tileTitle(item, reference, stale)} className="flex shrink-0 items-baseline gap-1.5">
       <span className="text-muted-foreground">{item.label}</span>
       <span className="font-semibold tabular-nums text-foreground">{quote ? item.format(quote.price) : "—"}</span>
       {shown !== null && <span className={`tabular-nums ${pnlColorClass(shown)}`}>{formatPct(shown, 2)}</span>}
@@ -101,7 +103,7 @@ function Bar() {
             <span className={`relative size-2 rounded-full ${dot}`} />
           </span>
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Global</span>
-          {tag && <span className={`text-[11px] font-medium ${problem ? "text-warning" : "text-muted-foreground"}`}>· {tag}</span>}
+          {tag && <span className={`text-[11px] font-medium ${problem ? "text-warning-strong" : "text-muted-foreground"}`}>· {tag}</span>}
           <span className="sr-only">{status}</span>
         </div>
 
@@ -121,7 +123,7 @@ function Bar() {
         )}
 
         {!collapsed && (
-          <span className={`hidden shrink-0 min-[1600px]:inline ${problem ? "text-warning" : "text-muted-foreground"}`}>{status}</span>
+          <span className={`hidden shrink-0 min-[1600px]:inline ${problem ? "text-warning-strong" : "text-muted-foreground"}`}>{status}</span>
         )}
         <button
           type="button"

@@ -151,7 +151,7 @@ export function WatchRow({
           <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[13px] font-semibold tabular-nums ${moveBg} ${moveColor}`}>
             {direction === "flat" ? <span aria-hidden="true">–</span> : <Arrow className="size-3.5" />}
             <span>{formatMove(quote.change!)}</span>
-            <span className="font-medium opacity-90">({formatMovePct(quote.changePct!)})</span>
+            <span className="font-medium">({formatMovePct(quote.changePct!)})</span>
             <span className="sr-only">{direction === "up" ? "up" : direction === "down" ? "down" : "unchanged"} today</span>
           </span>
         ) : (

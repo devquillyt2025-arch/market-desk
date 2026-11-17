@@ -11,7 +11,7 @@
  * sort them, and the PDF decides how to print them.
  */
 
-import { needsExpiryOnly, summariseClosedPosition, type PortfolioRow } from "@/lib/calculatePortfolio";
+import { isFutureEntry, needsExpiryOnly, summariseClosedPosition, type PortfolioRow } from "@/lib/calculatePortfolio";
 import type { RiskAnalysis, RiskSeverity, RiskVerdict } from "@/lib/calculateRisk";
 import { round2 } from "@/lib/calculateTrade";
 import { formatAsOf } from "@/lib/format";
@@ -38,8 +38,8 @@ export type ReportPosition = {
   entryPrice: number;
   livePrice: number | null;
   prevClose: number | null;
-  /** Current mark value in premium terms ((live price, else entry price) × quantity) — sums to the Total Value tile. */
-  value: number;
+  /** Current mark value in premium terms ((live price, else entry price) × quantity) — sums to the Total Value tile. Null for a future, which has no premium. */
+  value: number | null;
   pnl: number | null;
   /** P&L as a percentage of the premium the position was opened at. */
   pnlPct: number | null;
@@ -151,7 +151,7 @@ export type PortfolioReport = {
   notices: string[];
   summary: {
     totalMargin: number | null;
-    totalValue: number;
+    totalValue: number | null;
     unrealizedPnl: number;
     todayPnl: number | null;
     bookedToday: number;
@@ -187,7 +187,7 @@ export type PortfolioReportInput = {
   rows: PortfolioRow[];
   marginByEntryId: ReadonlyMap<string, number>;
   totalMargin: number | null;
-  stats: { value: number; unrealizedPnl: number; todayPnl: number | null; bookedToday: number };
+  stats: { value: number | null; unrealizedPnl: number; todayPnl: number | null; bookedToday: number };
   closedToday: UpstoxPosition[];
   risk: { analysis: RiskAnalysis; asOf: number; paused: boolean } | null;
   feed: PortfolioFeedState;
@@ -250,9 +250,10 @@ function buildPosition(row: PortfolioRow, serial: number, margin: number | null)
     entryPrice: round2(row.entryPrice),
     livePrice: round(row.liveLtp, 2),
     prevClose: round(row.prevClose, 2),
-    value: round2((row.liveLtp ?? row.entryPrice) * quantity),
+    value: isFutureEntry(entry) ? null : round2((row.liveLtp ?? row.entryPrice) * quantity),
     pnl: round(row.livePnl, 2),
-    pnlPct: row.livePnl != null && premium > 0 ? round((row.livePnl / premium) * 100, 1) : null,
+    // A return on the premium paid or received - a future has no premium (its "premium" would be the whole contract value).
+    pnlPct: row.livePnl != null && premium > 0 && !isFutureEntry(entry) ? round((row.livePnl / premium) * 100, 1) : null,
     margin: round(margin, 2),
     brokerageIfClosed: round(row.brokerageIfClosed, 2),
     delta: round(row.delta, 4),
@@ -275,6 +276,7 @@ function buildClosed(position: UpstoxPosition): ReportClosed {
       instrument: position.instrument,
       strike_price: position.strike,
       option_type: position.optionType,
+      expiry_date: position.expiry,
     }),
     expiry: position.expiry,
     lots: round2(position.buyQuantity / position.lotSize),
@@ -369,7 +371,7 @@ function buildNotices(input: PortfolioReportInput): string[] {
   }
   if (feed.otherCount > 0) {
     notices.push(
-      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options, and MCX crude oil, gold and natural gas options, only.`,
+      `${feed.otherCount} Upstox position${feed.otherCount === 1 ? " isn't" : "s aren't"} included - Live Portfolio tracks Nifty, Bank Nifty and Sensex options and futures, and MCX crude oil, gold and natural gas options, only.`,
     );
   }
   if (risk?.paused) {
@@ -390,7 +392,7 @@ export function buildPortfolioReport(input: PortfolioReportInput): PortfolioRepo
     notices: buildNotices(input),
     summary: {
       totalMargin: round(totalMargin, 2),
-      totalValue: round2(stats.value),
+      totalValue: round(stats.value, 2),
       unrealizedPnl: round2(stats.unrealizedPnl),
       todayPnl: round(stats.todayPnl, 2),
       bookedToday: round2(stats.bookedToday),

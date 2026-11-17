@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 
 import DatePicker from "@/components/DatePicker";
 import { FlaskIcon } from "@/components/icons";
-import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
+import { isFutureEntry, needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { describeEntryContract, type TradeEntrySide } from "@/lib/tradeEntriesStore";
 
@@ -56,16 +56,22 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimu
   // Entry Price the entry prices, Live LTP the live prices — regardless of
   // which side (buy/sell) each row was opened on.
   const totalLots = rows.reduce((acc, row) => acc + row.entry.lots, 0);
+  // A future's price is an index level (25,601), not a premium: adding it to the option premiums in the two price
+  // columns would say nothing, so those sums skip futures. P&L and brokerage are money either way and count them all.
+  const hasPricedOptions = liveRows.some((row) => !isFutureEntry(row.entry));
   const totals =
     liveRows.length === 0
       ? null
       : liveRows.reduce(
-          (acc, row) => ({
-            entryPrice: acc.entryPrice + row.entryPrice,
-            liveLtp: acc.liveLtp + (row.liveLtp ?? 0),
-            livePnl: acc.livePnl + (row.livePnl ?? 0),
-            brokerage: acc.brokerage + (row.brokerageIfClosed ?? 0),
-          }),
+          (acc, row) => {
+            const isFuture = isFutureEntry(row.entry);
+            return {
+              entryPrice: acc.entryPrice + (isFuture ? 0 : row.entryPrice),
+              liveLtp: acc.liveLtp + (isFuture ? 0 : (row.liveLtp ?? 0)),
+              livePnl: acc.livePnl + (row.livePnl ?? 0),
+              brokerage: acc.brokerage + (row.brokerageIfClosed ?? 0),
+            };
+          },
           { entryPrice: 0, liveLtp: 0, livePnl: 0, brokerage: 0 },
         );
 
@@ -201,7 +207,7 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimu
                             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
                           >
                             <FlaskIcon className="size-3.5" />
-                            Simulate averaging
+                            {isFutureEntry(row.entry) ? "Simulate" : "Simulate averaging"}
                           </button>
                         )}
                       </td>
@@ -219,10 +225,10 @@ export default function LiveEntriesTable({ rows, onSetExpiry, onRowClick, onSimu
                 </td>
                 <td className="px-2 py-2.5 text-right font-mono tabular-nums">{totalLots}</td>
                 <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {totals.entryPrice.toFixed(2)}
+                  {hasPricedOptions ? totals.entryPrice.toFixed(2) : "—"}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums">
-                  {totals.liveLtp.toFixed(2)}
+                  {hasPricedOptions ? totals.liveLtp.toFixed(2) : "—"}
                 </td>
                 <td
                   className={`whitespace-nowrap px-2 py-2.5 text-right font-mono tabular-nums ${pnlColorClass(totals.livePnl)}`}

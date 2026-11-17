@@ -16,7 +16,7 @@
  * forecast.
  */
 
-import { needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
+import { isFutureEntry, needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, sessionCloseIst, underlyingFamily, type Instrument } from "@/lib/types";
 
@@ -41,6 +41,8 @@ const GRID_HALF_WIDTH_Z = 6;
 const GRID_STEPS = 240;
 const MS_PER_DAY = 86_400_000;
 const IST_OFFSET_MS = 5.5 * 3_600_000;
+/** A best case this many times the 1-in-20 good case is theoretical (a short future's is the index going to zero), not a reward to plan around. Same yardstick as REMOTE_WORST in whatIf.ts. */
+const REMOTE_BEST = 6;
 
 export type RiskSeverity = "critical" | "warning" | "info";
 
@@ -54,6 +56,10 @@ export type RiskWarning = {
 export type PositionRisk = {
   row: PortfolioRow;
   contract: string;
+  /** An index future: no strike to be in or out of the money, no decay, and `breakeven` is an index level (the entry price less `futureBasis`). */
+  isFuture: boolean;
+  /** ₹ per unit the future trades above the index - what separates its price from the index level the odds are measured in. Null for an option. */
+  futureBasis: number | null;
   /** A long option sitting beyond a same-type short in the same expiry — it's there to cap loss, so decay/low-odds warnings don't apply to it. */
   isHedge: boolean;
   /** Upstox sent no usable IV for this strike, so it was backed out from the live price (or borrowed from a neighbouring strike). */
@@ -122,7 +128,12 @@ export type RiskAnalysis = {
   /** Worst case at expiry, ₹ (positive magnitude). null = unlimited. */
   maxLoss: number | null;
   maxProfit: number | null;
-  /** max profit ÷ max loss; null when either side is unlimited or there's no loss to divide by. */
+  /**
+   * The best case only happens if the index fell to zero - how a short future's best case works out - so it is no reward
+   * to plan around and `rewardToRisk` is left null. Only ever set for a book holding a future; an option book is read as it always was.
+   */
+  maxProfitIsRemote: boolean;
+  /** max profit ÷ max loss; null when either side is unlimited, the best case is remote, or there's no loss to divide by. */
   rewardToRisk: number | null;
   /** Share of the worst case the unrealized loss has already consumed (0–100+), null when unbounded or not losing. */
   drawdownUsedPct: number | null;
@@ -212,6 +223,14 @@ export type ModelLeg = {
   /** Years to the session close on expiry day (15:30 IST, or 23:30 / 23:55 for an MCX commodity). */
   t: number;
   groupKey: string;
+  /**
+   * An index future. It is modelled as a call struck at 0 that cost `premium` - a future pays `index − price`, which
+   * is exactly what that call pays - so every payoff, range and distribution below works on it unchanged. `premium`
+   * is the entry price less the basis (the future's gap to the index when last priced), so the payoff reads against
+   * the index level the gauges and ladders are drawn in and passes through today's mark-to-market at today's spot.
+   * Anything that is about an option's strike, Greeks or decay has to leave these alone.
+   */
+  isFuture?: boolean;
 };
 
 export type Leg = ModelLeg & {
@@ -222,8 +241,40 @@ export type Leg = ModelLeg & {
   expiry: string;
 };
 
+/** A future's gap to the index (₹ per unit): how far above (or, rarely, below) the index level it trades. Null while either price is missing. */
+export function futureBasis(row: Pick<PortfolioRow, "liveLtp" | "underlyingSpot">): number | null {
+  if (row.liveLtp == null || row.underlyingSpot == null || !(row.liveLtp > 0) || !(row.underlyingSpot > 0)) return null;
+  return row.liveLtp - row.underlyingSpot;
+}
+
+function toFutureLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
+  const { entry } = row;
+  const basis = futureBasis(row);
+  // The volatility is the at-the-money one of the future's own expiry - there is no IV of a future's own to use.
+  const iv = row.nearbyIv != null && row.nearbyIv > 0 ? normalizeIv(row.nearbyIv) : null;
+  if (row.status !== "ok" || entry.expiry_date == null || basis === null || iv === null || row.underlyingSpot == null) return null;
+  return {
+    row,
+    entryId: entry.id,
+    isShort: entry.side === "sell",
+    isCall: true,
+    strike: 0,
+    premium: row.entryPrice - basis,
+    qty: entry.lots * DEFAULT_LOT_SIZES[entry.instrument],
+    spot: row.underlyingSpot,
+    sigma: iv,
+    ivEstimated: false,
+    t: yearsToExpiry(entry.expiry_date, now, entry.instrument),
+    dte: daysBetween(today, entry.expiry_date),
+    expiry: entry.expiry_date,
+    groupKey: `${entry.instrument}|${entry.expiry_date}`,
+    isFuture: true,
+  };
+}
+
 export function toLeg(row: PortfolioRow, now: Date, today: string): Leg | null {
   const { entry } = row;
+  if (isFutureEntry(entry)) return toFutureLeg(row, now, today);
   if (
     row.status !== "ok" ||
     entry.strike_price == null ||
@@ -470,12 +521,15 @@ function buildPositionRisk(leg: Leg, isHedge: boolean): PositionRisk {
   return {
     row: leg.row,
     contract: describeEntryContract(leg.row.entry),
+    isFuture: leg.isFuture === true,
+    futureBasis: leg.isFuture ? futureBasis(leg.row) : null,
     isHedge,
     ivEstimated: leg.ivEstimated,
     dte: leg.dte,
     pop,
-    probItm,
-    itmPct,
+    // A future has no strike to finish beyond: say nothing rather than "100% in the money".
+    probItm: leg.isFuture ? pop : probItm,
+    itmPct: leg.isFuture ? 0 : itmPct,
     breakeven: be,
     breakevenMovePct: ((be - leg.spot) / leg.spot) * 100,
     expectedMovePct: leg.sigma * Math.sqrt(leg.t) * 100,
@@ -504,6 +558,11 @@ function whyNotAnalysed(row: PortfolioRow): string {
     case "no_match":
       return `strike not found in the ${row.entry.expiry_date} chain — check the expiry`;
     case "ok":
+      if (isFutureEntry(row.entry)) {
+        return row.underlyingSpot == null || !(row.underlyingSpot > 0)
+          ? `no option chain for the ${row.entry.expiry_date} expiry to read the index level from`
+          : `no implied volatility in the ${row.entry.expiry_date} option chain to measure it by`;
+      }
       if (row.underlyingSpot == null || !(row.underlyingSpot > 0)) return "Upstox sent no underlying spot price";
       return "no implied volatility available — none from Upstox, and none could be derived from its price or nearby strikes";
   }
@@ -561,14 +620,16 @@ export function analyzeRisk(
     .map(buildGauge)
     .sort((a, b) => (a.expiry === b.expiry ? a.instrument.localeCompare(b.instrument) : a.expiry < b.expiry ? -1 : 1));
 
-  const { pop, expectedPnl } = simulate(legs);
+  const { pop, expectedPnl, p95 } = simulate(legs);
   const netThetaPerDay = positions.reduce((acc, p) => acc + (p.thetaPerDay ?? 0), 0);
   const pnlPer1PctMove = legs.reduce((acc, l) => {
-    const delta = l.row.delta ?? 0;
+    // A future moves one-for-one with the index.
+    const delta = l.isFuture ? 1 : (l.row.delta ?? 0);
     return acc + (l.isShort ? -1 : 1) * delta * l.qty * l.spot * 0.01;
   }, 0);
 
-  const rewardToRisk = maxLoss !== null && maxProfit !== null && maxLoss > 0 ? maxProfit / maxLoss : null;
+  const maxProfitIsRemote = legs.some((l) => l.isFuture) && maxProfit !== null && maxProfit > REMOTE_BEST * Math.max(p95, 1);
+  const rewardToRisk = maxLoss !== null && maxProfit !== null && !maxProfitIsRemote && maxLoss > 0 ? maxProfit / maxLoss : null;
   const drawdownUsedPct =
     maxLoss !== null && maxLoss > 0 && unrealizedPnl < 0 ? (-unrealizedPnl / maxLoss) * 100 : null;
 
@@ -582,8 +643,10 @@ export function analyzeRisk(
       if (!cur || SEVERITY_RANK[w.severity] < SEVERITY_RANK[cur]) flagged.set(id, w.severity);
     }
   };
+  // The rules below are about options - strikes, premium, decay, gamma - so a future is left out of every one of them;
+  // it has its own (an unlimited short, direction, expiry) further down.
   const pick = (test: (p: PositionRisk, l: Leg) => boolean) =>
-    legs.filter((l) => test(positionByEntry.get(l.entryId)!, l));
+    legs.filter((l) => !l.isFuture && test(positionByEntry.get(l.entryId)!, l));
   const names = (ls: Leg[]) => nameList(ls.map((l) => positionByEntry.get(l.entryId)!.contract));
   const ids = (ls: Leg[]) => ls.map((l) => l.entryId);
 
@@ -604,14 +667,30 @@ export function analyzeRisk(
   const unlimitedGroups = [...groups.values()].filter((g) => groupExtremes(g).maxLoss === null);
   if (unlimitedGroups.length > 0) {
     const shortCalls = unlimitedGroups.flatMap((g) => g.filter((l) => l.isShort && l.isCall));
+    const hasShortFuture = shortCalls.some((l) => l.isFuture);
     push(
       {
         id: "unlimited-loss",
         severity: "critical",
         title: "Unlimited loss on the upside",
-        detail: `Net short calls with no long call above them (${names(shortCalls)}). A gap up has no ceiling on the loss — consider buying a farther call as a hedge.`,
+        detail: `Net short ${hasShortFuture ? (shortCalls.every((l) => l.isFuture) ? "futures" : "calls and futures") : "calls"} with no long call above them (${names(shortCalls)}). A gap up has no ceiling on the loss — consider buying a call as a hedge${hasShortFuture ? ", or cutting the lots" : ", a farther one"}.`,
       },
       ids(shortCalls),
+    );
+  }
+
+  // A future has no premium to decay and no strike, but it does run out: it is settled in cash on its last day.
+  const futureLegs = legs.filter((l) => l.isFuture);
+  const futuresSoon = futureLegs.filter((l) => l.dte >= 0 && l.dte <= 2);
+  if (futuresSoon.length > 0) {
+    push(
+      {
+        id: "future-expiry-soon",
+        severity: futuresSoon.some((l) => l.dte === 0) ? "critical" : "warning",
+        title: futuresSoon.every((l) => l.dte === 0) ? "Futures expire today" : "Futures expire within 2 days",
+        detail: `${names(futuresSoon)} — it is settled in cash at expiry. Decide now whether to square it off or roll it to the next month.`,
+      },
+      ids(futuresSoon),
     );
   }
 
@@ -842,6 +921,7 @@ export function analyzeRisk(
     expectedPnl,
     maxLoss,
     maxProfit,
+    maxProfitIsRemote,
     rewardToRisk,
     drawdownUsedPct,
     netThetaPerDay,
