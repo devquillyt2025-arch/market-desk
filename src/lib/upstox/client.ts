@@ -20,10 +20,11 @@ import {
   type UpstoxMarginInstrumentRequest,
   type UpstoxMarginLine,
   type UpstoxOptionChainResult,
+  type UpstoxPnlChargesResult,
   type UpstoxPnlReportResult,
-  type UpstoxPnlSegment,
-  type UpstoxPnlSummaryResult,
+  type UpstoxPnlTradesResult,
   type UpstoxPositionsResult,
+  type UpstoxSummaryScope,
   type UpstoxVolatilityResult,
 } from "@/lib/upstox/types";
 
@@ -208,13 +209,26 @@ export async function fetchPnlReport(fy: number): Promise<UpstoxPnlReportResult>
   }
 }
 
-/** Upstox's own trade summary (P&L, charges, ROI, win rate) for one segment's trades closed between two yyyy-mm-dd dates — feeds Reports. */
-export async function fetchPnlSummary(segment: UpstoxPnlSegment, from: string, to: string): Promise<UpstoxPnlSummaryResult> {
+/** Every row of Upstox's P&L report for the last three financial years, as trades - what Reports is built from. */
+export async function fetchPnlTrades(): Promise<UpstoxPnlTradesResult> {
   try {
-    const res = await fetch(`/api/upstox/pnl-summary?${new URLSearchParams({ segment, from, to })}`, { cache: "no-store" });
+    const res = await fetch("/api/upstox/pnl-trades", { cache: "no-store" });
     const body = await res.json();
     if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
-    if (typeof body?.grossPnl !== "number") return { error: "Summary response was missing the expected data." };
+    if (!Array.isArray(body?.trades)) return { error: "P&L report response was missing the expected data." };
+    return body;
+  } catch {
+    return { error: "network_error" };
+  }
+}
+
+/** Upstox's charges (brokerage, taxes, fees) for one scope's trades closed between two yyyy-mm-dd dates - the Net P&L side of Reports. */
+export async function fetchPnlCharges(scope: UpstoxSummaryScope, from: string, to: string): Promise<UpstoxPnlChargesResult> {
+  try {
+    const res = await fetch(`/api/upstox/pnl-charges?${new URLSearchParams({ segment: scope, from, to })}`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok || typeof body?.error === "string") return { error: body?.error ?? `Request failed with status ${res.status}` };
+    if (typeof body?.charges?.total !== "number") return { error: "Charges response was missing the expected data." };
     return body;
   } catch {
     return { error: "network_error" };

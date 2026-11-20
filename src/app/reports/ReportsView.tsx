@@ -18,13 +18,14 @@ import {
   type TooltipContentProps,
 } from "recharts";
 
+import Link from "next/link";
+
 import CustomRangePanel from "@/components/CustomRangePanel";
-import { DownloadIcon, InboxIcon, RefreshIcon } from "@/components/icons";
+import { DownloadIcon, RefreshIcon } from "@/components/icons";
 import LoadingState from "@/components/LoadingState";
 import PnlCalendarHeatmap from "@/components/PnlCalendarHeatmap";
 import Select from "@/components/Select";
 import UpstoxTradeSummary from "@/components/UpstoxTradeSummary";
-import UpstoxTradeSyncModal from "@/components/UpstoxTradeSyncModal";
 import {
   buildReportCsv,
   computeAccountGrowthSeries,
@@ -42,7 +43,8 @@ import {
   DATE_RANGES,
   filterEntriesByClosingRange,
   filterEntriesByRange,
-  summarizeEntries,
+  reportWindow,
+  summarizeTrades,
   type AccountGrowthPoint,
   type CategoryPnl,
   type CumulativePoint,
@@ -51,16 +53,19 @@ import {
 } from "@/lib/calculateReports";
 import { formatINR, formatPct, pnlColorClass } from "@/lib/format";
 import { PAGE_HEIGHT_LOCK_CLASS } from "@/lib/layout";
+import { localIsoDate } from "@/lib/localDate";
 import { getCachedPayments, getPayments, subscribeToPaymentChanges, type Payment } from "@/lib/paymentStore";
 import { showToast } from "@/lib/toast";
-import {
-  getCachedTradeEntries,
-  getTradeEntries,
-  subscribeToTradeEntryChanges,
-  type TradeEntry,
-} from "@/lib/tradeEntriesStore";
+import { segmentsOfScope, UPSTOX_SUMMARY_SCOPE_LABELS, UPSTOX_SUMMARY_SCOPES, type UpstoxSummaryScope } from "@/lib/upstox/types";
+import { usePnlCharges, useUpstoxReport } from "@/lib/useUpstoxReport";
 
 const RANGE_OPTIONS = DATE_RANGES.map((r) => ({ value: r, label: DATE_RANGE_LABELS[r] }));
+const SCOPE_OPTIONS = UPSTOX_SUMMARY_SCOPES.map((s) => ({ value: s, label: UPSTOX_SUMMARY_SCOPE_LABELS[s] }));
+
+/** "21 Nov, 10:42" - when the report on screen was fetched. */
+function formatUpdated(ms: number): string {
+  return new Date(ms).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 const CATEGORY_BREAKDOWN_PILLS = [
   { value: "instrument", label: "Instrument" },
@@ -97,33 +102,7 @@ function round1(n: number): string {
 }
 
 function todayISODate(): string {
-  return isoDaysAgo(0);
-}
-
-/** yyyy-mm-dd of `days` days before today, in the device's own timezone. */
-function isoDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-}
-
-/**
- * The dates Upstox's Trade Summary is asked for, following the page's range
- * picker. "All" (and an open-ended custom start) reaches back to the start of
- * the financial year two before this one — as far as Trade Entries' Upstox
- * sync goes — and a custom end never runs past today.
- */
-function upstoxSummaryRange(range: DateRange, customFrom: string, customTo: string): { from: string; to: string } {
-  const today = todayISODate();
-  const now = new Date();
-  const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  const earliest = `${fyStart - 2}-04-01`;
-  if (range === "all") return { from: earliest, to: today };
-  if (range === "custom") {
-    const to = customTo && customTo < today ? customTo : today;
-    return { from: customFrom || earliest, to };
-  }
-  return { from: isoDaysAgo(range === "7d" ? 7 : range === "30d" ? 30 : 90), to: today };
+  return localIsoDate();
 }
 
 /**
@@ -147,9 +126,7 @@ function padCumulativeToToday(points: CumulativePoint[], range: CumulativeRange)
     return last.date < today ? [...points, { date: today, cumulativePnl: last.cumulativePnl }] : points;
   }
   const days = range === "7d" ? 7 : range === "15d" ? 15 : range === "30d" ? 30 : 90;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  const cutoffIso = localIsoDate(days);
 
   const padded = [...points];
   if (padded.length === 0 || padded[0].date > cutoffIso) {
@@ -310,7 +287,9 @@ function EmptyCategoryNote({ text }: { text: string }) {
 const STREAK_LABELS = { win: "win streak", loss: "loss streak", none: "no streak yet" } as const;
 
 export default function ReportsView() {
-  const [entries, setEntries] = useState<TradeEntry[] | null>(getCachedTradeEntries);
+  // Everything on this page is Upstox's own P&L report - not the Trade Entries journal - so it reads like Upstox's does.
+  const report = useUpstoxReport();
+  const [scope, setScope] = useState<UpstoxSummaryScope>("ALL");
   const [payments, setPayments] = useState<Payment[] | null>(getCachedPayments);
   const [range, setRange] = useState<DateRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
@@ -321,22 +300,9 @@ export default function ReportsView() {
   const [cumulativeRange, setCumulativeRange] = useState<CumulativeRange>("7d");
   const [categoryValueMode, setCategoryValueMode] = useState<ValueMode>("amount");
   const [cumulativeValueMode, setCumulativeValueMode] = useState<ValueMode>("amount");
-  const [upstoxSyncOpen, setUpstoxSyncOpen] = useState(false);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        setEntries(await getTradeEntries());
-      } catch {
-        showToast("Couldn't load report data. Check your connection.");
-      }
-    }
-    load();
-    return subscribeToTradeEntryChanges(load);
-  }, []);
 
   // Account Growth pulls from the Payment tab too — its own fetch/subscribe,
-  // independent of the trade-entries load above.
+  // independent of Upstox's report.
   useEffect(() => {
     async function load() {
       try {
@@ -349,18 +315,26 @@ export default function ReportsView() {
     return subscribeToPaymentChanges(load);
   }, []);
 
+  // The report's trades in the segment picked (F&O + MCX by default) - what every section below is cut from.
+  const scoped = useMemo(() => {
+    const segments = segmentsOfScope(scope);
+    return report.trades ? report.trades.filter((t) => segments.includes(t.segment)) : null;
+  }, [report.trades, scope]);
   const filtered = useMemo(
-    () =>
-      entries ? filterEntriesByRange(entries, range, range === "custom" ? { from: customFrom, to: customTo } : undefined) : null,
-    [entries, range, customFrom, customTo],
+    () => (scoped ? filterEntriesByRange(scoped, range, range === "custom" ? { from: customFrom, to: customTo } : undefined) : null),
+    [scoped, range, customFrom, customTo],
   );
-  const summary = useMemo(() => (filtered ? summarizeEntries(filtered) : null), [filtered]);
+  // Upstox's charges for the same window: the one thing a report row doesn't carry, so Net P&L and Return % wait for them.
+  const span = useMemo(() => reportWindow(range, { from: customFrom, to: customTo }), [range, customFrom, customTo]);
+  const charges = usePnlCharges(scope, span.from, span.to, report.trades !== null);
+  const summary = useMemo(() => (filtered ? summarizeTrades(filtered, charges.charges?.total ?? 0) : null), [filtered, charges.charges]);
+  const buyValue = useMemo(() => (filtered ?? []).reduce((sum, t) => sum + t.buy_amount, 0), [filtered]);
   const cumulative = useMemo(
     () =>
-      entries
-        ? padCumulativeToToday(computeCumulativeSeries(filterEntriesByClosingRange(entries, cumulativeRange)), cumulativeRange)
+      scoped
+        ? padCumulativeToToday(computeCumulativeSeries(filterEntriesByClosingRange(scoped, cumulativeRange)), cumulativeRange)
         : null,
-    [entries, cumulativeRange],
+    [scoped, cumulativeRange],
   );
   const byInstrument = useMemo(() => (filtered ? computePnlByInstrument(filtered) : null), [filtered]);
   const bySide = useMemo(() => (filtered ? computePnlBySide(filtered) : null), [filtered]);
@@ -379,18 +353,19 @@ export default function ReportsView() {
 
   // Deliberately over the *full* history, not `filtered` — the calendar has
   // its own month navigation, independent of the page's date-range filter.
-  const dailyPnl = useMemo(() => computeDailyPnlMap(entries ?? []), [entries]);
+  const dailyPnl = useMemo(() => computeDailyPnlMap(scoped ?? []), [scoped]);
 
   // Also always the full history — see computeAccountGrowthSeries' own comment.
   const accountGrowth = useMemo(
-    () => computeAccountGrowthSeries(entries ?? [], payments ?? []),
-    [entries, payments],
+    () => computeAccountGrowthSeries(scoped ?? [], payments ?? []),
+    [scoped, payments],
   );
   // Net Pay Ins to date (not filtered by the page's range) — the denominator
   // for every "Return %" figure below, so a return is always relative to
   // capital actually put in, not just to whatever closed within the range.
   const latestCapital = accountGrowth.length > 0 ? accountGrowth[accountGrowth.length - 1].capital : 0;
-  const returnPct = summary ? computeReturnPct(summary.netPnl, latestCapital) : null;
+  // Net of Upstox's real charges - so not until they have arrived.
+  const returnPct = summary && charges.charges ? computeReturnPct(summary.netPnl, latestCapital) : null;
   const cumulativeWithPct: CumulativeChartPoint[] | null = useMemo(
     () =>
       cumulative
@@ -402,12 +377,12 @@ export default function ReportsView() {
   // calendar's own closing_date-based data — opening the calendar on a
   // month with entries but no closed trades would just show it empty.
   const heatmapInitialMonth = useMemo(() => {
-    const closingDates = (entries ?? []).map((e) => e.closing_date).filter((d): d is string => Boolean(d));
+    const closingDates = (scoped ?? []).map((e) => e.closing_date).filter((d): d is string => Boolean(d));
     if (closingDates.length === 0) return new Date();
     const latest = closingDates.reduce((max, d) => (d > max ? d : max), closingDates[0]);
     const [y, m] = latest.split("-").map(Number);
     return new Date(y, m - 1, 1);
-  }, [entries]);
+  }, [scoped]);
 
   // The headline figures that open the Performance card.
   const statTiles = useMemo<{ label: string; value: string; color: string; sub?: string }[] | null>(
@@ -446,7 +421,7 @@ export default function ReportsView() {
 
   function handleExportCsv() {
     if (!filtered || filtered.length === 0) {
-      showToast("No trade entries in this range to export.");
+      showToast("No trades in this range to export.");
       return;
     }
     downloadCsv(`reports-${range}-${todayISODate()}.csv`, buildReportCsv(filtered));
@@ -467,7 +442,7 @@ export default function ReportsView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Full analysis of your Trade Entries — P&amp;L trend, breakdowns, streaks, and drawdown.
+            Your Upstox P&amp;L report — P&amp;L trend, breakdowns, streaks, and drawdown.
           </p>
         </div>
         {/* `relative` anchors the custom-range panel: it floats under this row instead of sitting in it, so choosing Custom never reflows the header. */}
@@ -486,13 +461,19 @@ export default function ReportsView() {
               />
             )}
           </AnimatePresence>
+          <div className="w-36">
+            <Select value={scope} onChange={setScope} options={SCOPE_OPTIONS} align="right" />
+          </div>
           <button
             type="button"
-            onClick={() => setUpstoxSyncOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+            onClick={() => void report.refresh()}
+            disabled={report.refreshing}
+            aria-label="Refresh from Upstox"
+            title="Refresh from Upstox"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95 disabled:opacity-60"
           >
-            <RefreshIcon className="size-4" />
-            Sync Upstox
+            <RefreshIcon className={`size-4 ${report.refreshing ? "animate-spin" : ""}`} />
+            Refresh
           </button>
           <button
             type="button"
@@ -506,19 +487,40 @@ export default function ReportsView() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pt-6 print:overflow-visible">
-        {entries === null ? (
-          <LoadingState className="h-40" label="Loading reports…" />
-        ) : filtered && filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background p-10 text-center">
-            <InboxIcon className="size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              No trade entries in this range. Log some in Trade Entries to see reports here.
-            </p>
-          </div>
-        ) : null}
+        {report.loading && <LoadingState className="h-40" label="Loading your Upstox report…" />}
 
-        {/* Straight from Upstox, so it shows whatever the journal holds for this range. */}
-        <UpstoxTradeSummary {...upstoxSummaryRange(range, customFrom, customTo)} />
+        {/* Upstox couldn't be reached: say why, and whether what is below is an old copy. */}
+        {report.error && !report.loading && (
+          <div role="status" className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+            {report.error === "token_expired" ? (
+              <>
+                Your Upstox token has expired.{" "}
+                <Link href="/settings" className="font-medium text-accent hover:underline">
+                  Add today&apos;s token
+                </Link>{" "}
+                to load the latest report.
+              </>
+            ) : report.error === "network_error" ? (
+              "No internet connection."
+            ) : (
+              `Couldn't load Upstox's report — ${report.error}.`
+            )}{" "}
+            {report.trades && report.fetchedAt ? `Showing the copy saved on ${formatUpdated(report.fetchedAt)}.` : "Nothing is saved on this device yet."}{" "}
+            <button type="button" onClick={() => void report.refresh()} className="font-medium text-accent hover:underline">
+              Try again
+            </button>
+          </div>
+        )}
+
+        {report.trades && !report.error && report.fetchedAt && (
+          <p className="-mb-3 text-xs text-muted-foreground print:hidden">
+            From Upstox&apos;s P&amp;L report · updated {formatUpdated(report.fetchedAt)}. Upstox adds a day&apos;s trades to it the next day.
+          </p>
+        )}
+
+        {summary && (
+          <UpstoxTradeSummary scope={scope} from={span.from} to={span.to} summary={summary} buyValue={buyValue} charges={charges} />
+        )}
 
         {filtered && filtered.length > 0 && (
           <>
@@ -816,10 +818,6 @@ export default function ReportsView() {
           </>
         )}
       </div>
-
-      <AnimatePresence>
-        {upstoxSyncOpen && <UpstoxTradeSyncModal key="upstox-sync" onClose={() => setUpstoxSyncOpen(false)} />}
-      </AnimatePresence>
     </motion.div>
   );
 }

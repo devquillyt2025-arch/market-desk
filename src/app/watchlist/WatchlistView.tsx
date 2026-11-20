@@ -8,8 +8,10 @@ import { AlertCircleIcon, ArrowUpDownIcon, ChevronDownIcon, EyeIcon, PlusIcon } 
 import LivePricingBanners from "@/components/LivePricingBanners";
 import LoadingState from "@/components/LoadingState";
 import { isMarketOpen } from "@/lib/averaging";
+import { GLOBAL_TOP_YAHOO_IDS } from "@/lib/globalIndicesTable";
 import { showToast } from "@/lib/toast";
 import { useWatchlistQuotes } from "@/lib/useWatchlistQuotes";
+import { useWorldIndices } from "@/lib/useWorldIndices";
 import {
   DEFAULT_WATCHLIST,
   KIND_LABELS,
@@ -47,8 +49,8 @@ import {
 } from "@/lib/watchlistStore";
 
 import { AddInstrumentModal } from "./AddInstrumentModal";
-import { GlobalMarketsSection } from "./GlobalMarketsSection";
 import { GlobalPulse } from "./GlobalPulse";
+import { GlobalTab } from "./GlobalTab";
 import { MarketPulse } from "./MarketPulse";
 import { WATCH_COLUMNS, WatchRow } from "./WatchRow";
 import { WatchTabs, watchPanelId, watchTabId } from "./WatchTabs";
@@ -59,6 +61,8 @@ import { WatchlistHero } from "./WatchlistHero";
 const SORT_STORAGE_KEY = "marketdesk:watchlist-sort";
 /** Where this device remembers which tab the page was last on. */
 const TAB_STORAGE_KEY = "marketdesk:watchlist-tab";
+/** The only world indices this page shows (the Global indices table's Yahoo eight) - asked for by name, rather than the whole world's. */
+const HEADLINE_WORLD_IDS = [...GLOBAL_TOP_YAHOO_IDS];
 
 /** A column header that sorts: click for its natural order, again to reverse, again to go back to your own order. */
 function SortHeader({ sortKey, sort, onSort }: { sortKey: SortKey; sort: SortState | null; onSort: (next: SortState | null) => void }) {
@@ -102,7 +106,7 @@ export default function WatchlistView() {
   /** How the rows are ordered on screen; null is the saved order. Only a view - the saved order is never touched by it. */
   const [sort, setSort] = useState<SortState | null>(null);
   const [sortLoaded, setSortLoaded] = useState(false);
-  /** Indian markets (the saved list) or Global markets (the prices MCX follows). */
+  /** Indian markets (the saved list) or Global markets (the headline indices, and the prices MCX follows). */
   const [tab, setTab] = useState<WatchTab>("india");
   const [tabLoaded, setTabLoaded] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -211,6 +215,8 @@ export default function WatchlistView() {
   // Upstox quotes are only polled while the Indian markets tab is showing - the global prices run on their own feeds.
   const live = useWatchlistQuotes(tab === "india" ? items : null);
   const stale = live.tokenExpired || live.offline || live.loadError !== null;
+  // The world index levels (Yahoo) feed the headline table on Global markets, so they are polled only while that tab shows.
+  const world = useWorldIndices(undefined, tab === "global", { ids: HEADLINE_WORLD_IDS });
 
   const kindsPresent = WATCHLIST_KINDS.filter((kind) => items?.some((item) => item.kind === kind));
   // A filter on a kind that has since been emptied quietly stops applying.
@@ -381,8 +387,8 @@ export default function WatchlistView() {
       <WatchTabs tab={tab} onChange={setTab} />
 
       {tab === "global" ? (
-        <div role="tabpanel" id={watchPanelId("global")} aria-labelledby={watchTabId("global")}>
-          <GlobalMarketsSection />
+        <div role="tabpanel" id={watchPanelId("global")} aria-labelledby={watchTabId("global")} className="flex flex-col gap-6">
+          <GlobalTab world={world} />
         </div>
       ) : (
         <div role="tabpanel" id={watchPanelId("india")} aria-labelledby={watchTabId("india")} className="flex flex-col gap-6">

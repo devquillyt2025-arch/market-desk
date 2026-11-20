@@ -2,8 +2,8 @@
  * Server-only: Upstox's trade-wise P&L report for one segment (F&O, MCX
  * commodities "COM", equity) — the rows (`/v2/trade/profit-loss/data`, paged)
  * and the year's charges (`/v2/trade/profit-loss/charges`). Shared by the
- * pnl-report route (Trade Entries' sync) and pnl-summary (Reports' Upstox
- * Trade Summary).
+ * pnl-report route (Trade Entries' sync) and, for Reports, pnl-trades (the
+ * rows) and pnl-charges (the charges).
  *
  * Upstox asks for one financial year per call ("2627" = Apr 2026 – Mar 2027).
  * An optional date range inside it narrows the result to trades that closed

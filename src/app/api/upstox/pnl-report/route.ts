@@ -17,9 +17,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { round2 } from "@/lib/calculateTrade";
 import { isCommodityInstrument } from "@/lib/types";
-import { getHistoricalFills, isUpstoxGetError, upstoxErrorResponse } from "@/lib/upstox/api";
+import { getHistoricalFills, isUpstoxGetError, upstoxErrorResponse, type HistoricalFill } from "@/lib/upstox/api";
 import { addCharges, getPnlCharges, getPnlReportRows, ZERO_CHARGES } from "@/lib/upstox/pnlReport";
-import { firstSideOf, groupReportRows, tradesFromGroups } from "@/lib/upstox/pnlTrades";
+import { datesNeedingFills, firstSideOf, groupReportRows, tradesFromGroups, withFutureExpiries } from "@/lib/upstox/pnlTrades";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
 import { JOURNAL_PNL_SEGMENTS, type UpstoxChargesBreakdown } from "@/lib/upstox/types";
 
@@ -62,19 +62,29 @@ export async function GET(request: NextRequest) {
     charges = addCharges(charges ?? ZERO_CHARGES, chargesResult.charges);
   }
 
-  const { groups, otherCount, otherNames, grossPnl } = groupReportRows([...rowsBySegment.values()].flat());
-
-  // Which leg of each same-day round trip came first, from the trade history of its own segment.
-  // Best effort — without it, same-day trades fall back to "buy".
-  const firstSides = new Map<string, "BUY" | "SELL">();
+  // The trade history is read once per segment, for the two things only it knows (best effort - the report is complete
+  // without them):
+  //  - Upstox names a future in the report by its underlying alone ("NIFTY"), no expiry month, so the contract's expiry
+  //    is read off the fills of the dates it traded. A future the history can't place is still imported, without an expiry.
+  //  - which leg of a same-day round trip came first; without it, those fall back to "buy".
+  const fillsBySegment = new Map<(typeof JOURNAL_PNL_SEGMENTS)[number], HistoricalFill[]>();
   for (const segment of JOURNAL_PNL_SEGMENTS) {
-    const sameDay = [...groups].filter(([, g]) => g.buyDate === g.sellDate && isCommodityInstrument(g.instrument) === (segment === "COM"));
-    if (sameDay.length === 0) continue;
-    const dates = sameDay.map(([, g]) => g.buyDate).sort();
+    const rows = rowsBySegment.get(segment) ?? [];
+    const dates = datesNeedingFills(rows);
+    if (dates.length === 0) continue;
     const fillsResult = await getHistoricalFills(token, dates[0], dates[dates.length - 1], segment);
     if (isUpstoxGetError(fillsResult)) continue;
+    fillsBySegment.set(segment, fillsResult.fills);
+    rowsBySegment.set(segment, withFutureExpiries(rows, fillsResult.fills));
+  }
+
+  const { groups, otherCount, otherNames, grossPnl } = groupReportRows([...rowsBySegment.values()].flat());
+
+  const firstSides = new Map<string, "BUY" | "SELL">();
+  for (const [segment, fills] of fillsBySegment) {
+    const sameDay = [...groups].filter(([, g]) => g.buyDate === g.sellDate && isCommodityInstrument(g.instrument) === (segment === "COM"));
     for (const [key, g] of sameDay) {
-      const side = firstSideOf(g, fillsResult.fills);
+      const side = firstSideOf(g, fills);
       if (side) firstSides.set(key, side);
     }
   }

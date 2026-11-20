@@ -368,6 +368,28 @@ body {
   }
 }
 
+/* The ticker across the top slides left by exactly one copy of its row (the track holds two, side by side), then starts again - so the
+   join never shows. Its duration is set inline from the row's width and the chosen speed. It holds still while the pointer or the
+   keyboard is on it, so a price can be read. */
+@keyframes ticker-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.ticker-run {
+  animation: ticker-scroll linear infinite;
+  will-change: transform;
+}
+
+.ticker-viewport:hover .ticker-run,
+.ticker-viewport:focus-within .ticker-run {
+  animation-play-state: paused;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }

@@ -260,7 +260,8 @@ export type UpstoxClosedTrade = {
   /** Null for a futures trade. */
   strike: number | null;
   optionType: TradeEntryOptionType | null;
-  expiry: string;
+  /** Null only for a future whose expiry neither the report (which doesn't name one) nor the trade history could supply. */
+  expiry: string | null;
   side: TradeEntrySide;
   /** The earlier of the buy and sell dates. */
   entryDate: string;
@@ -309,12 +310,26 @@ export const UPSTOX_PNL_SEGMENT_LABELS: Record<UpstoxPnlSegment, string> = {
 };
 
 /**
- * The segments whose trades the journal records - index options and MCX crude oil / gold / natural gas options. Trade Entries'
- * sync reads the report of each; equity trades have no place in an options journal.
+ * The segments whose trades the journal records - index options and futures, and MCX crude oil / gold / natural gas. Trade Entries'
+ * sync reads the report of each; equity trades have no place in a derivatives journal.
  */
 export const JOURNAL_PNL_SEGMENTS = ["FO", "COM"] as const satisfies readonly UpstoxPnlSegment[];
 
-/** Upstox's own charges for a period, as /api/upstox/pnl-report and pnl-summary return them. */
+/**
+ * What Reports can be pointed at: one report segment, or "ALL" - F&O and MCX added together, the derivatives a trader of
+ * this app follows. Equity is its own segment, off by default.
+ */
+export const UPSTOX_SUMMARY_SCOPES = ["ALL", ...UPSTOX_PNL_SEGMENTS] as const;
+export type UpstoxSummaryScope = (typeof UPSTOX_SUMMARY_SCOPES)[number];
+
+export const UPSTOX_SUMMARY_SCOPE_LABELS: Record<UpstoxSummaryScope, string> = { ALL: "F&O + MCX", ...UPSTOX_PNL_SEGMENT_LABELS };
+
+/** The report segments a scope covers. */
+export function segmentsOfScope(scope: UpstoxSummaryScope): readonly UpstoxPnlSegment[] {
+  return scope === "ALL" ? JOURNAL_PNL_SEGMENTS : [scope];
+}
+
+/** Upstox's own charges for a period, as /api/upstox/pnl-report and pnl-charges return them. */
 export type UpstoxChargesBreakdown = {
   total: number;
   brokerage: number;
@@ -329,31 +344,62 @@ export type UpstoxChargesBreakdown = {
 };
 
 /**
- * Upstox's "Trade summary" for one segment and date range, as
- * /api/upstox/pnl-summary returns it — totals over every row of that
- * segment's P&L report (for F&O, stock options included, the same as Upstox's
- * own screen). Counted per row like Upstox does, so a 3-lot exit is three
- * trades.
+ * One row of Upstox's trade-wise P&L report, read as a trade (see lib/upstox/reportTrades.ts). snake_case so that it has the
+ * shape of a journal entry and the Reports maths reads both. Money is as reported; `pnl` is sell minus buy, before charges.
  */
-export type UpstoxPnlSummary = {
+export type UpstoxReportTrade = {
+  id: string;
   segment: UpstoxPnlSegment;
-  /** yyyy-mm-dd — the range Upstox was asked for, by the date each trade closed. */
+  /** The underlying - "NIFTY", "FINNIFTY", a stock's name - not an instrument the journal necessarily tracks. */
+  instrument: string;
+  /** "NIFTY 25400 PE", "NIFTY FUT", or an equity's name. */
+  label: string;
+  strike_price: number | null;
+  option_type: TradeEntryOptionType | null;
+  expiry_date: string | null;
+  /** yyyy-mm-dd - the earlier of the buy and sell dates. */
+  entry_date: string;
+  /** yyyy-mm-dd - the later of the two, the day Upstox files the trade under. */
+  closing_date: string;
+  /** Null when bought and sold the same day: the report doesn't say which came first. */
+  side: TradeEntrySide | null;
+  /** As the report counts it: units for the indices and equity, lots for MCX. */
+  quantity: number;
+  buy_price: number;
+  sell_price: number;
+  buy_amount: number;
+  sell_amount: number;
+  pnl: number;
+  status: "squared_off";
+  /** Only orders trades of the same day. */
+  created_at: string;
+};
+
+/** Every row of the last three financial years' reports, all segments - what /api/upstox/pnl-trades returns. */
+export type UpstoxPnlTradesSuccess = {
+  /** yyyy-mm-dd - the first day covered (the start of the earliest financial year read). */
+  from: string;
+  trades: UpstoxReportTrade[];
+  /** ms since epoch. */
+  fetchedAt: number;
+};
+export type UpstoxPnlTradesError = { error: string; detail?: string };
+export type UpstoxPnlTradesResult = UpstoxPnlTradesSuccess | UpstoxPnlTradesError;
+
+export function isUpstoxPnlTradesError(result: UpstoxPnlTradesResult): result is UpstoxPnlTradesError {
+  return "error" in result;
+}
+
+/** Upstox's charges for one scope and date range, by the date each trade closed - what /api/upstox/pnl-charges returns. */
+export type UpstoxPnlCharges = {
+  scope: UpstoxSummaryScope;
   from: string;
   to: string;
-  tradeCount: number;
-  winningCount: number;
-  grossPnl: number;
-  /** Sum of the winning rows' P&L. */
-  winningPnl: number;
-  /** Sum of the losing rows' P&L — negative. */
-  losingPnl: number;
-  /** Total bought — the base of Upstox's ROI %. */
-  buyValue: number;
   charges: UpstoxChargesBreakdown;
 };
-export type UpstoxPnlSummaryError = { error: string; detail?: string };
-export type UpstoxPnlSummaryResult = UpstoxPnlSummary | UpstoxPnlSummaryError;
+export type UpstoxPnlChargesError = { error: string; detail?: string };
+export type UpstoxPnlChargesResult = UpstoxPnlCharges | UpstoxPnlChargesError;
 
-export function isUpstoxPnlSummaryError(result: UpstoxPnlSummaryResult): result is UpstoxPnlSummaryError {
+export function isUpstoxPnlChargesError(result: UpstoxPnlChargesResult): result is UpstoxPnlChargesError {
   return "error" in result;
 }

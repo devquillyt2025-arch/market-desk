@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { CheckIcon, CopyIcon, TrendingDownIcon, TrendingUpIcon, WalletIcon, XIcon } from "@/components/icons";
-import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
+import { closedPositionCharges } from "@/lib/calculatePortfolio";
 import { round2 } from "@/lib/calculateTrade";
 import { formatINR, formatPct, pnlColorClass } from "@/lib/format";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
@@ -56,11 +56,8 @@ export default function ClosedPositionDetailModal({ position: p, onClose }: Prop
   const totalQty = p.buyQuantity > 0 ? p.buyQuantity : p.sellQuantity;
   const lots = p.lotSize > 0 ? round2(totalQty / p.lotSize) : 0;
 
-  // Brokerage & Regulatory breakdown
-  const brokerage =
-    buyAvg != null && sellAvg != null && totalQty > 0
-      ? calculateBrokerage(optionsSegmentFor(p.instrument), [{ buyPrice: buyAvg, sellPrice: sellAvg }], totalQty)
-      : null;
+  // Brokerage & Regulatory breakdown - at the futures rates for a future, the options ones for an option
+  const brokerage = closedPositionCharges(p);
   const totalCharges = brokerage?.totalCharges ?? null;
   const netPnl = totalCharges != null ? round2(grossPnl - totalCharges) : grossPnl;
 

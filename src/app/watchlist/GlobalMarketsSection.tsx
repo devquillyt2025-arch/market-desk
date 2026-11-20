@@ -5,8 +5,9 @@ import { useGlobalMarketsContext } from "@/components/GlobalMarketsProvider";
 import { formatAsOf, pnlColorClass } from "@/lib/format";
 import { buildStrip, changeOf, isStale, marketsStatus, type StripItem } from "@/lib/globalMarkets";
 import { useExpectedOpen } from "@/lib/useExpectedOpen";
-import { dayRangePosition, formatMovePct, formatRangeValue, moveDirection } from "@/lib/watchlist";
+import { formatMovePct, moveDirection } from "@/lib/watchlist";
 
+import { DayRange } from "./DayRange";
 import { useTickFlash } from "./useTickFlash";
 
 /** A price this much older than the freshest one gets its own "as of" - the rest share the header's "Updated". */
@@ -31,9 +32,7 @@ function GlobalRow({ item, reference, freshest, quiet, loading }: GlobalRowProps
   const lagging = quote ? freshest - quote.asOf > OLDER_THAN_GROUP_MS : false;
   const percent = quote ? changeOf(quote)?.percent : undefined;
   const shown = percent === undefined ? null : Number(percent.toFixed(2));
-  const rangePos = quote ? dayRangePosition(quote.dayLow, quote.dayHigh, quote.price) : null;
   const direction = moveDirection(shown);
-  const fill = direction === "down" ? "bg-danger-fg/70" : direction === "up" ? "bg-profit/70" : "bg-muted-foreground/50";
 
   // Under the name: what a derived price is made of, and - only for a price older than the rest - when it is from.
   const notes = [item.key === "WTI_INR" ? "WTI × USD/INR" : null, quote && (stale || lagging) ? `${stale ? "last price" : "as of"} ${formatAsOf(quote.asOf, reference)}` : null].filter(Boolean);
@@ -54,25 +53,7 @@ function GlobalRow({ item, reference, freshest, quiet, loading }: GlobalRowProps
         {shown === null ? "—" : formatMovePct(shown)}
         {shown !== null && <span className="sr-only"> {direction === "up" ? "up" : direction === "down" ? "down" : "unchanged"} today</span>}
       </td>
-      <td className="hidden py-2.5 pl-3 md:table-cell">
-        {rangePos !== null && quote?.dayLow != null && quote.dayHigh != null ? (
-          <div
-            role="img"
-            aria-label={`Today's range ${formatRangeValue(quote.dayLow)} to ${formatRangeValue(quote.dayHigh)}; the price is ${Math.round(rangePos * 100)}% of the way up`}
-            className="flex items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground"
-          >
-            <span className="w-12 text-right">{formatRangeValue(quote.dayLow)}</span>
-            <div className="relative h-1.5 min-w-16 flex-1 rounded-full bg-muted">
-              <span className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ${fill}`} style={{ width: `${rangePos * 100}%` }} />
-              <span
-                className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card bg-foreground shadow transition-[left] duration-500"
-                style={{ left: `${rangePos * 100}%` }}
-              />
-            </div>
-            <span className="w-12">{formatRangeValue(quote.dayHigh)}</span>
-          </div>
-        ) : null}
-      </td>
+      <td className="hidden py-2.5 pl-3 md:table-cell">{quote && <DayRange low={quote.dayLow} high={quote.dayHigh} price={quote.price} direction={direction} />}</td>
     </tr>
   );
 }

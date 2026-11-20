@@ -160,3 +160,23 @@ describe("GIFT Nifty - a global index on the list", () => {
     assert.deepEqual([quote?.open, quote?.high, quote?.low, quote?.volume], [25289, 25558.5, 25256.5, null]);
   });
 });
+
+describe("when an instrument last traded", () => {
+  const entry = (last_trade_time: unknown) => ({ last_price: 25379.5, net_change: 1.5, last_trade_time });
+
+  it("is read from Upstox's millisecond text", () => {
+    assert.equal(parseQuoteEntry(entry("1794928739000"), null)?.asOf, 1794928739000);
+    assert.equal(parseQuoteEntry(entry(1794928739000), null)?.asOf, 1794928739000);
+  });
+
+  it("is left out when it is missing or isn't a plausible time", () => {
+    for (const bad of [undefined, null, "", "abc", "0", "-5", "1794928739"]) assert.equal(parseQuoteEntry(entry(bad), null)?.asOf, null, String(bad));
+  });
+});
+
+describe("Dow futures - the second global index quoted by key", () => {
+  it("is accepted as an index, like GIFT Nifty", () => {
+    const dow = { itemKey: "GLOBAL_INDEX|DOW FUTURES", kind: "index", symbol: "DOWFUTURES" };
+    assert.deepEqual(parseWatchRequest({ items: [dow] }), [dow]);
+  });
+});

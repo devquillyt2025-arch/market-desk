@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 import { calculateBrokerage } from "@/lib/calculateBrokerage";
 import {
   calculateTodayPnl,
+  closedPositionCharges,
   computePortfolioRow,
   futureGroupKey,
   isFutureEntry,
@@ -372,6 +373,33 @@ describe("a future squared off today", () => {
     near(summary.pnl, 6500, 0.01); // sold 3,324,750, bought back 3,318,250
     const expected = calculateBrokerage("FUTURES", [{ buyPrice: 25525, sellPrice: 25575 }], 130).totalCharges;
     near(summary.charges ?? NaN, expected, 0.001);
+  });
+
+  it("shows the futures line items in the detail popup, not an option's: STT on the sell side only, and the exchange fee of a future", () => {
+    const flat: UpstoxPosition = { ...NIFTY_FUTURE_POSITION, quantity: 0, averagePrice: null, buyQuantity: 130, buyValue: 3318250, dayBuyQuantity: 130, dayBuyValue: 3318250 };
+    const charges = closedPositionCharges(flat);
+    assert.ok(charges);
+    near(charges.stt, 3324750 * 0.0005, 0.01); // 0.05% of the 33.25 lakh sold = 1,662.38
+    near(charges.stampDuty, 3318250 * 0.00002, 0.01); // 0.002% of the buy side
+    near(charges.transactionCharges, (3324750 + 3318250) * 0.00002, 0.01);
+    near(charges.brokerage, 40, 0.001); // 20 + 20: 0.05% of a lakh-plus order is over the cap, so the flat fee
+    near(charges.totalCharges, calculateBrokerage("FUTURES", [{ buyPrice: 25525, sellPrice: 25575 }], 130).totalCharges, 0.001);
+    assert.equal(summariseClosedPosition(flat).charges, charges.totalCharges); // the table and the popup agree
+
+    const asOption = calculateBrokerage("OPTIONS", [{ buyPrice: 25525, sellPrice: 25575 }], 130);
+    assert.ok(asOption.stt > charges.stt * 2);
+    assert.ok(asOption.transactionCharges > charges.transactionCharges * 10);
+  });
+
+  it("still bills an option at the options rates, and an MCX option at its own", () => {
+    const option: UpstoxPosition = { ...NIFTY_FUTURE_POSITION, strike: 25400, optionType: "PE", quantity: 0, averagePrice: null, buyQuantity: 130, buyValue: 13000, sellQuantity: 130, sellValue: 15600 };
+    near(closedPositionCharges(option)?.totalCharges ?? NaN, calculateBrokerage("OPTIONS", [{ buyPrice: 100, sellPrice: 120 }], 130).totalCharges, 0.001);
+    const crude: UpstoxPosition = { ...option, instrument: "CRUDEOIL" };
+    near(closedPositionCharges(crude)?.totalCharges ?? NaN, calculateBrokerage("COMMODITY_OPTIONS", [{ buyPrice: 100, sellPrice: 120 }], 130).totalCharges, 0.001);
+  });
+
+  it("has no breakdown until both a buy and a sell are known", () => {
+    assert.equal(closedPositionCharges(NIFTY_FUTURE_POSITION), null); // still open: sold, not yet bought back
   });
 });
 

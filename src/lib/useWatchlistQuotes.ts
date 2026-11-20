@@ -1,7 +1,7 @@
 /**
  * Polls live quotes for the Watchlist. Mirrors useHeatmap's failure handling - token-expired and offline are
  * surfaced once (through the shared LivePricingBanners) rather than per request, scheduled polling stops on a known-bad
- * token until a fresh attempt proves it fixed, and the prices already on screen stay put through an outage
+ * token (apart from one retry a minute, so a token pasted in Settings is picked up without a reload), and the prices already on screen stay put through an outage
  * instead of vanishing. They are also kept on this device, so the morning after the daily token lapses the
  * list still shows yesterday's close, labelled as such, rather than a wall of dashes.
  *
@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { showToast } from "@/lib/toast";
 import { fetchWatchlistQuotes } from "@/lib/upstox/client";
 import { isUpstoxWatchlistError } from "@/lib/upstox/types";
-import type { WatchQuote, WatchlistItem } from "@/lib/watchlist";
+import { shouldPollQuotes, type WatchQuote, type WatchlistItem } from "@/lib/watchlist";
 
 export const WATCHLIST_POLL_MS = 5000;
 
@@ -23,9 +23,9 @@ const STORAGE_KEY = "marketdesk:watchlist-quotes";
 type Stored = { at: number; quotes: Record<string, WatchQuote> };
 
 /** The last good quotes saved on this device, or null - localStorage can be missing, full, or hold anything. */
-function loadStored(): Stored | null {
+function loadStored(storageKey: string): Stored | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -36,9 +36,9 @@ function loadStored(): Stored | null {
   }
 }
 
-function saveStored(value: Stored): void {
+function saveStored(storageKey: string, value: Stored): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    localStorage.setItem(storageKey, JSON.stringify(value));
   } catch {
     // Storage may be unavailable or full; the prices just won't survive a reload.
   }
@@ -61,7 +61,8 @@ export type WatchlistQuotesState = {
   refresh: () => Promise<void>;
 };
 
-export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCHLIST_POLL_MS): WatchlistQuotesState {
+/** `storageKey`: where the last good prices are kept on this device - a second list (the Global indices) needs its own, or the two would overwrite each other. */
+export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCHLIST_POLL_MS, storageKey = STORAGE_KEY): WatchlistQuotesState {
   const [quotes, setQuotes] = useState<Record<string, WatchQuote>>({});
   const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
   const [lastPolledAt, setLastPolledAt] = useState<number | null>(null);
@@ -85,9 +86,12 @@ export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCH
     // Numbered so a slow older response can't land after, and overwrite, a newer one.
     let startedSeq = 0;
     let appliedSeq = 0;
+    let lastAttemptAt = 0;
 
     async function pollOnce(force = false) {
-      if (tokenExpiredRef.current && !force) return;
+      const now = Date.now();
+      if (!shouldPollQuotes({ tokenExpired: tokenExpiredRef.current, force, now, lastAttemptAt })) return;
+      lastAttemptAt = now;
       const seq = ++startedSeq;
       inFlight++;
       const result = await fetchWatchlistQuotes(requested).finally(() => {
@@ -100,7 +104,7 @@ export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCH
       if (isUpstoxWatchlistError(result)) {
         // Nothing on screen yet (a fresh page load, the morning after the token lapsed): fall back to what this
         // device last saw, so there is still something to show. Only on failure, so a normal load never flashes it.
-        const saved = loadStored();
+        const saved = loadStored(storageKey);
         setQuotes((prev) => (Object.keys(prev).length > 0 || !saved ? prev : saved.quotes));
         setLastPolledAt((prev) => prev ?? saved?.at ?? null);
         if (result.error === "token_expired") {
@@ -123,7 +127,7 @@ export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCH
       setQuotes(result.quotes);
       setMissing(new Set(result.missing));
       setLastPolledAt(at);
-      saveStored({ at, quotes: result.quotes });
+      saveStored(storageKey, { at, quotes: result.quotes });
       setOffline(false);
       setLoadError(null);
       if (tokenExpiredRef.current) {
@@ -136,8 +140,9 @@ export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCH
     const scheduled = () => {
       if (!document.hidden && inFlight === 0) void pollOnce();
     };
+    // Forced: coming back to the tab is when a token pasted in another tab needs picking up, whatever the retry clock says.
     const onVisible = () => {
-      if (!document.hidden && inFlight === 0) void pollOnce();
+      if (!document.hidden && inFlight === 0) void pollOnce(true);
     };
 
     pollOnceRef.current = pollOnce;
@@ -151,7 +156,7 @@ export function useWatchlistQuotes(items: WatchlistItem[] | null, pollMs = WATCH
     };
     // listKey is the list's identity; `items` is a fresh array every render and would restart the poll each time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listKey, pollMs]);
+  }, [listKey, pollMs, storageKey]);
 
   async function refresh() {
     setManualRefreshing(true);

@@ -377,3 +377,19 @@ export function SettingsIcon({ className }: IconProps) {
   );
 }
 
+
+export function PauseIcon({ className }: IconProps) {
+  return (
+    <svg {...base} strokeWidth={2.25} className={className} aria-hidden="true">
+      <path d="M9 5.5v13M15 5.5v13" />
+    </svg>
+  );
+}
+
+export function PlayIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+    </svg>
+  );
+}

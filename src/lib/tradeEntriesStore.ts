@@ -330,7 +330,7 @@ export async function applyUpstoxTrades(writes: UpstoxTradeWrite[], removeIds: s
       instrument: trade.instrument,
       strike_price: trade.strike,
       option_type: trade.optionType,
-      expiry_date: trade.expiry,
+      expiry_date: trade.expiry ?? entry?.expiry_date ?? null,
       closing_date: trade.closingDate,
       lots: trade.lots,
       side: trade.side,

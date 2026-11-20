@@ -9,7 +9,9 @@
  * strip sits where the Risk panel's title used to, with its verdict pill and
  * warning count right beside it, so the existing read is unchanged and the
  * others sit next to it rather than over the page. The What-if lab and the RRR planner can be switched off from the
- * "Tabs" menu at the strip's right end; the other three are always shown.
+ * "Tabs" menu at the strip's right end; the other three are always shown once a position is held. With no position
+ * only the planner has anything to show, and the menu still decides whether it does - switched off, the strip is just
+ * the menu.
  */
 
 import { useRef, useState, type KeyboardEvent } from "react";
@@ -126,7 +128,7 @@ function SimulateTab({
 type PortfolioInsightsProps = {
   tab: InsightsTab;
   onTabChange: (tab: InsightsTab) => void;
-  /** Whether any position is priced. Without one only the RRR planner is offered - nothing else has anything to read. */
+  /** Whether any position is priced. Without one only the RRR planner can be offered (if it is switched on) - nothing else has anything to read. */
   hasPositions: boolean;
   /** The Risk & Probability read: null while nothing is priced yet. */
   analysis: RiskAnalysis | null;
@@ -162,9 +164,10 @@ export default function PortfolioInsights({
 }: PortfolioInsightsProps) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const [tabPrefs, saveTabPrefs] = useInsightsTabPrefs();
-  // Without a priced position only the planner is offered (see isInsightsTabShown); otherwise every tab but the ones switched off.
+  // Without a priced position only the planner is offered, and only if it is on (see isInsightsTabShown); otherwise every tab
+  // but the ones switched off. The strip can therefore be empty - then there is no tab, and only the menu to bring one back.
   const tabs = TABS.filter((t) => isInsightsTabShown(t.id, hasPositions, tabPrefs));
-  const tab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
+  const tab: InsightsTab | null = tabs.some((t) => t.id === requestedTab) ? requestedTab : (tabs[0]?.id ?? null);
   // The planner is only built once its tab has been opened, then kept mounted so what was typed there survives a glance elsewhere.
   const [plannerOpened, setPlannerOpened] = useState(tab === "planner");
   if (tab === "planner" && !plannerOpened) setPlannerOpened(true);
@@ -178,7 +181,7 @@ export default function PortfolioInsights({
   const [rrrOpened, setRrrOpened] = useState(tab === "rrr");
   if (tab === "rrr" && !rrrOpened) setRrrOpened(true);
   // A tab switched off is torn down, and builds afresh the next time it is opened - not in the background the moment it is switched back on.
-  const plannerOff = hasPositions && !tabPrefs.planner;
+  const plannerOff = !tabPrefs.planner;
   const labOff = hasPositions && !tabPrefs.whatif;
   if (plannerOff && plannerOpened) setPlannerOpened(false);
   if (labOff && labOpened) setLabOpened(false);
@@ -189,10 +192,12 @@ export default function PortfolioInsights({
   function handleTabShown(id: OptionalInsightsTab, shown: boolean) {
     saveTabPrefs({ ...tabPrefs, [id]: shown });
     // Hiding the tab on show hands the view to the first one that remains, so turning it back on doesn't jump back to it.
-    if (!shown && tab === id) onTabChange(tabs[0].id);
+    const remaining = tabs.find((t) => t.id !== id);
+    if (!shown && tab === id && remaining) onTabChange(remaining.id);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (tabs.length === 0) return;
     const current = tabs.findIndex((t) => t.id === tab);
     let next: number;
     if (e.key === "ArrowRight") next = (current + 1) % tabs.length;
@@ -208,42 +213,44 @@ export default function PortfolioInsights({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-5 gap-y-2">
-          {/* The tabs are wider than a phone: the strip scrolls sideways on its own rather than widening the page. */}
-          <div
-            role="tablist"
-            aria-label="Portfolio insights"
-            onKeyDown={handleKeyDown}
-            className={`flex max-w-full items-center gap-5 overflow-x-auto pb-1 ${thinScroll}`}
-          >
-            {tabs.map((t, i) => {
-              const active = tab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  ref={(el) => {
-                    buttons.current[i] = el;
-                  }}
-                  id={`insights-tab-${t.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  aria-controls={`insights-panel-${t.id}`}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => onTabChange(t.id)}
-                  className={`-mb-px whitespace-nowrap border-b-2 pb-1 text-sm font-semibold uppercase tracking-wide transition-colors ${
-                    active
-                      ? "border-accent text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
+        {tabs.length > 0 && (
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-5 gap-y-2">
+            {/* The tabs are wider than a phone: the strip scrolls sideways on its own rather than widening the page. */}
+            <div
+              role="tablist"
+              aria-label="Portfolio insights"
+              onKeyDown={handleKeyDown}
+              className={`flex max-w-full items-center gap-5 overflow-x-auto pb-1 ${thinScroll}`}
+            >
+              {tabs.map((t, i) => {
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    ref={(el) => {
+                      buttons.current[i] = el;
+                    }}
+                    id={`insights-tab-${t.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-controls={`insights-panel-${t.id}`}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => onTabChange(t.id)}
+                    className={`-mb-px whitespace-nowrap border-b-2 pb-1 text-sm font-semibold uppercase tracking-wide transition-colors ${
+                      active
+                        ? "border-accent text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            {tab === "risk" && analysis && <RiskHeaderBadges analysis={analysis} />}
           </div>
-          {tab === "risk" && analysis && <RiskHeaderBadges analysis={analysis} />}
-        </div>
+        )}
 
         {/* Pinned to the right edge (ml-auto) even when the strip wraps onto its own line, so the menu always opens inward. */}
         <div className="ml-auto flex items-center gap-x-4 gap-y-1">
@@ -254,8 +261,8 @@ export default function PortfolioInsights({
           {tab === "whatif" && <LiveHint paused={paused}>tries every exit, add, hedge and new trade</LiveHint>}
           {tab === "rrr" && <LiveHint paused={paused}>ranks every idea by reward for the risk</LiveHint>}
           {tab === "planner" && <span className="text-xs text-muted-foreground">Independent of your positions and live prices</span>}
-          {/* With no position there is only the planner to show, so there is nothing to choose between. */}
-          {hasPositions && <InsightsTabsMenu prefs={tabPrefs} onChange={handleTabShown} />}
+          {/* Always reachable, positions or not: it is the one place the planner is switched off, and back on. */}
+          <InsightsTabsMenu prefs={tabPrefs} onChange={handleTabShown} />
         </div>
       </div>
 

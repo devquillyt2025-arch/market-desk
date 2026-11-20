@@ -6,8 +6,9 @@
  * calculateBrokerage.ts as-is rather than reimplementing either.
  */
 
-import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, optionsSegmentFor, type BrokerageBreakdown } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
+import { localIsoDate } from "@/lib/localDate";
 import { atmIvOfRows, spotOfRows } from "@/lib/strategyFutures";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
@@ -200,12 +201,6 @@ export function toLivePositionInfo(row: PortfolioRow | undefined): LivePositionI
   };
 }
 
-/** yyyy-mm-dd of a timestamp in the device's own timezone — matches how entry_date is entered. */
-function localISODate(ms: number): string {
-  const d = new Date(ms);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-}
-
 /**
  * What a position has made or lost since today's open: the move from the
  * previous close to the live price — or from the entry price if it was opened
@@ -217,7 +212,7 @@ function localISODate(ms: number): string {
  */
 export function calculateTodayPnl(row: PortfolioRow, today: string): number | null {
   if (row.status !== "ok" || row.liveLtp == null) return null;
-  if (row.stale && (row.asOf == null || localISODate(row.asOf) !== today)) return null;
+  if (row.stale && (row.asOf == null || localIsoDate(0, new Date(row.asOf)) !== today)) return null;
 
   const base = row.entry.entry_date === today ? row.entryPrice : row.prevClose;
   if (base == null) return null;
@@ -466,16 +461,22 @@ function averagePrice(value: number, quantity: number): number | null {
   return quantity > 0 ? round2(value / quantity) : null;
 }
 
+/**
+ * The charges on a position squared off today, line by line - brokerage, STT, exchange, GST, stamp duty, SEBI - billed under the
+ * segment it traded in: a future at the futures rates, an option at its own. Null while either average is unknown (nothing bought or
+ * nothing sold). The Closed Today table and its detail popup both read this, so they can't disagree about a future.
+ */
+export function closedPositionCharges(position: UpstoxPosition): BrokerageBreakdown | null {
+  const buyAvg = averagePrice(position.buyValue, position.buyQuantity);
+  const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
+  if (buyAvg == null || sellAvg == null) return null;
+  const isFuture = position.strike === null || position.optionType === null;
+  return calculateBrokerage(isFuture ? "FUTURES" : optionsSegmentFor(position.instrument), [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity);
+}
+
 export function summariseClosedPosition(position: UpstoxPosition): ClosedPositionSummary {
   const buyAvg = averagePrice(position.buyValue, position.buyQuantity);
   const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
-  const charges =
-    buyAvg != null && sellAvg != null
-      ? calculateBrokerage(
-          position.optionType === null ? "FUTURES" : optionsSegmentFor(position.instrument),
-          [{ buyPrice: buyAvg, sellPrice: sellAvg }],
-          position.buyQuantity,
-        ).totalCharges
-      : null;
+  const charges = closedPositionCharges(position)?.totalCharges ?? null;
   return { position, buyAvg, sellAvg, pnl: round2(position.sellValue - position.buyValue), charges };
 }

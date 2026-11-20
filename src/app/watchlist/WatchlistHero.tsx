@@ -6,7 +6,7 @@ import { CheckIcon, EyeIcon, PencilIcon, PlusIcon } from "@/components/icons";
 import type { WatchTab } from "@/lib/watchlist";
 
 type WatchlistHeroProps = {
-  /** Which half of the page is showing: the Edit and Add buttons belong to the saved list, so the global prices don't get them. */
+  /** Which part of the page is showing: the Edit and Add buttons belong to the saved list, so the global prices and indices don't get them. */
   tab: WatchTab;
   /** Null while the list is still loading. */
   count: number | null;
@@ -91,7 +91,7 @@ export function WatchlistHero({ tab, count, readOnly, editMode, onToggleEdit, on
 
       <p className="mt-1 text-sm text-muted-foreground">
         {tab === "global" ? (
-          "Crude oil, the rupee, natural gas and gold - the prices behind your MCX positions, and where MCX is expected to open."
+          "The headline world indices, then crude oil, the rupee, natural gas and gold - the prices behind your MCX positions, and where MCX is expected to open."
         ) : (
           <>
             {count === null ? "The instruments you follow" : `${count} instrument${count === 1 ? "" : "s"} you follow`} - live prices, today&apos;s move and range. Add, reorder and

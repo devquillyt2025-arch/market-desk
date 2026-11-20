@@ -25,6 +25,8 @@ import {
   matchesView,
   parseSort,
   parseWatchTab,
+  shouldPollQuotes,
+  TOKEN_RETRY_MS,
   WATCH_TABS,
   sortItems,
   withSortOrder,
@@ -172,10 +174,37 @@ describe("what a quote says", () => {
   });
 });
 
+describe("polling once the Upstox token has lapsed", () => {
+  const base = { tokenExpired: true, force: false, now: 1_000_000, lastAttemptAt: 1_000_000 - 5_000 };
+
+  it("polls as usual while the token is good", () => {
+    assert.equal(shouldPollQuotes({ ...base, tokenExpired: false }), true);
+  });
+
+  it("holds the scheduled polls back on a known-bad token...", () => {
+    assert.equal(shouldPollQuotes(base), false);
+    assert.equal(shouldPollQuotes({ ...base, now: base.lastAttemptAt + TOKEN_RETRY_MS - 1 }), false);
+  });
+
+  it("...but tries again once a minute, so a token pasted in Settings is picked up with no refresh button and no reload", () => {
+    assert.equal(shouldPollQuotes({ ...base, now: base.lastAttemptAt + TOKEN_RETRY_MS }), true);
+  });
+
+  it("always goes out when asked for by hand, or on coming back to the tab", () => {
+    assert.equal(shouldPollQuotes({ ...base, force: true }), true);
+  });
+
+  it("goes out at once the first time - nothing has been attempted yet", () => {
+    assert.equal(shouldPollQuotes({ ...base, lastAttemptAt: 0 }), true);
+  });
+});
+
 describe("how an item is drawn", () => {
   it("reads a remembered tab back, and ignores anything that isn't one of the two", () => {
     assert.equal(parseWatchTab("india"), "india");
     assert.equal(parseWatchTab("global"), "global");
+    // A device that last left the page on the removed "More indices" tab starts on the Indian markets instead.
+    assert.equal(parseWatchTab("more"), null);
     assert.equal(parseWatchTab("Global"), null);
     assert.equal(parseWatchTab(""), null);
     assert.equal(parseWatchTab(null), null);

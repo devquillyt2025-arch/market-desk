@@ -20,7 +20,9 @@ export default function Switch({
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+      // min-h-0!/min-w-0!: on a touch screen every button is stretched to 44px (globals.css), which turned this into a blob. The pill keeps its
+      // shape and the extra reach comes from the invisible before: box instead (a pseudo-element of a button is part of it for taps).
+      className={`relative h-5 w-9 min-h-0! min-w-0! shrink-0 rounded-full transition-colors before:absolute before:-inset-x-1 before:-inset-y-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
         checked ? "bg-accent-solid" : "bg-border"
       }`}
     >

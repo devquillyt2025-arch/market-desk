@@ -172,7 +172,8 @@ function sameContract(entry: TradeEntry, t: UpstoxClosedTrade): boolean {
 function differences(entry: TradeEntry, t: UpstoxClosedTrade): string[] {
   const changes: string[] = [];
   if (entry.entry_date !== t.entryDate || entry.closing_date !== t.closingDate) changes.push("dates");
-  if (entry.expiry_date !== t.expiry) changes.push("expiry");
+  // A future the report couldn't date (t.expiry null) doesn't contradict the entry's own expiry.
+  if (t.expiry !== null && entry.expiry_date !== t.expiry) changes.push("expiry");
   if (entry.side !== t.side) changes.push("side");
   if (entry.lots !== t.lots) changes.push("lots");
   if (round2(Number(entry.buy_price)) !== t.buyPrice || round2(Number(entry.sell_price)) !== t.sellPrice) changes.push("prices");

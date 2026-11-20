@@ -6,6 +6,9 @@ import { WATCH_TABS, type WatchTab } from "@/lib/watchlist";
 
 const LABELS: Record<WatchTab, string> = { india: "Indian markets", global: "Global markets" };
 
+/** What a phone shows: "Indian / Global" read just as well beside the heading above, and leave room on the narrowest screens. */
+const SHORT_LABELS: Record<WatchTab, string> = { india: "Indian", global: "Global" };
+
 /** The id of each tab's button and of the panel it controls - the page puts these on its panels. */
 export const watchTabId = (tab: WatchTab) => `watch-tab-${tab}`;
 export const watchPanelId = (tab: WatchTab) => `watch-panel-${tab}`;
@@ -44,6 +47,7 @@ export function WatchTabs({ tab, onChange }: { tab: WatchTab; onChange: (tab: Wa
             type="button"
             role="tab"
             aria-selected={active}
+            aria-label={LABELS[id]}
             aria-controls={watchPanelId(id)}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(id)}
@@ -51,7 +55,12 @@ export function WatchTabs({ tab, onChange }: { tab: WatchTab; onChange: (tab: Wa
               active ? "border-accent text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {LABELS[id]}
+            <span aria-hidden="true" className="sm:hidden">
+              {SHORT_LABELS[id]}
+            </span>
+            <span aria-hidden="true" className="hidden sm:inline">
+              {LABELS[id]}
+            </span>
           </button>
         );
       })}

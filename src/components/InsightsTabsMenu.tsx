@@ -88,8 +88,8 @@ export default function InsightsTabsMenu({
             ))}
           </ul>
           <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">
-            Risk &amp; Probability, Simulate and Reward : Risk are always shown. A hidden tab isn&apos;t built, so it does
-            no work in the background. Saved on this device.
+            Risk &amp; Probability, Simulate and Reward : Risk are always shown while you hold a position. A hidden tab
+            isn&apos;t built, so it does no work in the background. Saved on this device.
           </p>
         </div>
       )}

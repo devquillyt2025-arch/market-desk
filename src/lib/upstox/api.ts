@@ -63,6 +63,7 @@ export type HistoricalFill = {
   strike: number;
   expiry: string;
   quantity: number;
+  price: number;
 };
 
 const FILLS_PAGE_SIZE = 500;
@@ -111,6 +112,7 @@ export async function getHistoricalFills(
         strike: num(row.strike_price),
         expiry: String(row.expiry ?? "").slice(0, 10),
         quantity: num(row.quantity),
+        price: num(row.price),
       });
     }
 

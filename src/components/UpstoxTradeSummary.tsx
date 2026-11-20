@@ -1,34 +1,22 @@
 "use client";
 
 /**
- * Upstox's own "Trade summary" for the range Reports is showing — gross and
- * net P&L, charges broken down, ROI, profit factor and win rate — fetched
- * live rather than worked out from the journal, so it always agrees with
- * Upstox's P&L screen to the paisa. Like Upstox, it covers every trade in the
- * picked segment (F&O includes stock options; MCX is commodities) that closed in the range,
- * counted per report row.
+ * The "Upstox Trade Summary" at the top of Reports - gross and net P&L, charges broken down, ROI, profit factor and win
+ * rate for the time frame, laid out the way Upstox's own P&L screen shows them. It is worked out from the same Upstox report
+ * rows as Performance and every chart below it, so the cards can't disagree; the one thing the rows don't carry, the
+ * charges, is Upstox's own figure for the same window. Like Upstox, a trade is a report row: a 3-lot exit that filled in three
+ * pieces is three trades.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
-import Link from "next/link";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { XIcon } from "@/components/icons";
-import LoadingState from "@/components/LoadingState";
-import Select from "@/components/Select";
+import type { ReportSummary } from "@/lib/calculateReports";
 import { pnlColorClass } from "@/lib/format";
-import { fetchPnlSummary } from "@/lib/upstox/client";
+import type { PnlChargesState } from "@/lib/useUpstoxReport";
 import { useDialogFocus } from "@/lib/useDialogFocus";
-import {
-  isUpstoxPnlSummaryError,
-  UPSTOX_PNL_SEGMENT_LABELS,
-  UPSTOX_PNL_SEGMENTS,
-  type UpstoxChargesBreakdown,
-  type UpstoxPnlSegment,
-  type UpstoxPnlSummaryResult,
-} from "@/lib/upstox/types";
-
-const SEGMENT_OPTIONS = UPSTOX_PNL_SEGMENTS.map((s) => ({ value: s, label: UPSTOX_PNL_SEGMENT_LABELS[s] }));
+import { UPSTOX_SUMMARY_SCOPE_LABELS, type UpstoxChargesBreakdown, type UpstoxSummaryScope } from "@/lib/upstox/types";
 
 const inrPaise = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -64,7 +52,7 @@ function Row({ label, value, className = "", strong = false }: { label: React.Re
 
 type ChargesDialogProps = {
   charges: UpstoxChargesBreakdown;
-  segment: UpstoxPnlSegment;
+  segment: UpstoxSummaryScope;
   /** e.g. "F&O · 04 Aug 2026 – 02 Nov 2026" — which figures these are. */
   caption: string;
   onClose: () => void;
@@ -122,8 +110,8 @@ function ChargesDialog({ charges, segment, caption, onClose }: ChargesDialogProp
           {CHARGE_LINES.filter((line) => line.always || charges[line.key] !== 0).map((line) => (
             <Row
               key={line.key}
-              // The tax Upstox's API files under "stt" is the commodities transaction tax on MCX.
-              label={line.key === "stt" && segment === "COM" ? "Commodities transaction tax" : line.label}
+              // The tax Upstox's API files under "stt" is the commodities transaction tax on MCX - both, when the two are added together.
+              label={line.key === "stt" ? (segment === "COM" ? "Commodities transaction tax" : segment === "ALL" ? "Securities & commodities transaction tax" : line.label) : line.label}
               value={inrPaise.format(charges[line.key])}
             />
           ))}
@@ -137,110 +125,84 @@ function ChargesDialog({ charges, segment, caption, onClose }: ChargesDialogProp
   );
 }
 
-export default function UpstoxTradeSummary({ from, to }: { from: string; to: string }) {
-  const [segment, setSegment] = useState<UpstoxPnlSegment>("FO");
-  // Keyed by what was asked for, so a segment/range change shows loading without resetting state inside an effect.
-  const [attempt, setAttempt] = useState(0);
-  const key = `${segment}|${from}|${to}|${attempt}`;
-  const [loaded, setLoaded] = useState<{ key: string; result: UpstoxPnlSummaryResult } | null>(null);
+
+type Props = {
+  scope: UpstoxSummaryScope;
+  /** yyyy-mm-dd - the window the figures are for. */
+  from: string;
+  to: string;
+  /** Of the trades in the window. */
+  summary: ReportSummary;
+  /** Total bought over the window's trades - the base of ROI %. */
+  buyValue: number;
+  charges: PnlChargesState;
+};
+
+export default function UpstoxTradeSummary({ scope, from, to, summary, buyValue, charges }: Props) {
   const [showCharges, setShowCharges] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchPnlSummary(segment, from, to).then((result) => {
-      if (!cancelled) setLoaded({ key, result });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [segment, from, to, key]);
-
-  const result = loaded?.key === key ? loaded.result : null;
-
-  // While the next figures load, the body holds the height of the last ones.
-  // Otherwise it shrinks to a spinner on every range or segment change and
-  // everything below jumps up, then back down when the figures arrive. Done on
-  // the DOM, before paint, rather than through state: it only needs to keep the
-  // box from collapsing, not to re-render anything.
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const lastBodyHeight = useRef(0);
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    if (result === null) {
-      el.style.minHeight = `${lastBodyHeight.current}px`;
-    } else {
-      el.style.minHeight = "";
-      lastBodyHeight.current = el.offsetHeight;
-    }
-  }, [result]);
+  const total = charges.charges?.total ?? null;
 
   let body: React.ReactNode;
-  if (result === null) {
-    body = <LoadingState className="h-32" label="Fetching your trade summary from Upstox…" />;
-  } else if (isUpstoxPnlSummaryError(result)) {
+  if (summary.totalTrades === 0) {
     body = (
       <p className="py-6 text-center text-sm text-muted-foreground">
-        {result.error === "token_expired" ? (
-          <>
-            Your Upstox token has expired.{" "}
-            <Link href="/settings" className="font-medium text-accent hover:underline">
-              Add today&apos;s token
-            </Link>{" "}
-            to load Upstox&apos;s figures.
-          </>
-        ) : (
-          <>
-            {result.error === "network_error" ? "No internet connection." : `Couldn't load Upstox's summary — ${result.error}`}{" "}
-            <button type="button" onClick={() => setAttempt((n) => n + 1)} className="font-medium text-accent hover:underline">
-              Try again
-            </button>
-          </>
-        )}
-      </p>
-    );
-  } else if (result.tradeCount === 0) {
-    body = (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        No {UPSTOX_PNL_SEGMENT_LABELS[segment]} trades closed on Upstox in this range.
+        No {UPSTOX_SUMMARY_SCOPE_LABELS[scope]} trades closed on Upstox in this range.
       </p>
     );
   } else {
-    const netPnl = result.grossPnl - result.charges.total;
-    const roiPct = result.buyValue > 0 ? (result.grossPnl / result.buyValue) * 100 : null;
-    const profitFactor = result.losingPnl < 0 ? result.winningPnl / Math.abs(result.losingPnl) : null;
-    const winPct = Math.round((result.winningCount / result.tradeCount) * 100);
+    const gross = summary.totalPnl;
+    const net = total === null ? null : gross - total;
+    const roiPct = buyValue > 0 ? (gross / buyValue) * 100 : null;
+    const profitFactor = summary.grossLoss < 0 ? summary.grossProfit / Math.abs(summary.grossLoss) : null;
+    const winPct = Math.round((summary.winCount / summary.totalTrades) * 100);
 
     body = (
       <div className="grid gap-3 lg:grid-cols-2">
         <dl className="rounded-lg border border-border bg-card px-4 py-2">
-          <Row label="Gross P&L" value={inrPaise.format(result.grossPnl)} className={pnlColorClass(result.grossPnl)} strong />
-          <Row label="Net P&L" value={inrPaise.format(netPnl)} className={pnlColorClass(netPnl)} />
+          <Row label="Gross P&L" value={inrPaise.format(gross)} className={pnlColorClass(gross)} strong />
+          <Row
+            label="Net P&L"
+            value={net === null ? (charges.error ? "—" : "…") : inrPaise.format(net)}
+            className={net === null ? "text-muted-foreground" : pnlColorClass(net)}
+          />
           <Row
             label={
-              <button
-                type="button"
-                onClick={() => setShowCharges(true)}
-                aria-haspopup="dialog"
-                className="text-accent underline underline-offset-4 hover:opacity-80 print:text-muted-foreground print:no-underline"
-              >
-                Charges &amp; taxes
-              </button>
+              charges.charges ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCharges(true)}
+                  aria-haspopup="dialog"
+                  className="text-accent underline underline-offset-4 hover:opacity-80 print:text-muted-foreground print:no-underline"
+                >
+                  Charges &amp; taxes
+                </button>
+              ) : (
+                "Charges & taxes"
+              )
             }
-            value={inrPaise.format(result.charges.total)}
+            value={total === null ? (charges.error ? "—" : "…") : inrPaise.format(total)}
+            className={total === null ? "text-muted-foreground" : ""}
           />
+          {charges.error && (
+            <p className="pb-1.5 text-xs text-muted-foreground">
+              Couldn&apos;t load Upstox&apos;s charges{charges.error === "network_error" ? " - no internet connection" : charges.error === "token_expired" ? " - the token has expired" : ` - ${charges.error}`}.{" "}
+              <button type="button" onClick={charges.retry} className="font-medium text-accent hover:underline">
+                Try again
+              </button>
+            </p>
+          )}
         </dl>
 
         <dl className="rounded-lg border border-border bg-card px-4 py-2">
           <Row label="ROI %" value={roiPct === null ? "—" : `${roiPct.toFixed(2)}%`} strong />
           <Row
             label="Profit factor"
-            value={profitFactor === null ? (result.winningPnl > 0 ? "∞" : "—") : profitFactor.toFixed(2)}
+            value={profitFactor === null ? (summary.grossProfit > 0 ? "∞" : "—") : profitFactor.toFixed(2)}
             className={profitFactor === null ? "" : pnlColorClass(profitFactor - 1)}
           />
-          <Row label="Winning trades (₹)" value={inrPaise.format(result.winningPnl)} />
-          <Row label="Losing trades (₹)" value={inrPaise.format(result.losingPnl)} />
-          <Row label="Winning trades (%)" value={`${result.winningCount}/${result.tradeCount} (${winPct}%)`} />
+          <Row label="Winning trades (₹)" value={inrPaise.format(summary.grossProfit)} />
+          <Row label="Losing trades (₹)" value={inrPaise.format(summary.grossLoss)} />
+          <Row label="Winning trades (%)" value={`${summary.winCount}/${summary.totalTrades} (${winPct}%)`} />
         </dl>
       </div>
     );
@@ -248,29 +210,20 @@ export default function UpstoxTradeSummary({ from, to }: { from: string; to: str
 
   return (
     <section className="rounded-xl border border-border bg-background p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-medium">Upstox Trade Summary</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            As of {formatDate(from)} – {formatDate(to)} · {UPSTOX_PNL_SEGMENT_LABELS[segment]} trades closed in this range,
-            straight from Upstox. ROI is gross P&amp;L over the total bought.
-          </p>
-        </div>
-        <div className="w-28 shrink-0 print:hidden">
-          <Select value={segment} onChange={setSegment} options={SEGMENT_OPTIONS} align="right" />
-        </div>
-      </div>
-      <div ref={bodyRef} className="mt-3">
-        {body}
-      </div>
+      <h2 className="text-sm font-medium">Upstox Trade Summary</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        As of {formatDate(from)} – {formatDate(to)} · {UPSTOX_SUMMARY_SCOPE_LABELS[scope]} trades closed in this range, from Upstox&apos;s
+        P&amp;L report. Each report row counts as a trade, as Upstox counts them. ROI is gross P&amp;L over the total bought.
+      </p>
+      <div className="mt-3">{body}</div>
 
       <AnimatePresence>
-        {showCharges && result && !isUpstoxPnlSummaryError(result) && (
+        {showCharges && charges.charges && (
           <ChargesDialog
             key="charges"
-            charges={result.charges}
-            segment={segment}
-            caption={`${UPSTOX_PNL_SEGMENT_LABELS[segment]} · ${formatDate(from)} – ${formatDate(to)}`}
+            charges={charges.charges}
+            segment={scope}
+            caption={`${UPSTOX_SUMMARY_SCOPE_LABELS[scope]} · ${formatDate(from)} – ${formatDate(to)}`}
             onClose={() => setShowCharges(false)}
           />
         )}

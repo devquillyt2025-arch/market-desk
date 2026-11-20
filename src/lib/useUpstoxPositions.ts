@@ -10,17 +10,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { CommodityStorageMissingError } from "@/lib/commodityStorage";
+import { localIsoDate } from "@/lib/localDate";
 import { syncLivePortfolioWithUpstox } from "@/lib/livePortfolioEntriesStore";
 import { fetchPositions } from "@/lib/upstox/client";
 import { isUpstoxPositionsError, type UpstoxPosition } from "@/lib/upstox/types";
 
 const DEFAULT_POLL_MS = 60000;
-
-/** yyyy-mm-dd in the device's own timezone — matches how entry_date is entered everywhere else. */
-function localISODate(ms: number): string {
-  const d = new Date(ms);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-}
 
 export type UpstoxPositionsState = {
   /** The latest positions Upstox reported, squared-off-today ones included — null until the first successful sync. */
@@ -70,7 +65,7 @@ export function useUpstoxPositions(pollMs = DEFAULT_POLL_MS): UpstoxPositionsSta
 
       const now = Date.now();
       try {
-        await syncLivePortfolioWithUpstox(result.positions, localISODate(now));
+        await syncLivePortfolioWithUpstox(result.positions, localIsoDate(0, new Date(now)));
         setError(null);
       } catch (e) {
         setError(e instanceof CommodityStorageMissingError ? e.message : "couldn't save the synced positions.");

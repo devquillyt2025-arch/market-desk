@@ -83,11 +83,13 @@ function finite(value: unknown): number | null {
  */
 export function parseQuoteEntry(entry: unknown, contract: WatchQuote["contract"]): WatchQuote | null {
   if (!entry || typeof entry !== "object") return null;
-  const e = entry as { last_price?: unknown; net_change?: unknown; ohlc?: Record<string, unknown> | null; volume?: unknown };
+  const e = entry as { last_price?: unknown; net_change?: unknown; ohlc?: Record<string, unknown> | null; volume?: unknown; last_trade_time?: unknown };
   const price = positive(e.last_price);
   if (price === null) return null;
 
   const change = finite(e.net_change);
+  // `last_trade_time` is milliseconds since epoch, as text ("1794928739000"). Anything that isn't a plausible time is left out.
+  const tradedAt = Number(e.last_trade_time);
   const prevClose = change === null ? null : positive(price - change);
   return {
     price,
@@ -98,6 +100,7 @@ export function parseQuoteEntry(entry: unknown, contract: WatchQuote["contract"]
     high: positive(e.ohlc?.high),
     low: positive(e.ohlc?.low),
     volume: finite(e.volume),
+    asOf: Number.isFinite(tradedAt) && tradedAt > 1e12 ? tradedAt : null,
     contract,
   };
 }

@@ -8,6 +8,7 @@ import ClosedTodayTable from "@/components/ClosedTodayTable";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ExportMenu, { type ExportFormat } from "@/components/ExportMenu";
 import { ExpectedOpenPanel } from "@/components/ExpectedOpenPanel";
+import { FutureCarryPanel } from "@/components/FutureCarryPanel";
 import LoadingState from "@/components/LoadingState";
 import { InboxIcon, RefreshIcon } from "@/components/icons";
 import LiveEntriesTable from "@/components/LiveEntriesTable";
@@ -444,8 +445,8 @@ export default function PortfolioView() {
   // Until the first sync answers, an empty table means "not loaded yet", not "no positions".
   const awaitingFirstSync = upstox.syncedAt === null && !anyTokenExpired && !anyOffline && upstox.error === null;
   // The insights read live prices, so most of them need a priced position. The RRR planner doesn't - with no
-  // position it is the only tab offered - but it waits for the first sync like the table does, so it doesn't
-  // flash up and then grow tabs.
+  // position it is the only tab offered, if it is switched on in the Tabs menu - but it waits for the first sync
+  // like the table does, so it doesn't flash up and then grow tabs.
   const hasPricedPositions = rows?.some((r) => r.status !== "untracked") ?? false;
   const showInsights = rows !== null && (hasPricedPositions || !awaitingFirstSync);
 
@@ -548,6 +549,8 @@ export default function PortfolioView() {
         <LivePricingBanners tokenExpired={anyTokenExpired} offline={anyOffline} lastPricesAt={stalePricesAsOf} />
 
         <ExpectedOpenPanel state={expectedOpen} only={heldMarkets} />
+
+        <FutureCarryPanel rows={rows} nowMs={riskAsOf} />
 
         {rows === null || (rows.length === 0 && awaitingFirstSync) ? (
           <LoadingState className="h-40" label="Loading positions from Upstox…" />

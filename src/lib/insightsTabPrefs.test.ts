@@ -1,6 +1,6 @@
 /**
  * Which of Live Portfolio's insight tabs are shown. Only the What-if lab and the RRR planner can be switched off;
- * the other three are always there, and the strip is never left empty.
+ * the other three are always there once a position is held. With no position only the planner has anything to show.
  */
 
 import assert from "node:assert/strict";
@@ -28,9 +28,14 @@ describe("which insight tabs show", () => {
     assert.deepEqual(shown(true, { whatif: false, planner: false }), ["risk", "simulate", "rrr"]);
   });
 
-  it("offers only the planner while nothing is priced, whatever was chosen - the strip is never empty", () => {
+  it("offers only the planner while nothing is priced - and only if it is switched on", () => {
     assert.deepEqual(shown(false, DEFAULT_INSIGHTS_TAB_PREFS), ["planner"]);
-    assert.deepEqual(shown(false, { whatif: false, planner: false }), ["planner"]);
+    assert.deepEqual(shown(false, { whatif: false, planner: true }), ["planner"]);
+  });
+
+  it("shows nothing while nothing is priced and the planner is off - the setting decides, positions or not", () => {
+    assert.deepEqual(shown(false, { whatif: true, planner: false }), []);
+    assert.deepEqual(shown(false, { whatif: false, planner: false }), []);
   });
 });
 

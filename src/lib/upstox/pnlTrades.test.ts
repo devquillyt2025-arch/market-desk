@@ -9,7 +9,16 @@ import { afterEach, describe, it } from "node:test";
 
 import { getHistoricalFills, type HistoricalFill } from "@/lib/upstox/api";
 import { addCharges, ZERO_CHARGES } from "@/lib/upstox/pnlReport";
-import { firstSideOf, groupReportRows, parseScrip, reportQuantityInUnits, tradesFromGroups } from "@/lib/upstox/pnlTrades";
+import {
+  datesNeedingFills,
+  firstSideOf,
+  groupReportRows,
+  isUndatedFutureRow,
+  parseScrip,
+  reportQuantityInUnits,
+  tradesFromGroups,
+  withFutureExpiries,
+} from "@/lib/upstox/pnlTrades";
 import { JOURNAL_PNL_SEGMENTS, UPSTOX_PNL_SEGMENT_LABELS, UPSTOX_PNL_SEGMENTS } from "@/lib/upstox/types";
 
 const CRUDE_ROWS = [
@@ -21,7 +30,7 @@ const CRUDE_ROWS = [
 const NIFTY_ROW = { quantity: 130, scrip_name: "NIFTY 09 Nov 2026 PE 23400", trade_type: "OPT", buy_date: "05-11-2026", sell_date: "06-11-2026", buy_amount: 13000, sell_amount: 15600 };
 
 function fill(over: Partial<HistoricalFill>): HistoricalFill {
-  return { tradeId: "1", date: "2026-11-12", side: "BUY", symbol: "CRUDEOIL", optionType: "CE", strike: 7800, expiry: "2026-11-17", quantity: 1, ...over };
+  return { tradeId: "1", date: "2026-11-12", side: "BUY", symbol: "CRUDEOIL", optionType: "CE", strike: 7800, expiry: "2026-11-17", quantity: 1, price: 0, ...over };
 }
 
 const CRUDE_FILLS = [
@@ -46,6 +55,137 @@ describe("parseScrip", () => {
     assert.equal(parseScrip("GOLD 26 Nov 2026 CE 150000", "OPT")?.instrument, "GOLD");
     assert.equal(parseScrip("GOLDM 26 Nov 2026 CE 150000", "OPT")?.instrument, "GOLDM");
     assert.equal(parseScrip("SILVER 27 Nov 2026 CE 180000", "OPT")?.instrument, null);
+  });
+});
+
+/**
+ * A Nifty future, the real report row and fills Upstox returned on 20 Nov 2026: 2 lots (130 units) of the Dec
+ * future sold on 17 Nov at 25,575 and bought back on 18 Nov at 25,400. The report calls it just "NIFTY" - no
+ * expiry month, no strike - and (like every row) lists the buy date first, so a short reads sell date < buy date.
+ */
+const NIFTY_FUT_ROW = { quantity: 130, isin: null, scrip_name: "NIFTY", trade_type: "FUT", buy_date: "18-11-2026", buy_average: 25400, sell_date: "17-11-2026", sell_average: 25575, buy_amount: 3302000, sell_amount: 3324750 };
+
+function futureFill(over: Partial<HistoricalFill>): HistoricalFill {
+  return { tradeId: "1", date: "2026-11-18", side: "BUY", symbol: "NIFTY", optionType: "", strike: 0, expiry: "2026-12-29", quantity: 130, price: 25400, ...over };
+}
+
+const NIFTY_FUT_FILLS = [
+  futureFill({ tradeId: "2992319", date: "2026-11-17", side: "SELL", price: 25575 }),
+  futureFill({ tradeId: "601791", date: "2026-11-18", side: "BUY", price: 25400 }),
+];
+
+describe("index futures in the report", () => {
+  it("reads a future named only by its underlying", () => {
+    assert.deepEqual(parseScrip("NIFTY", "FUT", "2026-12-29"), {
+      name: "NIFTY",
+      instrument: "NIFTY",
+      expiry: "2026-12-29",
+      optionType: null,
+      strike: null,
+    });
+    assert.equal(parseScrip("BANKNIFTY", "FUT")?.instrument, "BANKNIFTY");
+    assert.equal(parseScrip("BANKNIFTY", "FUT")?.expiry, null);
+    assert.equal(parseScrip("NIFTY FUT", "FUT")?.name, "NIFTY");
+    // Still reads one that does name its month, and still leaves other underlyings untracked.
+    assert.equal(parseScrip("NIFTY 29 Dec 2026", "FUT")?.expiry, "2026-12-29");
+    assert.equal(parseScrip("RELIANCE", "FUT")?.instrument, null);
+    // A bare name is only ever a future: an option row without its strike is unreadable, not a future.
+    assert.equal(parseScrip("NIFTY", "OPT"), null);
+  });
+
+  it("works out the expiry from the contract bought on the buy date and sold on the sell date", () => {
+    assert.equal(isUndatedFutureRow(NIFTY_FUT_ROW), true);
+    assert.equal(isUndatedFutureRow(NIFTY_ROW), false);
+    assert.deepEqual(datesNeedingFills([NIFTY_FUT_ROW, NIFTY_ROW]), ["2026-11-17", "2026-11-18"]);
+
+    const [row] = withFutureExpiries([NIFTY_FUT_ROW], NIFTY_FUT_FILLS);
+    assert.equal(row.contract_expiry, "2026-12-29");
+    // Options rows and futures the history can't place come back untouched.
+    assert.equal(withFutureExpiries([NIFTY_ROW], NIFTY_FUT_FILLS)[0], NIFTY_ROW);
+    assert.equal(withFutureExpiries([NIFTY_FUT_ROW], [])[0], NIFTY_FUT_ROW);
+  });
+
+  it("turns the real row into a 2-lot short future closed for +22,750", () => {
+    const { groups, otherCount, grossPnl } = groupReportRows(withFutureExpiries([NIFTY_FUT_ROW], NIFTY_FUT_FILLS));
+    assert.equal(otherCount, 0, "it must not be dropped as an untracked underlying");
+    const [trade, ...rest] = tradesFromGroups(groups, new Map());
+
+    assert.equal(rest.length, 0);
+    assert.equal(trade.instrument, "NIFTY");
+    assert.equal(trade.strike, null);
+    assert.equal(trade.optionType, null);
+    assert.equal(trade.expiry, "2026-12-29");
+    assert.equal(trade.side, "sell"); // sold 17 Nov, bought back 18 Nov
+    assert.equal(trade.entryDate, "2026-11-17");
+    assert.equal(trade.closingDate, "2026-11-18");
+    assert.equal(trade.quantity, 130);
+    assert.equal(trade.lots, 2);
+    assert.equal(trade.sellPrice, 25575);
+    assert.equal(trade.buyPrice, 25400);
+    assert.equal(trade.pnl, 22750);
+    assert.equal(grossPnl, 22750);
+  });
+
+  it("leaves MCX and stock futures out of the journal, and looks nothing up for them", () => {
+    // MCX futures aren't modelled anywhere else (Risk, charges, lot sizes); a stock future isn't an underlying the journal holds.
+    for (const name of ["CRUDEOIL", "GOLD", "NATURALGAS", "RELIANCE"]) {
+      const row = { ...NIFTY_FUT_ROW, scrip_name: name };
+      assert.equal(parseScrip(name, "FUT")?.instrument, null, name);
+      assert.equal(isUndatedFutureRow(row), false, name);
+      assert.deepEqual(datesNeedingFills([row]), [], name);
+      const { groups, otherCount, otherNames } = groupReportRows([row]);
+      assert.equal(groups.size, 0, name);
+      assert.equal(otherCount, 1, name);
+      assert.deepEqual([...otherNames], [name], name);
+    }
+    // ... nor from a dated name.
+    assert.equal(parseScrip("CRUDEOIL 19 Nov 2026", "FUT")?.instrument, null);
+    assert.equal(parseScrip("NIFTY 29 Dec 2026", "FUT")?.instrument, "NIFTY");
+  });
+
+  it("needs the trade history for a same-day trade too, but only a tracked one, and asks for it once", () => {
+    const sameDayOption = { ...NIFTY_ROW, buy_date: "10-11-2026", sell_date: "10-11-2026" };
+    const sameDayStock = { quantity: 100, scrip_name: "RELIANCE 24 Nov 2026 CE 2500", trade_type: "OPT", buy_date: "12-11-2026", sell_date: "12-11-2026", buy_amount: 1000, sell_amount: 1200 };
+    // The future's two dates and the option's one: a single list, so one call covers both.
+    assert.deepEqual(datesNeedingFills([NIFTY_FUT_ROW, sameDayOption, sameDayStock, NIFTY_ROW]), ["2026-11-10", "2026-11-17", "2026-11-18"]);
+    assert.deepEqual(datesNeedingFills([NIFTY_ROW]), []); // opened and closed on different days: nothing to order
+    assert.deepEqual(datesNeedingFills([]), []);
+  });
+
+  it("still imports a future the history couldn't date, with no expiry", () => {
+    const { groups, otherCount } = groupReportRows([NIFTY_FUT_ROW]);
+    assert.equal(otherCount, 0);
+    const [trade] = tradesFromGroups(groups, new Map());
+    assert.equal(trade.expiry, null);
+    assert.equal(trade.pnl, 22750);
+  });
+
+  it("tells two months' futures apart on a day the trader rolled", () => {
+    const rollFills = [
+      futureFill({ tradeId: "1", date: "2026-11-17", side: "SELL", expiry: "2026-12-29", price: 25575 }),
+      futureFill({ tradeId: "2", date: "2026-11-17", side: "SELL", expiry: "2027-01-27", price: 25700 }),
+      futureFill({ tradeId: "3", date: "2026-11-18", side: "BUY", expiry: "2026-12-29", price: 25400 }),
+    ];
+    assert.equal(withFutureExpiries([NIFTY_FUT_ROW], rollFills)[0].contract_expiry, "2026-12-29");
+    // Bought and sold in two contracts with nothing to choose between them by price: no guess.
+    const ambiguous = [
+      futureFill({ tradeId: "1", date: "2026-11-17", side: "SELL", expiry: "2026-12-29" }),
+      futureFill({ tradeId: "2", date: "2026-11-17", side: "SELL", expiry: "2027-01-27" }),
+      futureFill({ tradeId: "3", date: "2026-11-18", side: "BUY", expiry: "2026-12-29", price: 1 }),
+      futureFill({ tradeId: "4", date: "2026-11-18", side: "BUY", expiry: "2027-01-27", price: 2 }),
+    ];
+    assert.equal(withFutureExpiries([NIFTY_FUT_ROW], ambiguous)[0].contract_expiry, undefined);
+  });
+
+  it("dates a same-day future round trip from its own fills, not from the index's options", () => {
+    const sameDay = { ...NIFTY_FUT_ROW, sell_date: "18-11-2026" };
+    const { groups } = groupReportRows(withFutureExpiries([sameDay], NIFTY_FUT_FILLS.map((f) => ({ ...f, date: "2026-11-18" }))));
+    const [[, group]] = [...groups];
+    // A Nifty option filled earlier that day shares the symbol - it is not part of the future's trip.
+    const optionFill = futureFill({ tradeId: "5", side: "SELL", optionType: "PE", strike: 25400, expiry: "2026-11-24" });
+    assert.equal(firstSideOf(group, [optionFill]), null);
+    assert.equal(firstSideOf(group, [optionFill, futureFill({ tradeId: "9", side: "SELL" }), futureFill({ tradeId: "8", side: "BUY" })]), "BUY");
+    assert.equal(firstSideOf(group, [futureFill({ tradeId: "7", side: "SELL", expiry: "2027-01-27" })]), null);
   });
 });
 

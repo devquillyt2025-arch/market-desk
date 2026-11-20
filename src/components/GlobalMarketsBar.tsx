@@ -1,59 +1,32 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useGlobalMarketsContext } from "@/components/GlobalMarketsProvider";
 import { ChevronDownIcon } from "@/components/icons";
-import { formatAsOf, formatPct, pnlColorClass } from "@/lib/format";
-import { buildStrip, changeOf, isStale, marketsStatus, type StripItem } from "@/lib/globalMarkets";
-import { GLOBAL_MARKETS_POLL_MS } from "@/lib/useGlobalMarkets";
+import TickerEditMenu from "@/components/TickerEditMenu";
+import TickerTrack from "@/components/TickerTrack";
+import { formatAsOf } from "@/lib/format";
+import { tickerNeeds } from "@/lib/tickerPrefs";
+import { buildTickerEntries, tickerStatus } from "@/lib/tickerStrip";
+import { useTickerPrefs } from "@/lib/useTickerPrefs";
+import { useWatchlistQuotes } from "@/lib/useWatchlistQuotes";
+import { useWorldIndices } from "@/lib/useWorldIndices";
+import type { WatchlistItem } from "@/lib/watchlist";
 
 const COLLAPSED_KEY = "marketdesk:global-markets-collapsed";
 const STRIP_ID = "global-markets-strip";
 
-/** What the tooltip says about one price: what it is, the day's range, and how old it is. */
-function tileTitle(item: StripItem, reference: number, stale: boolean): string {
-  const { quote } = item;
-  if (!quote) return `${item.title} - no price from the feed right now`;
-  const parts = [`${item.title} · ${item.unit}`];
-  if (quote.dayHigh !== null && quote.dayLow !== null) {
-    parts.push(`Day range ${item.format(quote.dayLow)} - ${item.format(quote.dayHigh)}`);
-  }
-  parts.push(`Last updated ${formatAsOf(quote.asOf, reference)}${stale ? " - the market may be closed" : ""}`);
-  return parts.join("\n");
-}
-
-function Tile({ item, reference }: { item: StripItem; reference: number }) {
-  const { quote } = item;
-  const stale = quote ? isStale(quote, item.staleAfterMs, reference) : false;
-  // The colour follows what is shown (rounded), so a move that rounds to 0.00% is neither green nor red. The sign says the same without it.
-  const percent = quote ? changeOf(quote)?.percent : undefined;
-  const shown = percent === undefined ? null : Number(percent.toFixed(2));
-
-  return (
-    // Not dimmed when stale: these are read at night and on weekends, when markets are shut, and fading the figures to ~60% took them
-    // below readable contrast (2.7:1). The "· Closed" tag beside the label and the tooltip's age say it instead.
-    <li title={tileTitle(item, reference, stale)} className="flex shrink-0 items-baseline gap-1.5">
-      <span className="text-muted-foreground">{item.label}</span>
-      <span className="font-semibold tabular-nums text-foreground">{quote ? item.format(quote.price) : "—"}</span>
-      {shown !== null && <span className={`tabular-nums ${pnlColorClass(shown)}`}>{formatPct(shown, 2)}</span>}
-    </li>
-  );
-}
-
-/** Stand-ins for the tiles until the first prices land, so the strip doesn't jump when they do. */
-function SkeletonTile({ label }: { label: string }) {
-  return (
-    <li className="flex shrink-0 items-baseline gap-1.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="h-3 w-14 animate-pulse self-center rounded bg-muted" />
-    </li>
-  );
-}
+/** Kept apart from the Watchlist's own saved prices, or the two would overwrite each other. */
+const UPSTOX_STORAGE_KEY = "marketdesk:ticker-quotes";
+const WORLD_STORAGE_KEY = "marketdesk:ticker-world";
+/** GIFT Nifty and the Dow futures are about a minute behind at Upstox - a poll every 15 s loses nothing, and the ticker is on every page. */
+const UPSTOX_POLL_MS = 15_000;
 
 function Bar() {
-  const { quotes, offline, feedError, lastPolledAt, loading } = useGlobalMarketsContext();
+  const markets = useGlobalMarketsContext();
+  const [prefs, savePrefs] = useTickerPrefs();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -78,15 +51,35 @@ function Bar() {
     });
   }
 
-  const items = buildStrip(quotes);
-  // Ages are measured against the moment of the last fetch, not the clock: pure, and right when the data is old
-  // because the browser was offline (the status then names that moment).
-  const reference = lastPolledAt ?? 0;
-  const { tone, tag, summary } = marketsStatus({ items, loading, offline, feedError, reference });
+  // Only the feeds something is ticked for are polled: the strip's own prices are polled app-wide (the Watchlist shares them), the
+  // world indices are asked for by id, and Upstox is asked only when GIFT Nifty or the Dow futures is ticked.
+  const needs = useMemo(() => tickerNeeds(prefs.ids), [prefs.ids]);
+  const world = useWorldIndices(undefined, true, { ids: needs.world, storageKey: WORLD_STORAGE_KEY });
+  const upstoxItems = useMemo<WatchlistItem[] | null>(
+    () => (needs.upstox.length === 0 ? null : needs.upstox.map((item, i) => ({ id: `ticker-${item.id}`, kind: "index", itemKey: item.itemKey, symbol: item.symbol, name: item.name, sortOrder: i + 1 }))),
+    [needs.upstox],
+  );
+  const upstox = useWatchlistQuotes(upstoxItems, UPSTOX_POLL_MS, UPSTOX_STORAGE_KEY);
+
+  // Ages are measured against the moment each feed was last fetched, not the clock: pure, and right when the data is old because
+  // the browser was offline (the status then names that moment).
+  const at = { markets: markets.lastPolledAt ?? 0, world: world.lastPolledAt ?? 0, upstox: upstox.lastPolledAt ?? 0 };
+  const entries = buildTickerEntries(prefs.ids, { markets: markets.quotes, world: world.quotes, upstox: upstox.quotes, at, upstoxTokenExpired: upstox.tokenExpired });
+  const { tone, tag, summary } = tickerStatus({
+    entries,
+    needs,
+    feeds: {
+      markets: { offline: markets.offline, error: markets.feedError, loading: markets.loading },
+      world: { offline: world.offline, error: world.feedError, loading: world.loading },
+      // A lapsed token isn't a load error in the hook, but a ticker with Nifty / GIFT Nifty on it shouldn't read "live" while those tiles are blank.
+      upstox: { offline: upstox.offline, error: upstox.tokenExpired ? "Upstox token expired" : upstox.loadError, loading: upstox.loading },
+    },
+  });
   const problem = tone === "problem";
-  const status = problem && lastPolledAt ? `${summary} · prices from ${formatAsOf(lastPolledAt)}` : summary;
+  const lastSync = Math.max(needs.markets ? at.markets : 0, needs.world.length > 0 ? at.world : 0, needs.upstox.length > 0 ? at.upstox : 0) || null;
+  const status = problem && lastSync ? `${summary} · prices from ${formatAsOf(lastSync)}` : summary;
   // The tooltip also says the poll is running - the pulse on the dot shows each sync, this says how often.
-  const syncNote = lastPolledAt ? `Syncs every ${GLOBAL_MARKETS_POLL_MS / 1000} s · last synced ${new Date(lastPolledAt).toLocaleTimeString("en-IN")}` : "";
+  const syncNote = lastSync ? `Prices sync every 15–60 s · last synced ${new Date(lastSync).toLocaleTimeString("en-IN")}` : "";
   const dot = problem ? "bg-warning" : tone === "live" ? "bg-profit" : "bg-muted-foreground";
 
   return (
@@ -95,36 +88,40 @@ function Bar() {
       // top-0 on phones too: the mobile header scrolls away (its sticky wrapper is only as tall as itself), so there is nothing to tuck under.
       className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur print:hidden"
     >
-      <div className="flex items-center gap-3 px-4 py-1.5 text-xs sm:px-6 lg:px-10">
+      <div className="flex items-center gap-2 px-4 py-1.5 text-xs sm:gap-3 sm:px-6 lg:px-10">
         <div className="flex shrink-0 items-center gap-2" title={[status, syncNote].filter(Boolean).join("\n")}>
           <span aria-hidden="true" className="relative flex size-2">
             {/* One ring each time a sync lands (the key restarts it) - the sign the numbers are being refreshed. */}
-            {tone === "live" && lastPolledAt !== null && <span key={lastPolledAt} className={`sync-ping absolute inset-0 rounded-full ${dot}`} />}
+            {tone === "live" && lastSync !== null && <span key={lastSync} className={`sync-ping absolute inset-0 rounded-full ${dot}`} />}
             <span className={`relative size-2 rounded-full ${dot}`} />
           </span>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Global</span>
-          {tag && <span className={`text-[11px] font-medium ${problem ? "text-warning-strong" : "text-muted-foreground"}`}>· {tag}</span>}
+          {/* On a phone the dot (and a problem tag) is enough: the buttons at the right take 44px each there, and the prices need the room. */}
+          <span className="hidden text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline">Global</span>
+          {tag && (
+            <span className={`text-[11px] font-medium ${problem ? "text-warning-strong" : "text-muted-foreground"}`}>
+              <span className="hidden sm:inline">· </span>
+              {tag}
+            </span>
+          )}
           <span className="sr-only">{status}</span>
         </div>
 
         {collapsed ? (
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{status}</span>
+        ) : entries.length === 0 ? (
+          <span id={STRIP_ID} className="min-w-0 flex-1 truncate text-muted-foreground">
+            No prices chosen. Use the pencil to pick some.
+          </span>
         ) : (
-          // Scrolls sideways when the window is too narrow for every price; the fade on the right edge says there is more
-          // (the padding keeps the last price clear of it once scrolled to the end).
-          <ul
-            id={STRIP_ID}
-            className="flex min-w-0 flex-1 items-center gap-x-4 overflow-x-auto whitespace-nowrap pr-7 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {loading
-              ? items.map((item) => <SkeletonTile key={item.key} label={item.label} />)
-              : items.map((item) => <Tile key={item.key} item={item} reference={reference} />)}
-          </ul>
+          <span id={STRIP_ID} className="contents">
+            <TickerTrack entries={entries} loading={{ markets: markets.loading, world: world.loading, upstox: upstox.loading }} loop={prefs.loop} speed={prefs.speed} />
+          </span>
         )}
 
-        {!collapsed && (
+        {!collapsed && entries.length > 0 && (
           <span className={`hidden shrink-0 min-[1600px]:inline ${problem ? "text-warning-strong" : "text-muted-foreground"}`}>{status}</span>
         )}
+        {!collapsed && <TickerEditMenu prefs={prefs} save={savePrefs} />}
         <button
           type="button"
           onClick={toggle}
@@ -142,8 +139,9 @@ function Bar() {
 }
 
 /**
- * The global-prices strip, pinned to the top of every page so crude oil abroad can be watched while working
- * anywhere in the app. Absent on the PIN screen, where nothing should load until it is unlocked.
+ * The ticker pinned to the top of every page: crude oil abroad, the world's indices and GIFT Nifty, whichever the reader has ticked
+ * (the pencil edits the list), so they can be watched while working anywhere in the app. Absent on the PIN screen, where nothing
+ * should load until it is unlocked.
  */
 export default function GlobalMarketsBar() {
   const pathname = usePathname();

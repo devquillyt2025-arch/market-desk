@@ -5,8 +5,10 @@
  * lists. Brokerage and DP charges are Upstox-specific; STT, transaction
  * charges, SEBI fees, stamp duty, and GST are exchange/government mandated
  * and consistent across brokers, though they change periodically (most
- * recently the Oct 2024 STT revision). Treat this as indicative, not a
- * substitute for a broker's actual contract note.
+ * recently the 1 April 2026 STT hike on futures and options - see
+ * STT_HIKE_DATE). Treat this as indicative, not a substitute for a broker's
+ * actual contract note. Upstox's rate-card page lags its own calculator, so
+ * check a rate against the calculator's output, not the page text.
  *
  * MCX commodity options are their own segment: the tax is CTT (commodity
  * transaction tax), 0.05% on the sell side, not the 0.1% STT of index options,
@@ -57,8 +59,9 @@ export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
     brokeragePerOrder: 20,
     brokeragePercent: 0.05,
     sttBuyPercent: 0,
-    sttSellPercent: 0.02,
-    transactionChargePercent: 0.00188,
+    sttSellPercent: 0.05,
+    // 0.002% - what Upstox's calculator charges on a Nifty future (the old 0.00188% came from a stale copy of its rate card).
+    transactionChargePercent: 0.002,
     stampDutyBuyPercent: 0.002,
   },
   OPTIONS: {
@@ -66,7 +69,7 @@ export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
     brokeragePerOrder: 20,
     brokeragePercent: null,
     sttBuyPercent: 0,
-    sttSellPercent: 0.1,
+    sttSellPercent: 0.15,
     transactionChargePercent: 0.0495,
     stampDutyBuyPercent: 0.003,
   },
@@ -80,6 +83,14 @@ export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
     stampDutyBuyPercent: 0.003,
   },
 };
+
+/**
+ * The Union Budget 2026-27 raised STT on index derivatives from this date: futures 0.02% -> 0.05% and options (on the premium sold)
+ * 0.1% -> 0.15%. `SEGMENT_RATES` holds today's rates; a trade dated before this day is still charged the old ones, so a past trade's
+ * charges in Reports don't change retroactively.
+ */
+export const STT_HIKE_DATE = "2026-04-01";
+const STT_SELL_PERCENT_BEFORE_HIKE: Partial<Record<BrokerageSegment, number>> = { FUTURES: 0.02, OPTIONS: 0.1 };
 
 /** The charge segment an option on `instrument` is billed under - the indices' options, or MCX commodity options. */
 export function optionsSegmentFor(instrument: Instrument): BrokerageSegment {
@@ -112,13 +123,19 @@ export type BrokerageBreakdown = {
  * A leg with only a sell (or only a buy) price is treated as one executed
  * order rather than a round trip — e.g. a sold option left to expire
  * worthless never has a buy-side order, so it shouldn't be charged as one.
+ *
+ * `soldOn` (yyyy-mm-dd) is the day the sell order was placed. Left out it means today, at today's rates; give it for a past trade
+ * to get the STT that applied then (see STT_HIKE_DATE).
  */
 export function calculateBrokerage(
   segment: BrokerageSegment,
   legs: TradeLegInput[],
   qty: number,
+  soldOn?: string | null,
 ): BrokerageBreakdown {
-  const rates = SEGMENT_RATES[segment];
+  const current = SEGMENT_RATES[segment];
+  const earlierStt = soldOn && soldOn < STT_HIKE_DATE ? STT_SELL_PERCENT_BEFORE_HIKE[segment] : undefined;
+  const rates = earlierStt === undefined ? current : { ...current, sttSellPercent: earlierStt };
 
   function orderBrokerage(value: number): number {
     if (rates.brokeragePercent === null) return rates.brokeragePerOrder;
@@ -155,20 +172,24 @@ export function calculateBrokerage(
   const turnover = netBuyValue + netSellValue;
   const sebiCharges = turnover * (SEBI_CHARGE_PERCENT / 100);
   const gst = (brokerage + transactionCharges + sebiCharges) * (GST_PERCENT / 100);
-  const clearingCharges = CLEARING_CHARGES;
-  const totalCharges = brokerage + stt + transactionCharges + clearingCharges + dpCharges + stampDuty + sebiCharges + gst;
-  const pointsToBreakeven = qty > 0 ? totalCharges / qty : 0;
-
-  return {
+  const lines = {
     brokerage: round2(brokerage),
     stt: round2(stt),
     transactionCharges: round2(transactionCharges),
-    clearingCharges: round2(clearingCharges),
+    clearingCharges: round2(CLEARING_CHARGES),
     dpCharges: round2(dpCharges),
     stampDuty: round2(stampDuty),
     sebiCharges: round2(sebiCharges),
     gst: round2(gst),
-    totalCharges: round2(totalCharges),
+  };
+  // The total is the sum of the lines as shown, the way Upstox's calculator adds them - rounding the sum of the unrounded
+  // amounts instead can differ by a paisa, and the lines on screen then don't add up to the total beside them.
+  const totalCharges = round2(Object.values(lines).reduce((sum, line) => sum + line, 0));
+  const pointsToBreakeven = qty > 0 ? totalCharges / qty : 0;
+
+  return {
+    ...lines,
+    totalCharges,
     netBuyValue: round2(netBuyValue),
     netSellValue: round2(netSellValue),
     pointsToBreakeven: round2(pointsToBreakeven),

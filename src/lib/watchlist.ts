@@ -7,13 +7,27 @@
 import { formatLevel } from "@/lib/format";
 import { commodityGlyph, commodityUnit, contractMonthLabel, HEATMAP_COMMODITIES, commodityName } from "@/lib/mcxCommodities";
 
-/** The Watchlist page's two halves: the saved list of Indian instruments, and the global prices MCX follows. */
+/** The Watchlist page's two parts: the saved list of Indian instruments, and the global prices (the headline indices, and what MCX follows). */
 export const WATCH_TABS = ["india", "global"] as const;
 export type WatchTab = (typeof WATCH_TABS)[number];
 
-/** A remembered tab read back from storage - or null if it is missing or isn't one of the two. */
+/** A remembered tab read back from storage - or null if it is missing or isn't one of the two (a device that last left it on the removed "more" tab starts on the Indian markets). */
 export function parseWatchTab(raw: unknown): WatchTab | null {
   return (WATCH_TABS as readonly unknown[]).includes(raw) ? (raw as WatchTab) : null;
+}
+
+/** How long a poll waits before trying Upstox again once its token is known to be bad. */
+export const TOKEN_RETRY_MS = 60_000;
+
+/**
+ * Whether a poll should go out now. While the token is known to be bad the scheduled polls stop - there is nothing to learn
+ * from asking every few seconds - but not for good: one is let through every TOKEN_RETRY_MS, or when `force`d (a refresh
+ * button, coming back to the tab). Without that, a view with no refresh button (the ticker across the top of every page,
+ * which stays mounted while a new token is pasted in Settings) would sit on dashes until the page was reloaded.
+ */
+export function shouldPollQuotes(input: { tokenExpired: boolean; force: boolean; now: number; lastAttemptAt: number }): boolean {
+  if (!input.tokenExpired || input.force) return true;
+  return input.now - input.lastAttemptAt >= TOKEN_RETRY_MS;
 }
 
 export const WATCHLIST_KINDS = ["index", "commodity", "equity"] as const;
@@ -56,7 +70,8 @@ export function commodityItemKey(symbol: string): string {
 export const GIFT_NIFTY_KEY = "GLOBAL_INDEX|SGX NIFTY";
 export const GIFT_NIFTY: Omit<WatchlistSeed, "sortOrder"> = { kind: "index", itemKey: GIFT_NIFTY_KEY, symbol: "GIFTNIFTY", name: "GIFT Nifty" };
 
-const INDEX_SEEDS: Omit<WatchlistSeed, "sortOrder">[] = [
+/** Nifty 50, Bank Nifty and Sensex - the Watchlist's first three rows, and what the top ticker offers as its Indian indices. */
+export const INDEX_SEEDS: Omit<WatchlistSeed, "sortOrder">[] = [
   { kind: "index", itemKey: "NSE_INDEX|Nifty 50", symbol: "NIFTY", name: "Nifty 50" },
   { kind: "index", itemKey: "NSE_INDEX|Nifty Bank", symbol: "BANKNIFTY", name: "Bank Nifty" },
   { kind: "index", itemKey: "BSE_INDEX|SENSEX", symbol: "SENSEX", name: "Sensex" },
@@ -127,6 +142,8 @@ export type WatchQuote = {
   high: number | null;
   low: number | null;
   volume: number | null;
+  /** When it last traded (ms since epoch), where Upstox says - the Global indices table shows it. Absent on a quote saved before this was kept. */
+  asOf?: number | null;
   /** A commodity: the contract month its price is for. */
   contract: { label: string; expiry: string } | null;
 };

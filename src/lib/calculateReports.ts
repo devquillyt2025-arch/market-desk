@@ -1,11 +1,13 @@
 /**
- * Pure aggregation for the Reports tab. No React, no Supabase — takes the
- * same TradeEntry[] the Trade Entries table already fetches and reduces it
- * into the shapes each chart/stat needs.
+ * Pure aggregation for the Reports tab. No React, no Supabase — takes a list
+ * of trades and reduces it into the shapes each chart/stat needs. Reports reads
+ * Upstox's own P&L report (see ReportTrade); the Trade Entries journal's
+ * TradeEntry[] has the same shape and goes through the same maths.
  */
 
 import { calculateBrokerage, optionsSegmentFor, type BrokerageSegment } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
+import { localIsoDate } from "@/lib/localDate";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
 import {
   DEFAULT_LOT_SIZES,
@@ -16,7 +18,30 @@ import {
   type TradeEntry,
   type TradeEntryOptionType,
   type TradeEntrySide,
+  type TradeEntryStatus,
 } from "@/lib/types";
+import type { UpstoxReportTrade } from "@/lib/upstox/types";
+
+/**
+ * What the report maths reads from a trade. A journal entry (TradeEntry) fits it, and so does a row of Upstox's P&L
+ * report read as a trade (UpstoxReportTrade) - so Reports can follow Upstox while the journal page keeps its own figures.
+ * `instrument` is the underlying's name, not necessarily one the journal tracks (FINNIFTY, a stock); `label` names the
+ * contract where `instrument` isn't enough; `side` is null for a trade opened and closed the same day, whose order the
+ * Upstox report doesn't give.
+ */
+export type ReportTrade = {
+  id: string;
+  entry_date: string;
+  closing_date: string | null;
+  instrument: string;
+  strike_price: number | null;
+  option_type: TradeEntryOptionType | null;
+  side: TradeEntrySide | null;
+  pnl: number;
+  status: TradeEntryStatus;
+  created_at: string;
+  label?: string;
+};
 
 /**
  * The tracked instruments (the NIFTY/BANKNIFTY/SENSEX indices, and MCX
@@ -29,6 +54,11 @@ function entryBrokerageSegment(entry: TradeEntry): BrokerageSegment {
   return entry.option_type ? optionsSegmentFor(entry.instrument) : "FUTURES";
 }
 
+/** The day the entry's sell order went in - the entry day for a short, the closing day for a long - which is when STT was charged. */
+function sellDate(entry: TradeEntry): string {
+  return entry.side === "sell" ? entry.entry_date : (entry.closing_date ?? entry.entry_date);
+}
+
 /** Estimated round-trip charges (brokerage, STT, GST, etc.) for one entry — see calculateBrokerage.ts. */
 function entryCharges(entry: TradeEntry): number {
   const qty = DEFAULT_LOT_SIZES[entry.instrument] * entry.lots;
@@ -36,6 +66,7 @@ function entryCharges(entry: TradeEntry): number {
     entryBrokerageSegment(entry),
     [{ buyPrice: entry.buy_price, sellPrice: entry.sell_price }],
     qty,
+    sellDate(entry),
   );
   return totalCharges;
 }
@@ -53,23 +84,55 @@ export const DATE_RANGE_LABELS: Record<DateRange, string> = {
 
 export type CustomRange = { from: string; to: string };
 
+const PRESET_DAYS = { "7d": 7, "30d": 30, "90d": 90 } as const;
+
 /**
- * `custom` only applies when `range === "custom"` — an unset from/to on that
- * side is treated as "no lower/upper bound" rather than excluding everything.
+ * The first and last day (yyyy-mm-dd, inclusive) a range covers; null on a
+ * side with no bound. `custom` only applies when `range === "custom"` — an unset
+ * from/to on that side is treated as "no lower/upper bound" rather than excluding
+ * everything. The one definition of a range, shared by every section of Reports
+ * and by the charges asked of Upstox, so a click on the time frame moves them all alike.
  */
-export function filterEntriesByRange(entries: TradeEntry[], range: DateRange, custom?: CustomRange): TradeEntry[] {
-  if (range === "all") return entries;
-  if (range === "custom") {
-    const from = custom?.from?.trim();
-    const to = custom?.to?.trim();
-    if (!from && !to) return entries;
-    return entries.filter((e) => (!from || e.entry_date >= from) && (!to || e.entry_date <= to));
-  }
-  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffIso = cutoff.toISOString().slice(0, 10);
-  return entries.filter((e) => e.entry_date >= cutoffIso);
+export function rangeBounds(range: DateRange, custom?: CustomRange, now: Date = new Date()): { from: string | null; to: string | null } {
+  if (range === "all") return { from: null, to: null };
+  if (range === "custom") return { from: custom?.from?.trim() || null, to: custom?.to?.trim() || null };
+  return { from: localIsoDate(PRESET_DAYS[range], now), to: null };
+}
+
+/**
+ * The day a trade counts for: the day it was squared off - when its P&L became
+ * real, and the day Upstox files it under. A position with no closing date yet
+ * (still "hold") has only the day it was opened.
+ */
+export function tradeDay(entry: Pick<ReportTrade, "entry_date" | "closing_date">): string {
+  return entry.closing_date ?? entry.entry_date;
+}
+
+/**
+ * Trades whose trade day (see tradeDay) falls in the range. By closing date,
+ * not opening date: a position opened on the 12th and closed on the 27th belongs
+ * to a "last 30 days" window that starts on the 21st, as it does in Upstox's own
+ * report, the Cumulative P&L chart and the calendar.
+ */
+export function filterEntriesByRange<T extends ReportTrade>(entries: T[], range: DateRange, custom?: CustomRange, now: Date = new Date()): T[] {
+  const { from, to } = rangeBounds(range, custom, now);
+  if (!from && !to) return entries;
+  return entries.filter((e) => {
+    const day = tradeDay(e);
+    return (!from || day >= from) && (!to || day <= to);
+  });
+}
+
+/**
+ * The dates Upstox is asked for (its charges) for a range - the same window the trades are cut to, up to today at the
+ * latest. With no start of its own ("All", an open custom start) it begins at the financial year two before this
+ * one: as far back as the P&L report is read (see /api/upstox/pnl-trades).
+ */
+export function reportWindow(range: DateRange, custom: CustomRange | undefined, now: Date = new Date()): { from: string; to: string } {
+  const today = localIsoDate(0, now);
+  const bounds = rangeBounds(range, custom, now);
+  const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return { from: bounds.from ?? `${fyStart - 2}-04-01`, to: bounds.to && bounds.to < today ? bounds.to : today };
 }
 
 export const CUMULATIVE_RANGES = ["7d", "15d", "30d", "90d", "all"] as const;
@@ -88,12 +151,10 @@ export const CUMULATIVE_RANGE_LABELS: Record<CumulativeRange, string> = {
  * main date-range filter — filters by closing_date (what the chart actually
  * plots) rather than entry_date, so "1W" means "closed in the last 7 days".
  */
-export function filterEntriesByClosingRange(entries: TradeEntry[], range: CumulativeRange): TradeEntry[] {
+export function filterEntriesByClosingRange<T extends ReportTrade>(entries: T[], range: CumulativeRange, now: Date = new Date()): T[] {
   if (range === "all") return entries;
   const days = range === "7d" ? 7 : range === "15d" ? 15 : range === "30d" ? 30 : 90;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  const cutoffIso = localIsoDate(days, now);
   return entries.filter((e) => e.closing_date && e.closing_date >= cutoffIso);
 }
 
@@ -111,10 +172,14 @@ export type StreakInfo = {
 
 export type ReportSummary = {
   totalPnl: number;
-  /** Estimated brokerage/STT/GST/etc. summed across all entries — see calculateBrokerage.ts. */
+  /** Brokerage/STT/GST/etc.: Upstox's own figure where it was given (summarizeTrades), otherwise estimated per entry — see calculateBrokerage.ts. */
   totalCharges: number;
   /** totalPnl minus totalCharges. */
   netPnl: number;
+  /** Sum of the winning trades' P&L. */
+  grossProfit: number;
+  /** Sum of the losing trades' P&L - negative or zero. */
+  grossLoss: number;
   totalTrades: number;
   winCount: number;
   lossCount: number;
@@ -134,18 +199,27 @@ export type ReportSummary = {
   avgLoss: number;
 };
 
-function sortByDate(entries: TradeEntry[]): TradeEntry[] {
+/** In the order P&L was realised: by trade day (the closing date), then as created. Streaks and drawdown follow this. */
+function sortByDate<T extends ReportTrade>(entries: T[]): T[] {
   return [...entries].sort((a, b) => {
-    if (a.entry_date !== b.entry_date) return a.entry_date < b.entry_date ? -1 : 1;
+    const aDay = tradeDay(a);
+    const bDay = tradeDay(b);
+    if (aDay !== bDay) return aDay < bDay ? -1 : 1;
     return a.created_at < b.created_at ? -1 : 1;
   });
 }
 
-function toHighlight(entry: TradeEntry): TradeHighlight {
-  return { id: entry.id, label: describeEntryContract(entry), date: entry.entry_date, pnl: entry.pnl };
+/** What a trade is called: its own label (an Upstox row names its contract), else the journal's description of it. */
+function tradeLabel(entry: ReportTrade): string {
+  // A journal entry's `instrument` is always one of ours - only a trade carrying a label can be anything else.
+  return entry.label ?? describeEntryContract({ ...entry, instrument: entry.instrument as Instrument });
 }
 
-function computeMaxDrawdown(sortedEntries: TradeEntry[]): number {
+function toHighlight(entry: ReportTrade): TradeHighlight {
+  return { id: entry.id, label: tradeLabel(entry), date: tradeDay(entry), pnl: entry.pnl };
+}
+
+function computeMaxDrawdown(sortedEntries: ReportTrade[]): number {
   let running = 0;
   let peak = 0;
   let maxDrawdown = 0;
@@ -159,7 +233,7 @@ function computeMaxDrawdown(sortedEntries: TradeEntry[]): number {
 }
 
 /** Consecutive same-direction trades ending at the most recent one — a flat (0 P&L) trade breaks the streak. */
-function computeCurrentStreak(sortedEntries: TradeEntry[]): StreakInfo {
+function computeCurrentStreak(sortedEntries: ReportTrade[]): StreakInfo {
   let type: "win" | "loss" | null = null;
   let count = 0;
   for (let i = sortedEntries.length - 1; i >= 0; i--) {
@@ -173,10 +247,18 @@ function computeCurrentStreak(sortedEntries: TradeEntry[]): StreakInfo {
   return type ? { type, count } : { type: "none", count: 0 };
 }
 
+/** The journal page's summary, with charges estimated entry by entry (see entryCharges). */
 export function summarizeEntries(entries: TradeEntry[]): ReportSummary {
+  return summarizeTrades(entries, round2(entries.reduce((sum, e) => sum + entryCharges(e), 0)));
+}
+
+/**
+ * Reports' summary. `totalCharges` is what the trades cost to place - Upstox's own figure for the same window, since a
+ * report row carries no charges of its own.
+ */
+export function summarizeTrades<T extends ReportTrade>(entries: T[], totalCharges: number): ReportSummary {
   const totalTrades = entries.length;
   const totalPnl = round2(entries.reduce((sum, e) => sum + e.pnl, 0));
-  const totalCharges = round2(entries.reduce((sum, e) => sum + entryCharges(e), 0));
   const netPnl = round2(totalPnl - totalCharges);
   const wins = entries.filter((e) => e.pnl > 0);
   const losses = entries.filter((e) => e.pnl < 0);
@@ -188,13 +270,15 @@ export function summarizeEntries(entries: TradeEntry[]): ReportSummary {
   const grossLoss = round2(losses.reduce((sum, e) => sum + e.pnl, 0));
 
   const sorted = sortByDate(entries);
-  const best = sorted.reduce<TradeEntry | null>((acc, e) => (acc === null || e.pnl > acc.pnl ? e : acc), null);
-  const worst = sorted.reduce<TradeEntry | null>((acc, e) => (acc === null || e.pnl < acc.pnl ? e : acc), null);
+  const best = sorted.reduce<T | null>((acc, e) => (acc === null || e.pnl > acc.pnl ? e : acc), null);
+  const worst = sorted.reduce<T | null>((acc, e) => (acc === null || e.pnl < acc.pnl ? e : acc), null);
 
   return {
     totalPnl,
     totalCharges,
     netPnl,
+    grossProfit,
+    grossLoss,
     totalTrades,
     winCount,
     lossCount,
@@ -224,7 +308,7 @@ export type CumulativePoint = {
  * off, not the day it was opened. An entry with no closing_date yet ("hold")
  * contributes nothing here until it closes.
  */
-export function computeCumulativeSeries(entries: TradeEntry[]): CumulativePoint[] {
+export function computeCumulativeSeries(entries: ReportTrade[]): CumulativePoint[] {
   const closed = entries.filter((e) => e.closing_date);
   const sorted = [...closed].sort((a, b) => {
     const aDate = a.closing_date as string;
@@ -280,7 +364,7 @@ export type AccountGrowthPoint = {
  * the day it was opened. An entry with no closing_date yet (still "hold")
  * contributes nothing here until it's squared off.
  */
-export function computeAccountGrowthSeries(entries: TradeEntry[], payments: Payment[]): AccountGrowthPoint[] {
+export function computeAccountGrowthSeries(entries: ReportTrade[], payments: Payment[]): AccountGrowthPoint[] {
   type Event = { date: string; seq: number; capitalDelta: number; pnlDelta: number };
   const events: Event[] = [];
   let seq = 0;
@@ -335,26 +419,27 @@ function withPct(items: { label: string; pnl: number }[]): CategoryPnl[] {
   return items.map((item) => ({ ...item, pct: total !== 0 ? round2((item.pnl / total) * 100) : 0 }));
 }
 
-export function computePnlByInstrument(entries: TradeEntry[]): CategoryPnl[] {
-  const totals = new Map<Instrument, number>();
+/** One bar per underlying: the ones the journal tracks first, in their usual order, then any other (FINNIFTY, a stock) by name. */
+export function computePnlByInstrument(entries: ReportTrade[]): CategoryPnl[] {
+  const totals = new Map<string, number>();
   for (const entry of entries) {
     totals.set(entry.instrument, round2((totals.get(entry.instrument) ?? 0) + entry.pnl));
   }
-  return withPct(
-    INSTRUMENTS.filter((i) => totals.has(i)).map((i) => ({
-      label: INSTRUMENT_LABELS[i],
-      pnl: totals.get(i) ?? 0,
-    })),
-  );
+  const tracked: readonly string[] = INSTRUMENTS;
+  const names = [...INSTRUMENTS.filter((i) => totals.has(i)), ...[...totals.keys()].filter((name) => !tracked.includes(name)).sort((a, b) => a.localeCompare(b))];
+  return withPct(names.map((name) => ({ label: INSTRUMENT_LABELS[name as Instrument] ?? name, pnl: totals.get(name) ?? 0 })));
 }
 
-const SIDE_ORDER: TradeEntrySide[] = ["buy", "sell"];
-const SIDE_LABELS: Record<TradeEntrySide, string> = { buy: "Buy", sell: "Sell" };
+type SideKey = TradeEntrySide | "same-day";
+const SIDE_ORDER: SideKey[] = ["buy", "sell", "same-day"];
+/** "Same day": bought and sold within one day - Upstox's report doesn't say which came first, so it can't be called a buy or a sell. */
+const SIDE_LABELS: Record<SideKey, string> = { buy: "Buy", sell: "Sell", "same-day": "Same day" };
 
-export function computePnlBySide(entries: TradeEntry[]): CategoryPnl[] {
-  const totals = new Map<TradeEntrySide, number>();
+export function computePnlBySide(entries: ReportTrade[]): CategoryPnl[] {
+  const totals = new Map<SideKey, number>();
   for (const entry of entries) {
-    totals.set(entry.side, round2((totals.get(entry.side) ?? 0) + entry.pnl));
+    const side = entry.side ?? "same-day";
+    totals.set(side, round2((totals.get(side) ?? 0) + entry.pnl));
   }
   return withPct(SIDE_ORDER.filter((s) => totals.has(s)).map((s) => ({ label: SIDE_LABELS[s], pnl: totals.get(s) ?? 0 })));
 }
@@ -362,7 +447,7 @@ export function computePnlBySide(entries: TradeEntry[]): CategoryPnl[] {
 const OPTION_TYPE_ORDER: TradeEntryOptionType[] = ["CE", "PE"];
 
 /** Only entries with an option_type set — plain futures/non-options entries don't contribute here. */
-export function computePnlByOptionType(entries: TradeEntry[]): CategoryPnl[] {
+export function computePnlByOptionType(entries: ReportTrade[]): CategoryPnl[] {
   const totals = new Map<TradeEntryOptionType, number>();
   for (const entry of entries) {
     if (!entry.option_type) continue;
@@ -376,11 +461,11 @@ function formatMonthLabel(yyyyMm: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
 }
 
-/** One bar per calendar month present in `entries`, oldest to newest. */
-export function computePnlByMonth(entries: TradeEntry[]): CategoryPnl[] {
+/** One bar per calendar month present in `entries`, oldest to newest - the month each trade closed in, when its P&L was realised. */
+export function computePnlByMonth(entries: ReportTrade[]): CategoryPnl[] {
   const totals = new Map<string, number>();
   for (const entry of entries) {
-    const key = entry.entry_date.slice(0, 7);
+    const key = tradeDay(entry).slice(0, 7);
     totals.set(key, round2((totals.get(key) ?? 0) + entry.pnl));
   }
   return withPct(
@@ -395,10 +480,11 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Monday-first, matching how the rest of the app orders the week. */
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
+/** P&L by the weekday each trade closed on - the day it was realised. */
+export function computePnlByDayOfWeek(entries: ReportTrade[]): CategoryPnl[] {
   const totals = new Map<number, number>();
   for (const entry of entries) {
-    const day = new Date(`${entry.entry_date}T00:00:00`).getDay();
+    const day = new Date(`${tradeDay(entry)}T00:00:00`).getDay();
     totals.set(day, round2((totals.get(day) ?? 0) + entry.pnl));
   }
   return withPct(
@@ -418,7 +504,7 @@ export function computePnlByDayOfWeek(entries: TradeEntry[]): CategoryPnl[] {
  * that field existed) have no day to attribute P&L to, so they're skipped
  * here rather than falling back to entry_date.
  */
-export function computeDailyPnlMap(entries: TradeEntry[]): Map<string, number> {
+export function computeDailyPnlMap(entries: ReportTrade[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const entry of entries) {
     if (!entry.closing_date) continue;
@@ -428,18 +514,21 @@ export function computeDailyPnlMap(entries: TradeEntry[]): Map<string, number> {
 }
 
 const CSV_COLUMNS = [
-  "Date",
-  "Closing Date",
-  "Instrument",
+  "Closed",
+  "Opened",
+  "Segment",
+  "Underlying",
+  "Contract",
   "Strike",
   "Type",
+  "Expiry",
   "Side",
-  "Lots",
-  "Buy Price",
-  "Sell Price",
+  "Quantity",
+  "Buy Avg",
+  "Sell Avg",
+  "Buy Value",
+  "Sell Value",
   "P&L",
-  "Status",
-  "Remarks",
 ] as const;
 
 function csvField(value: string | number): string {
@@ -447,22 +536,28 @@ function csvField(value: string | number): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Row order matches CSV_COLUMNS. Escapes commas/quotes/newlines per RFC 4180. */
-export function buildReportCsv(entries: TradeEntry[]): string {
-  const rows = sortByDate(entries).map((e) =>
+/**
+ * Upstox's own report rows as a CSV, oldest close first - one line per row, as the report lists them. Row order matches
+ * CSV_COLUMNS; commas, quotes and newlines are escaped per RFC 4180. Quantity is as Upstox counts it: units, or lots on MCX.
+ */
+export function buildReportCsv(trades: UpstoxReportTrade[]): string {
+  const rows = sortByDate(trades).map((t) =>
     [
-      e.entry_date,
-      e.closing_date ?? "",
-      e.instrument,
-      e.strike_price ?? "",
-      e.option_type ?? "",
-      SIDE_LABELS[e.side],
-      e.lots,
-      e.buy_price,
-      e.sell_price,
-      e.pnl,
-      e.status,
-      e.remarks ?? "",
+      t.closing_date,
+      t.entry_date,
+      t.segment,
+      t.instrument,
+      t.label,
+      t.strike_price ?? "",
+      t.option_type ?? "",
+      t.expiry_date ?? "",
+      t.side ? SIDE_LABELS[t.side] : SIDE_LABELS["same-day"],
+      t.quantity,
+      t.buy_price,
+      t.sell_price,
+      t.buy_amount,
+      t.sell_amount,
+      t.pnl,
     ].map(csvField),
   );
   return [CSV_COLUMNS.map(csvField), ...rows].map((row) => row.join(",")).join("\r\n");

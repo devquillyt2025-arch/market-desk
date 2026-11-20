@@ -157,7 +157,7 @@ describe("commodity options charges", () => {
     const leg = [{ buyPrice: 365.45, sellPrice: 400 }];
     const crude = calculateBrokerage("COMMODITY_OPTIONS", leg, 200);
     const index = calculateBrokerage("OPTIONS", leg, 200);
-    near(index.stt, crude.stt * 2, 0.02);
+    near(index.stt, crude.stt * 3, 0.02); // 0.15% of the premium sold against crude's 0.05% CTT
     assert.ok(crude.totalCharges < index.totalCharges);
   });
 });

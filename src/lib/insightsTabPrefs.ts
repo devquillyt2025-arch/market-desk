@@ -1,7 +1,7 @@
 /**
  * Which of Live Portfolio's insight tabs are shown - pure, no React. Two of the five are optional: the What-if lab (it
  * tries a thousand ideas on every price update) and the RRR planner (it has nothing to do with the positions). The
- * other three - Risk & Probability, Simulate and Reward : Risk - are always there. The choice is a per-device
+ * other three - Risk & Probability, Simulate and Reward : Risk - are always there once a position is held. The choice is a per-device
  * convenience, kept in localStorage like the Analysis strategy and the averaging figures; it never goes to Supabase.
  */
 
@@ -34,11 +34,12 @@ export function serializeInsightsTabPrefs(prefs: InsightsTabPrefs): string {
 }
 
 /**
- * Whether a tab is on the strip. With no priced position the RRR planner is the only tab with anything to show, so it
- * stays whatever the setting says - the strip is never left empty - and the others wait for a position.
+ * Whether a tab is on the strip. With no priced position the RRR planner is the only tab with anything to show, and the
+ * "Tabs" setting still decides whether it is: switched off, nothing is shown at all (the strip is empty, just the menu
+ * to switch it back on). The others wait for a position.
  */
 export function isInsightsTabShown(id: string, hasPositions: boolean, prefs: InsightsTabPrefs): boolean {
-  if (!hasPositions) return id === "planner";
+  if (!hasPositions) return id === "planner" && prefs.planner;
   if (id === "whatif") return prefs.whatif;
   if (id === "planner") return prefs.planner;
   return true;
