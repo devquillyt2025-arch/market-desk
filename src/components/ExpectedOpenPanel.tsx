@@ -12,7 +12,7 @@ import { formatAsOf, formatLevel } from "@/lib/format";
 import type { ExpectedOpenState } from "@/lib/useExpectedOpen";
 import { formatMovePct, moveDirection } from "@/lib/watchlist";
 
-const UNAVAILABLE_TEXT: Record<ExpectedOpenUnavailable["reason"], string> = {
+export const UNAVAILABLE_TEXT: Record<ExpectedOpenUnavailable["reason"], string> = {
   no_contract: "MCX lists no contract for it right now.",
   no_mcx_price: "No MCX price yet.",
   waiting_for_close_price: "Waiting for NYMEX's price at MCX's close (its feed runs ~10 min behind).",
@@ -33,7 +33,7 @@ export function visibleExpectedOpen(state: ExpectedOpenState, only?: readonly Ex
 }
 
 /** The accuracy claim, measured on 15 sessions (21 Oct to 12 Nov 2026): the estimate at 08:59 against MCX's real first trade. The one place it is written. */
-const ACCURACY =
+export const ACCURACY =
   "Tested on 15 sessions (21 Oct to 12 Nov 2026), it missed MCX's real first trade by 0.18% on average for natural gas (worst 0.69%) and 0.12% for crude oil (worst 0.39%). An indication, not a promise.";
 
 function reopenText(reopensAt: number | null, quiet: boolean): string {

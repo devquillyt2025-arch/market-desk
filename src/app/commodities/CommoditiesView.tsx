@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import LivePricingBanners from "@/components/LivePricingBanners";
@@ -20,8 +21,11 @@ import {
   type BoardSort,
   type CommodityCategory,
 } from "@/lib/commodityBoard";
+import { isExpectedOpenItem } from "@/lib/expectedOpen";
 import { commodityName } from "@/lib/mcxCommodities";
+import { tabPreview } from "@/lib/natgasDesk";
 import type { CommodityInstrument } from "@/lib/types";
+import { useExpectedOpen } from "@/lib/useExpectedOpen";
 import { useWatchlistQuotes, WATCHLIST_POLL_MS } from "@/lib/useWatchlistQuotes";
 import { commodityItemKey, formatMovePct, moveDirection, type WatchlistItem } from "@/lib/watchlist";
 
@@ -30,8 +34,16 @@ import CommodityCard from "./CommodityCard";
 import CommodityDetailModal from "./CommodityDetailModal";
 import CommodityRow from "./CommodityRow";
 import { DIRECTION } from "./direction";
+import DeskTabs, { panelId, tabId } from "./DeskTabs";
 import MarketPulse, { type Feed } from "./MarketPulse";
+import NatgasSkeleton from "./NatgasSkeleton";
 import { useBoardView } from "./useBoardView";
+import { useDeskTab } from "./useDeskTab";
+
+/** The natural gas desk is only needed once its tab is open, so its code is fetched then - the board loads without it. */
+const NatgasDesk = dynamic(() => import("./NatgasDesk"), { loading: () => <NatgasSkeleton /> });
+/** The long/short planner likewise. */
+const PlannerDesk = dynamic(() => import("./PlannerDesk"), { loading: () => <NatgasSkeleton /> });
 
 /** The board is the Watchlist's commodities, polled the same way: one request, the same token and offline handling, prices kept on this device. */
 const BOARD_ITEMS: WatchlistItem[] = BOARD_SYMBOLS.map((symbol, index) => ({
@@ -96,6 +108,9 @@ export default function CommoditiesView() {
   const { quotes, tokenExpired, offline, loadError, lastPolledAt, loading, manualRefreshing, refresh } = useWatchlistQuotes(BOARD_ITEMS, WATCHLIST_POLL_MS, STORAGE_KEY);
   const [view, changeView] = useBoardView();
   const clock = useSyncExternalStore(subscribeClock, readClock, serverClock);
+  const [tab, setTab] = useDeskTab();
+  // Polled here, not in the desk, so the tab can preview the gap (or "Live") before it is opened.
+  const expectedOpen = useExpectedOpen();
 
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [sort, setSort] = useState<BoardSort>("default");
@@ -137,7 +152,9 @@ export default function CommoditiesView() {
   const closeDetail = useCallback(() => setDetail(null), []);
 
   /** From the strip or a leader at the top to the contract's own card: widen the filter if it hides it, scroll there, and ring it for a moment. */
-  const jumpTo = useCallback((symbol: CommodityInstrument) => {
+  const jumpTo = useCallback(
+    (symbol: CommodityInstrument) => {
+    setTab("contracts");
     setFilter((current) => (current === "all" || current === commodityCategory(symbol) ? current : "all"));
     setSpotlight(symbol);
     if (spotlightTimer.current) clearTimeout(spotlightTimer.current);
@@ -149,7 +166,9 @@ export default function CommoditiesView() {
         document.getElementById(`commodity-${symbol}`)?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
       }),
     );
-  }, []);
+    },
+    [setTab],
+  );
 
   const session = useMemo(() => (clock === 0 ? null : mcxSessionStatus(clock)), [clock]);
   const feed: Feed = stale ? "paused" : !loaded ? "loading" : session?.open === false ? "closed" : "live";
@@ -184,6 +203,12 @@ export default function CommoditiesView() {
   const detailQuote = detail ? board.find((e) => e.symbol === detail)?.quote : undefined;
 
   const filterSummary = `${filter === "all" ? "All sectors" : CATEGORY_LABELS[filter]} · ${shown.length} contracts`;
+  const filterShort = `${filter === "all" ? "All" : CATEGORY_LABELS[filter]} · ${shown.length}`;
+
+  const natgasItem = expectedOpen.result?.items.find((item) => item.market === "NATURALGAS");
+  const preview = tabPreview(expectedOpen.result, natgasItem && isExpectedOpenItem(natgasItem) ? natgasItem.movePct : null);
+  /** MCX natural gas as the board has it - the desk shows it live while MCX trades. */
+  const natgasQuote = board.find((e) => e.symbol === "NATURALGAS")?.quote;
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }} className="flex flex-col gap-6">
@@ -204,37 +229,66 @@ export default function CommoditiesView() {
         refreshing={manualRefreshing}
         onRefresh={() => void refresh()}
         filter={filter}
-        onFilter={setFilter}
+        onFilter={(next) => {
+          setFilter(next);
+          setTab("contracts");
+        }}
         onJump={jumpTo}
       />
 
-      <BoardToolbar summary={filterSummary} sort={sort} onSort={setSort} view={view} onView={changeView} />
+      <BoardToolbar
+        leading={<DeskTabs tab={tab} onTab={setTab} summary={filterSummary} shortSummary={filterShort} preview={preview} />}
+        controls={tab === "contracts"}
+        sort={sort}
+        onSort={setSort}
+        view={view}
+        onView={changeView}
+      />
 
-      {loading ? (
-        <BoardSkeleton />
-      ) : grouped ? (
-        <div className="flex flex-col gap-8">
-          {CATEGORIES.map((category) => {
-            const entries = shown.filter((e) => commodityCategory(e.symbol) === category);
-            return (
-              <section key={category} aria-label={CATEGORY_LABELS[category]}>
-                <GroupHeader category={category} entries={board} />
-                {renderItems(entries)}
-              </section>
-            );
-          })}
-        </div>
-      ) : (
-        renderItems(shown)
-      )}
+      <motion.div
+        key={tab}
+        role="tabpanel"
+        id={panelId(tab)}
+        aria-labelledby={tabId(tab)}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="flex flex-col gap-6"
+      >
+        {tab === "natural-gas" ? (
+          <NatgasDesk state={expectedOpen} nowMs={clock} liveQuote={natgasQuote} />
+        ) : tab === "planner" ? (
+          <PlannerDesk nowMs={clock} />
+        ) : (
+          <>
+            {loading ? (
+              <BoardSkeleton />
+            ) : grouped ? (
+              <div className="flex flex-col gap-8">
+                {CATEGORIES.map((category) => {
+                  const entries = shown.filter((e) => commodityCategory(e.symbol) === category);
+                  return (
+                    <section key={category} aria-label={CATEGORY_LABELS[category]}>
+                      <GroupHeader category={category} entries={board} />
+                      {renderItems(entries)}
+                    </section>
+                  );
+                })}
+              </div>
+            ) : (
+              renderItems(shown)
+            )}
+
+            <p className="text-center text-xs text-muted-foreground">
+              Prices from Upstox, refreshed every {WATCHLIST_POLL_MS / 1000} seconds. Each card is the current-month future; tap one for its lot.
+            </p>
+          </>
+        )}
+      </motion.div>
 
       <AnimatePresence>
         {detail && detailQuote && <CommodityDetailModal key={detail} symbol={detail} quote={detailQuote} spark={traces[detail] ?? NO_TRACE} live={feed === "live"} onClose={closeDetail} />}
       </AnimatePresence>
-
-      <p className="text-center text-xs text-muted-foreground">
-        Prices from Upstox, refreshed every {WATCHLIST_POLL_MS / 1000} seconds. Each card is the current-month future; tap one for its lot.
-      </p>
     </motion.div>
   );
 }

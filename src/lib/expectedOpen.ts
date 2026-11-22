@@ -152,6 +152,9 @@ export type ExpectedOpenUnavailable = {
   reason: "no_contract" | "no_mcx_price" | "waiting_for_close_price" | "no_global_price";
 };
 
+/** Rupees per US dollar, and when Yahoo last updated it - to show NYMEX's dollar prices in rupees beside MCX's. */
+export type UsdInr = { rate: number; asOf: number };
+
 export type ExpectedOpenResult = {
   /** MCX is trading: there is nothing to expect. */
   open: boolean;
@@ -161,6 +164,8 @@ export type ExpectedOpenResult = {
   reopensAt: number | null;
   items: (ExpectedOpenItem | ExpectedOpenUnavailable)[];
   fetchedAt: number;
+  /** Optional: an older deployed server sends none, and the rate can be missing when Yahoo has no answer. */
+  usdInr?: UsdInr | null;
 };
 
 export type ExpectedOpenError = { error: string };
@@ -183,7 +188,7 @@ export type MarketInput = {
 };
 
 /** Puts the gathered prices together: which markets are shut, and for those, where each is expected to open. */
-export function assembleExpectedOpen(nowMs: number, inputs: readonly MarketInput[]): ExpectedOpenResult {
+export function assembleExpectedOpen(nowMs: number, inputs: readonly MarketInput[], usdInr: UsdInr | null = null): ExpectedOpenResult {
   const items: (ExpectedOpenItem | ExpectedOpenUnavailable)[] = [];
   let anyClosed = false;
   let anyQuiet = false;
@@ -229,5 +234,5 @@ export function assembleExpectedOpen(nowMs: number, inputs: readonly MarketInput
   }
 
   const open = items.length === 0 && inputs.length > 0;
-  return { open, quiet: anyQuiet && !anyClosed, reopensAt: anyClosed ? nextMcxOpenMs(nowMs) : null, items, fetchedAt: nowMs };
+  return { open, quiet: anyQuiet && !anyClosed, reopensAt: anyClosed ? nextMcxOpenMs(nowMs) : null, items, fetchedAt: nowMs, usdInr };
 }

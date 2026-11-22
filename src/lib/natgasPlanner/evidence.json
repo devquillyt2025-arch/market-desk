@@ -1,0 +1,19 @@
+{
+  "title": "The earlier study",
+  "market": "MCX natural gas, Nov-26 contract",
+  "data": "1-minute candles, 21 Oct to 20 Nov 2026 (23 sessions)",
+  "method": "Heikin Ashi flip entries; 9 stops x 6 ratios per timeframe; full costs; one position at a time; flat by 23:20.",
+  "headline": "Of 189 setups with a stop of 1% or less and at least 100 trades, 9 were positive after costs and none had t above 0.92. Wide stops looked positive only because most trades simply ran to the close, on 25 to 78 trades.",
+  "caveat": "Each pick below is the best of many tries, so its small plus figure is what luck produces.",
+  "leastBad": [
+    { "tf": 1, "stopPct": 0.5, "ratio": 5, "net": 61, "t": 0.16 },
+    { "tf": 2, "stopPct": 0.4, "ratio": 5, "net": 271, "t": 0.92 },
+    { "tf": 3, "stopPct": 0.75, "ratio": 1.5, "net": -18, "t": -0.07 },
+    { "tf": 5, "stopPct": 0.4, "ratio": 1.5, "net": 77, "t": 0.72 },
+    { "tf": 10, "stopPct": 0.5, "ratio": 5, "net": -33, "t": -0.09 },
+    { "tf": 15, "stopPct": 0.4, "ratio": 5, "net": 8, "t": 0.03 },
+    { "tf": 30, "stopPct": 0.15, "ratio": 1.5, "net": -272, "t": -4.53 },
+    { "tf": 60, "stopPct": 1.0, "ratio": 5, "net": -246, "t": -1.25, "proxy": "NYMEX gas, 2.4 years" },
+    { "tf": 240, "stopPct": 1.0, "ratio": 5, "net": 270, "t": 0.93, "proxy": "NYMEX gas, 2.4 years" }
+  ]
+}

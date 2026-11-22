@@ -53,7 +53,7 @@ function fakeYahoo(prices: Record<string, { atClose: number; now: number }>, opt
   return { fetchImpl, urls, windows: () => urls.filter((u) => u.includes("interval=1m")).length, currents: () => urls.filter((u) => u.includes("interval=1d")).length };
 }
 
-const PRICES = { "NGZ26.NYM": { atClose: 3.255, now: 3.236 }, "CLZ26.NYM": { atClose: 88.7, now: 88.52 } };
+const PRICES = { "NGZ26.NYM": { atClose: 3.255, now: 3.236 }, "CLZ26.NYM": { atClose: 88.7, now: 88.52 }, "INR=X": { atClose: 92.5, now: 92.6 } };
 
 function deps(over: Partial<ExpectedOpenDeps>): ExpectedOpenDeps {
   return { getFutures: async () => FUTURES, getQuotes: quotes(FRI_CLOSE), now: () => SAT_NIGHT, ...over };
@@ -77,6 +77,41 @@ describe("the expected-open feed", () => {
     assert.equal(gas.contract.expiry, "2026-11-24");
   });
 
+  it("carries the rupee rate with its time, asked once for both markets", async () => {
+    const yahoo = fakeYahoo(PRICES);
+    const result = await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl }));
+    assert.ok(!("error" in result));
+    assert.equal(result.usdInr?.rate, 92.6);
+    assert.equal(typeof result.usdInr?.asOf, "number");
+    assert.equal(yahoo.urls.filter((u) => u.includes("INR%3DX")).length, 1);
+  });
+
+  it("still answers, with no rate, when Yahoo has none for the rupee", async () => {
+    const yahoo = fakeYahoo({ "NGZ26.NYM": PRICES["NGZ26.NYM"], "CLZ26.NYM": PRICES["CLZ26.NYM"] });
+    const result = await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl }));
+    assert.ok(!("error" in result));
+    assert.equal(result.usdInr, null);
+    assert.ok(result.items.every(isExpectedOpenItem));
+  });
+
+  it("keeps the last rupee rate when a later fetch fails", async () => {
+    let t = SAT_NIGHT;
+    const good = fakeYahoo(PRICES);
+    const first = await getExpectedOpen("token", deps({ fetchImpl: good.fetchImpl, now: () => t }));
+    assert.ok(!("error" in first));
+    t += 2 * 60_000; // past the rate's minute
+    const noRate = fakeYahoo({ "NGZ26.NYM": PRICES["NGZ26.NYM"], "CLZ26.NYM": PRICES["CLZ26.NYM"] });
+    const second = await getExpectedOpen("token", deps({ fetchImpl: noRate.fetchImpl, now: () => t }));
+    assert.ok(!("error" in second));
+    assert.equal(second.usdInr?.rate, 92.6);
+  });
+
+  it("asks nothing about the rupee while MCX is trading", async () => {
+    const yahoo = fakeYahoo(PRICES);
+    await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl, now: () => THU_EVENING, getQuotes: quotes(THU_EVENING - 4000) }));
+    assert.equal(yahoo.urls.length, 0);
+  });
+
   it("never asks Yahoo about the rolling front month", async () => {
     const yahoo = fakeYahoo(PRICES);
     await getExpectedOpen("token", deps({ fetchImpl: yahoo.fetchImpl }));
@@ -98,23 +133,23 @@ describe("the expected-open feed", () => {
     const d = deps({ fetchImpl: yahoo.fetchImpl, now: () => t });
     await getExpectedOpen("token", d);
     assert.equal(yahoo.windows(), 2); // the NYMEX price at MCX's close, once per market
-    assert.equal(yahoo.currents(), 2);
+    assert.equal(yahoo.currents(), 3); // each market's current price, and the rupee rate
 
     t += EXPECTED_OPEN_TTL_MS - 1;
     await getExpectedOpen("token", d);
-    assert.equal(yahoo.urls.length, 4); // still the first result
+    assert.equal(yahoo.urls.length, 5); // still the first result
 
     t += 2;
     await getExpectedOpen("token", d);
     assert.equal(yahoo.windows(), 2); // the price at the close can't change: kept
-    assert.equal(yahoo.currents(), 4); // the current price is fetched afresh
+    assert.equal(yahoo.currents(), 5); // the current prices are fetched afresh; the rupee rate is a minute old at most, so it is kept
   });
 
   it("shares one fetch between polls that arrive together", async () => {
     const yahoo = fakeYahoo(PRICES);
     const d = deps({ fetchImpl: yahoo.fetchImpl });
     await Promise.all([getExpectedOpen("token", d), getExpectedOpen("token", d), getExpectedOpen("token", d)]);
-    assert.equal(yahoo.urls.length, 4);
+    assert.equal(yahoo.urls.length, 5);
   });
 
   it("waits, and asks again next time, while Yahoo hasn't caught up to the moment MCX closed", async () => {

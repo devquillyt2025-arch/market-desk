@@ -21,6 +21,7 @@ import {
   type ExpectedOpenMarket,
   type ExpectedOpenResult,
   type MarketInput,
+  type UsdInr,
 } from "@/lib/expectedOpen";
 import { fetchYahooChart } from "@/lib/globalMarketsFeed";
 import { parseYahooCandles, parseYahooMeta, priceBefore } from "@/lib/globalMarkets";
@@ -33,6 +34,8 @@ export const EXPECTED_OPEN_TTL_MS = 10_000;
 /** Yahoo keeps 1-minute candles for about a month; asking further back than this would only fail. */
 const MAX_REFERENCE_AGE_MS = 25 * 86_400_000;
 const MAX_REFERENCES = 60;
+/** The rupee barely moves in a minute, so one answer serves every poll for that long. */
+const USD_INR_TTL_MS = 60_000;
 
 type Quote = { price: number; lastTradeMs: number | null };
 
@@ -46,12 +49,14 @@ export type ExpectedOpenDeps = {
 };
 
 const references = new Map<string, number>();
+let usdInrCache: { at: number; value: UsdInr } | null = null;
 let cached: { at: number; result: ExpectedOpenResult } | null = null;
 let inFlight: Promise<ExpectedOpenResult | ExpectedOpenError> | null = null;
 
 /** For tests: forget everything fetched. */
 export function resetExpectedOpenFeed(): void {
   references.clear();
+  usdInrCache = null;
   cached = null;
   inFlight = null;
 }
@@ -74,6 +79,18 @@ async function defaultGetQuotes(token: string, keys: string[]) {
     }
   }
   return out;
+}
+
+/**
+ * Rupees per dollar, kept for a minute. A failed fetch gives the last good rate (its `asOf` says how old) rather than none: a rate a
+ * little old is far better for showing prices in rupees than no rate.
+ */
+async function usdInrNow(nowMs: number, fetchImpl: typeof fetch): Promise<UsdInr | null> {
+  if (usdInrCache && nowMs - usdInrCache.at < USD_INR_TTL_MS) return usdInrCache.value;
+  const meta = parseYahooMeta(await fetchYahooChart("INR=X", "?interval=1d&range=1d", fetchImpl));
+  if (!meta || !(meta.price > 0)) return usdInrCache?.value ?? null;
+  usdInrCache = { at: nowMs, value: { rate: meta.price, asOf: meta.asOf } };
+  return usdInrCache.value;
 }
 
 /**
@@ -122,7 +139,7 @@ async function build(token: string, deps: Required<Pick<ExpectedOpenDeps, "fetch
   const needed = new Set(shut.items.map((item) => item.market));
   if (needed.size === 0) return shut;
 
-  const filled = await Promise.all(
+  const withNymex = Promise.all(
     gathered.map(async (input): Promise<MarketInput> => {
       if (!needed.has(input.market) || !input.mcx || !input.nymex) return input;
       // The moment MCX last traded; the scheduled close if Upstox didn't say (otherwise this would wait for ever).
@@ -134,7 +151,9 @@ async function build(token: string, deps: Required<Pick<ExpectedOpenDeps, "fetch
       return { ...input, nymex: { ...input.nymex, atClose, now: current ? { price: current.price, asOf: current.asOf } : null } };
     }),
   );
-  return assembleExpectedOpen(nowMs, filled);
+  // The rupee rate is asked alongside, once for all markets: the desk shows NYMEX's dollars in rupees too.
+  const [filled, usdInr] = await Promise.all([withNymex, usdInrNow(nowMs, deps.fetchImpl)]);
+  return assembleExpectedOpen(nowMs, filled, usdInr);
 }
 
 /** Where natural gas and crude oil are expected to open, or an error from Upstox ("token_expired" when its token has lapsed). */
