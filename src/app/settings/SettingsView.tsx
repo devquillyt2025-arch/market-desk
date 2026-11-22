@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { CheckCircleIcon, EyeIcon, EyeOffIcon, KeyIcon } from "@/components/icons";
+import NavTabsEditor from "@/components/NavTabsEditor";
 import ThemeToggle from "@/components/ThemeToggle";
 import { showToast } from "@/lib/toast";
 import { getUpstoxConfig, saveUpstoxToken, type UpstoxConfig } from "@/lib/upstoxConfigStore";
@@ -79,7 +80,7 @@ export default function SettingsView() {
     >
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Profile, Upstox access token, and appearance.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Profile, Upstox access token, tabs, and appearance.</p>
       </div>
 
       <section className={sectionClass}>
@@ -181,6 +182,16 @@ export default function SettingsView() {
         >
           {saving ? "Saving…" : "Save Token"}
         </button>
+      </section>
+
+      <section id="tabs" className={`${sectionClass} scroll-mt-4`}>
+        <h2 className="text-sm font-medium">Tabs</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Choose which pages show in the sidebar (and on a phone&apos;s bottom bar and More list), and in what order.
+        </p>
+        <div className="mt-4">
+          <NavTabsEditor />
+        </div>
       </section>
 
       <section className={sectionClass}>

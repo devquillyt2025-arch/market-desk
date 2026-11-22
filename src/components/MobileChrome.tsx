@@ -2,7 +2,8 @@
 
 /**
  * What frames the app on a phone (under 1024px, where the desktop sidebar is gone): a slim top bar with the page's name,
- * and a tab bar along the bottom edge, where a thumb rests - the four pages checked most often, and "More" for the rest.
+ * and a tab bar along the bottom edge, where a thumb rests - four pages (the four checked most often, or the first four of the device's
+ * own choice - see lib/navPrefs.ts), and "More" for the rest.
  * Both are fixed pieces of the screen: the page scrolls between them (see the shell in layout.tsx), so neither jumps when the
  * browser's own toolbar slides away. Each keeps clear of the notch and the home indicator (needs viewport-fit=cover).
  */
@@ -13,11 +14,13 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { lock } from "@/app/lock/actions";
-import { DotsIcon, LockIcon } from "@/components/icons";
+import { DotsIcon, LockIcon, PencilIcon } from "@/components/icons";
 import Modal from "@/components/Modal";
 import { SETTINGS_LINK, withIcon } from "@/components/navLinks";
 import ThemeToggle from "@/components/ThemeToggle";
-import { isOnPage, morePages, pageTitle, TAB_BAR } from "@/lib/navPages";
+import { isOnPage, pageTitle } from "@/lib/navPages";
+import { morePagesFor, tabBarPages } from "@/lib/navPrefs";
+import { useNavPrefs } from "@/lib/useNavPrefs";
 
 /** The PIN screen stands alone: nothing to navigate to while locked. */
 const LOCK_PATH = "/lock";
@@ -48,7 +51,8 @@ const TAB_CLASS =
 
 function MoreSheet({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
-  const pages = [...morePages().map(withIcon), SETTINGS_LINK];
+  const [prefs] = useNavPrefs();
+  const pages = [...morePagesFor(prefs).map(withIcon), SETTINGS_LINK];
 
   return (
     <Modal onClose={onClose} ariaLabel="More pages" className="sm:max-w-md">
@@ -75,7 +79,19 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
           })}
         </ul>
 
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-3 py-1.5">
+        <Link
+          href="/settings#tabs"
+          onClick={onClose}
+          className="mt-4 flex min-h-11 items-center justify-between rounded-xl border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-muted active:scale-[0.99]"
+        >
+          <span className="text-muted-foreground">Tabs</span>
+          <span className="flex items-center gap-1.5 font-medium text-foreground">
+            <PencilIcon className="size-4" />
+            Choose which show
+          </span>
+        </Link>
+
+        <div className="mt-2 flex items-center justify-between rounded-xl border border-border bg-card px-3 py-1.5">
           <span className="text-sm text-muted-foreground">Theme</span>
           <div className="flex items-center gap-1">
             <ThemeToggle />
@@ -99,10 +115,12 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
 export function MobileTabBar() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [prefs] = useNavPrefs();
   if (pathname === LOCK_PATH) return null;
 
-  // "More" reads as the open tab on any page that isn't one of the four.
-  const onMore = !TAB_BAR.some((tab) => isOnPage(pathname, tab.href));
+  const tabs = tabBarPages(prefs);
+  // "More" reads as the open tab on any page that isn't one of the bar's (up to four).
+  const onMore = !tabs.some((tab) => isOnPage(pathname, tab.href));
 
   return (
     <>
@@ -110,8 +128,9 @@ export function MobileTabBar() {
         aria-label="Main"
         className="shrink-0 border-t border-border bg-card/90 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden print:hidden"
       >
-        <ul className="grid grid-cols-5">
-          {TAB_BAR.map((tab) => {
+        {/* One column per tab and one for More: five with the usual four, fewer if the device shows fewer. */}
+        <ul className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}>
+          {tabs.map((tab) => {
             const { icon: Icon } = withIcon(tab);
             const active = isOnPage(pathname, tab.href);
             return (

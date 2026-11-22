@@ -1,5 +1,6 @@
 /**
- * The pages from lib/navPages.ts with their icons, for the sidebar (every page) and the phone's tab bar and More sheet.
+ * Icons for the pages in lib/navPages.ts, for the sidebar, the phone's tab bar and More sheet, and the tab editor. Which pages each
+ * of those shows, and in what order, is the device's choice (lib/navPrefs.ts).
  */
 
 import {
@@ -18,7 +19,7 @@ import {
   TrendingUpIcon,
   WalletIcon,
 } from "@/components/icons";
-import { NAV_PAGES, SETTINGS_PAGE, type NavPage } from "@/lib/navPages";
+import { SETTINGS_PAGE, type NavPage } from "@/lib/navPages";
 
 type Icon = React.ComponentType<{ className?: string }>;
 export type NavLink = NavPage & { icon: Icon };
@@ -43,5 +44,4 @@ export function withIcon(page: NavPage): NavLink {
   return { ...page, icon: ICONS[page.href] ?? GridIcon };
 }
 
-export const NAV_LINKS: readonly NavLink[] = NAV_PAGES.map(withIcon);
 export const SETTINGS_LINK: NavLink = { ...SETTINGS_PAGE, icon: SettingsIcon };
