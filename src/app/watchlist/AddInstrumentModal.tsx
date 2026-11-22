@@ -7,12 +7,11 @@
  * added twice. Before anything is typed it offers a short set of suggestions, so it is useful on first open.
  */
 
-import { motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AlertCircleIcon, CheckIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons";
-import { useDialogFocus } from "@/lib/useDialogFocus";
+import Modal from "@/components/Modal";
 import { useSettled } from "@/lib/useSettled";
 import { searchInstruments } from "@/lib/upstox/client";
 import type { InstrumentSearchResult } from "@/lib/upstox/types";
@@ -74,7 +73,6 @@ function ResultRow({ result, listed, pending, onAdd }: { result: WatchSearchResu
 }
 
 export function AddInstrumentModal({ listedKeys, onAdd, onClose }: AddInstrumentModalProps) {
-  const dialogRef = useDialogFocus<HTMLDivElement>(onClose);
   const [query, setQuery] = useState("");
   const settled = useSettled(query.trim(), 250);
   const [outcome, setOutcome] = useState<{ query: string; result: InstrumentSearchResult } | null>(null);
@@ -118,125 +116,105 @@ export function AddInstrumentModal({ listedKeys, onAdd, onClose }: AddInstrument
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-instrument-title"
-        onClick={(e) => e.stopPropagation()}
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        className="glass-panel flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden"
-      >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" />
+    <Modal onClose={onClose} ariaLabelledBy="add-instrument-title" className="flex sm:max-w-xl flex-col overflow-hidden">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" />
 
-        <div className="flex items-center gap-3 px-5 pb-3 pt-5">
-          <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/12 text-accent ring-1 ring-inset ring-accent/25">
-            <PlusIcon className="size-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h2 id="add-instrument-title" className="text-base font-semibold tracking-tight">
-              Add to watchlist
-            </h2>
-            <p className="text-sm text-muted-foreground">Stocks, indices and commodities - add as many as you like.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-          >
-            <XIcon className="size-4" />
-          </button>
+      <div className="flex items-center gap-3 px-5 pb-3 pt-5">
+        <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/12 text-accent ring-1 ring-inset ring-accent/25">
+          <PlusIcon className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="add-instrument-title" className="text-base font-semibold tracking-tight">
+            Add to watchlist
+          </h2>
+          <p className="text-sm text-muted-foreground">Stocks, indices and commodities - add as many as you like.</p>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
 
-        <div className="px-5 pb-3">
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search - try “reliance”, “gold” or “nifty bank”"
-              aria-label="Search instruments"
-              autoComplete="off"
-              spellCheck={false}
-              // The dialog hook's own marker: focused once the popup is in place.
-              data-autofocus=""
-              className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:border-accent focus:ring-4 focus:ring-accent/15 [&::-webkit-search-cancel-button]:hidden"
-            />
-          </div>
+      <div className="px-5 pb-3">
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search - try “reliance”, “gold” or “nifty bank”"
+            aria-label="Search instruments"
+            autoComplete="off"
+            spellCheck={false}
+            // The dialog hook's own marker: focused once the popup is in place.
+            data-autofocus=""
+            className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:border-accent focus:ring-4 focus:ring-accent/15 [&::-webkit-search-cancel-button]:hidden"
+          />
         </div>
+      </div>
 
-        <div className="min-h-[14rem] flex-1 overflow-y-auto px-3 pb-4">
-          {/* Always rendered, so a screen reader hears how many matches came back. */}
-          <p aria-live="polite" className="sr-only">
-            {loading ? "Searching" : searching && sections ? `${total} result${total === 1 ? "" : "s"}` : ""}
+      <div className="min-h-[14rem] flex-1 overflow-y-auto px-3 pb-4">
+        {/* Always rendered, so a screen reader hears how many matches came back. */}
+        <p aria-live="polite" className="sr-only">
+          {loading ? "Searching" : searching && sections ? `${total} result${total === 1 ? "" : "s"}` : ""}
+        </p>
+
+        {addError && (
+          <p role="alert" className="mx-2 mb-2 flex items-center gap-2 rounded-xl border border-danger-fg/30 bg-danger-fg/10 px-3.5 py-2.5 text-sm text-danger-fg">
+            <AlertCircleIcon className="size-4 shrink-0" />
+            {addError}
           </p>
+        )}
 
-          {addError && (
-            <p role="alert" className="mx-2 mb-2 flex items-center gap-2 rounded-xl border border-danger-fg/30 bg-danger-fg/10 px-3.5 py-2.5 text-sm text-danger-fg">
-              <AlertCircleIcon className="size-4 shrink-0" />
-              {addError}
-            </p>
-          )}
-
-          {error ? (
-            <div role="alert" className="mx-2 flex items-start gap-2.5 rounded-xl border border-danger-fg/30 bg-danger-fg/10 px-3.5 py-3 text-sm text-danger-fg">
-              <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
-              <span>
-                {error === "token_expired" ? (
-                  <>
-                    Your Upstox token has expired - search needs it.{" "}
-                    <Link href="/settings" className="font-medium underline underline-offset-2">
-                      Add a new one
-                    </Link>
-                    .
-                  </>
-                ) : error === "network_error" ? (
-                  "Couldn't reach the server. Check your connection and try again."
-                ) : (
-                  `Search failed: ${error}`
-                )}
-              </span>
+        {error ? (
+          <div role="alert" className="mx-2 flex items-start gap-2.5 rounded-xl border border-danger-fg/30 bg-danger-fg/10 px-3.5 py-3 text-sm text-danger-fg">
+            <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
+            <span>
+              {error === "token_expired" ? (
+                <>
+                  Your Upstox token has expired - search needs it.{" "}
+                  <Link href="/settings" className="font-medium underline underline-offset-2">
+                    Add a new one
+                  </Link>
+                  .
+                </>
+              ) : error === "network_error" ? (
+                "Couldn't reach the server. Check your connection and try again."
+              ) : (
+                `Search failed: ${error}`
+              )}
+            </span>
+          </div>
+        ) : loading ? (
+          <p className="px-3 py-10 text-center text-sm text-muted-foreground">Searching…</p>
+        ) : sections && total === 0 ? (
+          <p className="px-3 py-10 text-center text-sm text-muted-foreground">
+            {searching ? <>Nothing matches “{settled}”. Try a company name or its NSE symbol.</> : "Everything suggested is already on your watchlist."}
+          </p>
+        ) : (
+          sections && (
+            <div className="flex flex-col gap-3">
+              {!searching && <p className="px-2 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Suggestions</p>}
+              {SECTIONS.map(({ id, kind }) =>
+                sections[id].length === 0 ? null : (
+                  <section key={id} aria-label={KIND_LABELS[kind]}>
+                    <h3 className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABELS[kind]}</h3>
+                    <ul className="flex flex-col">
+                      {sections[id].map((result) => (
+                        <ResultRow key={result.itemKey} result={result} listed={listedKeys.has(result.itemKey)} pending={pending.has(result.itemKey)} onAdd={() => void handleAdd(result)} />
+                      ))}
+                    </ul>
+                  </section>
+                ),
+              )}
             </div>
-          ) : loading ? (
-            <p className="px-3 py-10 text-center text-sm text-muted-foreground">Searching…</p>
-          ) : sections && total === 0 ? (
-            <p className="px-3 py-10 text-center text-sm text-muted-foreground">
-              {searching ? <>Nothing matches “{settled}”. Try a company name or its NSE symbol.</> : "Everything suggested is already on your watchlist."}
-            </p>
-          ) : (
-            sections && (
-              <div className="flex flex-col gap-3">
-                {!searching && <p className="px-2 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Suggestions</p>}
-                {SECTIONS.map(({ id, kind }) =>
-                  sections[id].length === 0 ? null : (
-                    <section key={id} aria-label={KIND_LABELS[kind]}>
-                      <h3 className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABELS[kind]}</h3>
-                      <ul className="flex flex-col">
-                        {sections[id].map((result) => (
-                          <ResultRow key={result.itemKey} result={result} listed={listedKeys.has(result.itemKey)} pending={pending.has(result.itemKey)} onAdd={() => void handleAdd(result)} />
-                        ))}
-                      </ul>
-                    </section>
-                  ),
-                )}
-              </div>
-            )
-          )}
-        </div>
-      </motion.div>
-    </motion.div>
+          )
+        )}
+      </div>
+    </Modal>
   );
 }

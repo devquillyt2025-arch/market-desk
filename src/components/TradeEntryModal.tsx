@@ -1,15 +1,14 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { useId, useState } from "react";
 
 import DatePicker from "@/components/DatePicker";
 import { TrashIcon, XIcon } from "@/components/icons";
+import Modal from "@/components/Modal";
 import Select from "@/components/Select";
 import type { LivePositionInfo } from "@/lib/calculatePortfolio";
 import { formatAsOf, formatINR, pnlColorClass } from "@/lib/format";
 import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, INSTRUMENTS, type Instrument } from "@/lib/types";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 import {
   calculateEntryPnl,
   TRADE_ENTRY_OPTION_TYPES,
@@ -95,7 +94,6 @@ export default function TradeEntryModal({
   entityLabel = "Trade Entry",
   live,
 }: TradeEntryModalProps) {
-  const dialogRef = useDialogFocus(onClose);
   const titleId = useId();
   const [entryDate, setEntryDate] = useState(entry?.entry_date ?? todayISODate());
   const [instrument, setInstrument] = useState<Instrument>(entry?.instrument ?? "NIFTY");
@@ -205,296 +203,276 @@ export default function TradeEntryModal({
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto"
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 id={titleId} className="text-lg font-semibold tracking-tight">
-            {entry ? `Edit ${entityLabel}` : `Add ${entityLabel}`}
-          </h2>
+    <Modal onClose={onClose} ariaLabelledBy={titleId} className="flex sm:max-w-2xl flex-col">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+        <h2 id={titleId} className="text-lg font-semibold tracking-tight">
+          {entry ? `Edit ${entityLabel}` : `Add ${entityLabel}`}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-4 p-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-instrument" className={labelClass}>
+              Instrument
+            </label>
+            <Select
+              id="entry-instrument"
+              value={instrument}
+              onChange={setInstrument}
+              options={INSTRUMENT_OPTIONS}
+              size="sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-strike" className={labelClass}>
+              Strike Price
+            </label>
+            <input
+              id="entry-strike"
+              type="number"
+              step="1"
+              value={strikePrice}
+              onChange={(e) => setStrikePrice(e.target.value)}
+              placeholder="e.g. 23500"
+              className={`${inputClass} font-mono tabular-nums`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-option-type" className={labelClass}>
+              CE / PE
+            </label>
+            <Select
+              id="entry-option-type"
+              value={optionType}
+              onChange={setOptionType}
+              options={OPTION_TYPE_OPTIONS}
+              size="sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-expiry" className={labelClass}>
+              Expiry Date
+            </label>
+            <DatePicker id="entry-expiry" value={expiryDate} onChange={setExpiryDate} clearable />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-side" className={labelClass}>
+              Buy / Sell
+            </label>
+            <Select
+              id="entry-side"
+              value={side}
+              onChange={setSide}
+              options={SIDE_OPTIONS}
+              size="sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-lots" className={labelClass}>
+              Lots
+            </label>
+            <input
+              id="entry-lots"
+              type="number"
+              min={1}
+              step={1}
+              value={lots}
+              onChange={(e) => setLots(Math.max(1, Math.trunc(Number(e.target.value)) || 1))}
+              className={`${inputClass} font-mono tabular-nums`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-date" className={labelClass}>
+              Date
+            </label>
+            <DatePicker id="entry-date" value={entryDate} onChange={setEntryDate} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-closing-date" className={labelClass}>
+              Closing Date
+            </label>
+            <DatePicker id="entry-closing-date" value={closingDate} onChange={setClosingDate} clearable />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-buy-price" className={labelClass}>
+              Buy Price
+              {followBuy && <LiveTag />}
+            </label>
+            <input
+              id="entry-buy-price"
+              type="number"
+              step="0.01"
+              value={shownBuyPrice}
+              onChange={(e) => {
+                setBuyPrice(e.target.value);
+                if (side === "sell") setPendingLegTouched(true);
+              }}
+              placeholder="e.g. 120.50"
+              className={`${inputClass} font-mono tabular-nums`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-sell-price" className={labelClass}>
+              Sell Price
+              {followSell && <LiveTag />}
+            </label>
+            <input
+              id="entry-sell-price"
+              type="number"
+              step="0.01"
+              value={shownSellPrice}
+              onChange={(e) => {
+                setSellPrice(e.target.value);
+                if (side === "buy") setPendingLegTouched(true);
+              }}
+              placeholder="e.g. 145.75"
+              className={`${inputClass} font-mono tabular-nums`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="entry-status" className={labelClass}>
+              Status
+            </label>
+            <Select
+              id="entry-status"
+              value={status}
+              onChange={handleStatusChange}
+              options={STATUS_OPTIONS}
+              size="sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1 sm:col-span-3">
+            <label htmlFor="entry-remarks" className={labelClass}>
+              Remarks
+            </label>
+            <input
+              id="entry-remarks"
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Optional"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm">
+          <span className={labelClass}>P&amp;L</span>
+          <span
+            className={`font-mono font-semibold tabular-nums ${previewPnl === null ? "text-muted-foreground" : pnlColorClass(previewPnl)}`}
+          >
+            {previewPnl === null ? "—" : formatINR(previewPnl)}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({DEFAULT_LOT_SIZES[instrument]} × {lots} lot{lots === 1 ? "" : "s"})
+          </span>
+        </div>
+
+        {live && (
+          <div className="rounded-lg border border-border bg-bg-surface-alt p-3">
+            <div className="flex items-center gap-2">
+              <p className={labelClass}>{live.asOf != null ? `Last price · ${formatAsOf(live.asOf)}` : "Live"}</p>
+              <span
+                className={`size-1.5 rounded-full ${live.asOf != null ? "bg-warning" : "animate-pulse bg-profit"}`}
+                aria-hidden="true"
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              <div>
+                <dt className="text-[11px] text-muted-foreground">LTP</dt>
+                <dd className="font-mono text-base font-semibold tabular-nums">
+                  {live.ltp == null ? "—" : live.ltp.toFixed(2)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] text-muted-foreground">Live P&amp;L</dt>
+                <dd
+                  className={`font-mono text-base font-semibold tabular-nums ${
+                    live.pnl == null ? "text-muted-foreground" : pnlColorClass(live.pnl)
+                  }`}
+                >
+                  {live.pnl == null ? "—" : formatINR(live.pnl)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] text-muted-foreground">Brokerage if closed</dt>
+                <dd className="font-mono text-base tabular-nums text-muted-foreground">
+                  {live.brokerageIfClosed == null ? "—" : formatINR(live.brokerageIfClosed)}
+                </dd>
+              </div>
+            </div>
+            <div className={`mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 ${hasGreeks ? "sm:grid-cols-5" : ""}`}>
+              {/* A future has no Greeks - only its open interest is worth showing. */}
+              {hasGreeks && (
+                <>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Delta</dt>
+                    <dd className="font-mono text-sm tabular-nums">{formatGreek(live.delta, 3)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Gamma</dt>
+                    <dd className="font-mono text-sm tabular-nums">{formatGreek(live.gamma, 4)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Theta</dt>
+                    <dd className="font-mono text-sm tabular-nums">{formatGreek(live.theta, 2)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Vega</dt>
+                    <dd className="font-mono text-sm tabular-nums">{formatGreek(live.vega, 2)}</dd>
+                  </div>
+                </>
+              )}
+              <div>
+                <dt className="text-[11px] text-muted-foreground">OI</dt>
+                <dd className="font-mono text-sm tabular-nums">{formatOi(live.oi)}</dd>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {formError && <p className="text-sm text-danger-fg">{formError}</p>}
+      </div>
+
+      <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
+        {entry ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-loss/10"
+          >
+            <TrashIcon className="size-4" />
+            Delete
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
           >
-            <XIcon className="size-4" />
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
+          >
+            {saving ? "Saving…" : entry ? "Save Changes" : "Save Entry"}
           </button>
         </div>
-
-        <div className="flex flex-col gap-4 p-6">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-instrument" className={labelClass}>
-                Instrument
-              </label>
-              <Select
-                id="entry-instrument"
-                value={instrument}
-                onChange={setInstrument}
-                options={INSTRUMENT_OPTIONS}
-                size="sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-strike" className={labelClass}>
-                Strike Price
-              </label>
-              <input
-                id="entry-strike"
-                type="number"
-                step="1"
-                value={strikePrice}
-                onChange={(e) => setStrikePrice(e.target.value)}
-                placeholder="e.g. 23500"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-option-type" className={labelClass}>
-                CE / PE
-              </label>
-              <Select
-                id="entry-option-type"
-                value={optionType}
-                onChange={setOptionType}
-                options={OPTION_TYPE_OPTIONS}
-                size="sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-expiry" className={labelClass}>
-                Expiry Date
-              </label>
-              <DatePicker id="entry-expiry" value={expiryDate} onChange={setExpiryDate} clearable />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-side" className={labelClass}>
-                Buy / Sell
-              </label>
-              <Select
-                id="entry-side"
-                value={side}
-                onChange={setSide}
-                options={SIDE_OPTIONS}
-                size="sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-lots" className={labelClass}>
-                Lots
-              </label>
-              <input
-                id="entry-lots"
-                type="number"
-                min={1}
-                step={1}
-                value={lots}
-                onChange={(e) => setLots(Math.max(1, Math.trunc(Number(e.target.value)) || 1))}
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-date" className={labelClass}>
-                Date
-              </label>
-              <DatePicker id="entry-date" value={entryDate} onChange={setEntryDate} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-closing-date" className={labelClass}>
-                Closing Date
-              </label>
-              <DatePicker id="entry-closing-date" value={closingDate} onChange={setClosingDate} clearable />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-buy-price" className={labelClass}>
-                Buy Price
-                {followBuy && <LiveTag />}
-              </label>
-              <input
-                id="entry-buy-price"
-                type="number"
-                step="0.01"
-                value={shownBuyPrice}
-                onChange={(e) => {
-                  setBuyPrice(e.target.value);
-                  if (side === "sell") setPendingLegTouched(true);
-                }}
-                placeholder="e.g. 120.50"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-sell-price" className={labelClass}>
-                Sell Price
-                {followSell && <LiveTag />}
-              </label>
-              <input
-                id="entry-sell-price"
-                type="number"
-                step="0.01"
-                value={shownSellPrice}
-                onChange={(e) => {
-                  setSellPrice(e.target.value);
-                  if (side === "buy") setPendingLegTouched(true);
-                }}
-                placeholder="e.g. 145.75"
-                className={`${inputClass} font-mono tabular-nums`}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="entry-status" className={labelClass}>
-                Status
-              </label>
-              <Select
-                id="entry-status"
-                value={status}
-                onChange={handleStatusChange}
-                options={STATUS_OPTIONS}
-                size="sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1 sm:col-span-3">
-              <label htmlFor="entry-remarks" className={labelClass}>
-                Remarks
-              </label>
-              <input
-                id="entry-remarks"
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Optional"
-                className={inputClass}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm">
-            <span className={labelClass}>P&amp;L</span>
-            <span
-              className={`font-mono font-semibold tabular-nums ${previewPnl === null ? "text-muted-foreground" : pnlColorClass(previewPnl)}`}
-            >
-              {previewPnl === null ? "—" : formatINR(previewPnl)}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              ({DEFAULT_LOT_SIZES[instrument]} × {lots} lot{lots === 1 ? "" : "s"})
-            </span>
-          </div>
-
-          {live && (
-            <div className="rounded-lg border border-border bg-bg-surface-alt p-3">
-              <div className="flex items-center gap-2">
-                <p className={labelClass}>{live.asOf != null ? `Last price · ${formatAsOf(live.asOf)}` : "Live"}</p>
-                <span
-                  className={`size-1.5 rounded-full ${live.asOf != null ? "bg-warning" : "animate-pulse bg-profit"}`}
-                  aria-hidden="true"
-                />
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-3">
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">LTP</dt>
-                  <dd className="font-mono text-base font-semibold tabular-nums">
-                    {live.ltp == null ? "—" : live.ltp.toFixed(2)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Live P&amp;L</dt>
-                  <dd
-                    className={`font-mono text-base font-semibold tabular-nums ${
-                      live.pnl == null ? "text-muted-foreground" : pnlColorClass(live.pnl)
-                    }`}
-                  >
-                    {live.pnl == null ? "—" : formatINR(live.pnl)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Brokerage if closed</dt>
-                  <dd className="font-mono text-base tabular-nums text-muted-foreground">
-                    {live.brokerageIfClosed == null ? "—" : formatINR(live.brokerageIfClosed)}
-                  </dd>
-                </div>
-              </div>
-              <div className={`mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 ${hasGreeks ? "sm:grid-cols-5" : ""}`}>
-                {/* A future has no Greeks - only its open interest is worth showing. */}
-                {hasGreeks && (
-                  <>
-                    <div>
-                      <dt className="text-[11px] text-muted-foreground">Delta</dt>
-                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.delta, 3)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-[11px] text-muted-foreground">Gamma</dt>
-                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.gamma, 4)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-[11px] text-muted-foreground">Theta</dt>
-                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.theta, 2)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-[11px] text-muted-foreground">Vega</dt>
-                      <dd className="font-mono text-sm tabular-nums">{formatGreek(live.vega, 2)}</dd>
-                    </div>
-                  </>
-                )}
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">OI</dt>
-                  <dd className="font-mono text-sm tabular-nums">{formatOi(live.oi)}</dd>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {formError && <p className="text-sm text-danger-fg">{formError}</p>}
-        </div>
-
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
-          {entry ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-loss/10"
-            >
-              <TrashIcon className="size-4" />
-              Delete
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60 active:scale-95"
-            >
-              {saving ? "Saving…" : entry ? "Save Changes" : "Save Entry"}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </Modal>
   );
 }

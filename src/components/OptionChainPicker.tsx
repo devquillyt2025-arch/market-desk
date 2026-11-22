@@ -8,12 +8,12 @@
  * was picked and leaves the consequences to `onDone`.
  */
 
-import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { XIcon } from "@/components/icons";
 import LivePricingBanners from "@/components/LivePricingBanners";
 import LoadingState from "@/components/LoadingState";
+import Modal from "@/components/Modal";
 import Select from "@/components/Select";
 import { expiryCloseMs, istDateString, upcomingWeeklyExpiries, type LegSide, type LegType } from "@/lib/calculateStrategy";
 import { formatCompactINR } from "@/lib/format";
@@ -21,7 +21,6 @@ import type { PickedLeg } from "@/lib/strategyTransfer";
 import { INSTRUMENTS, INSTRUMENT_LABELS, type Instrument } from "@/lib/types";
 import { fetchExpiries, fetchOptionChain } from "@/lib/upstox/client";
 import { isUpstoxOptionChainError, type UpstoxOptionChainStrike, type UpstoxOptionLeg } from "@/lib/upstox/types";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 
 const POLL_MS = 10_000;
 const INSTRUMENT_OPTIONS = INSTRUMENTS.map((i) => ({ value: i, label: INSTRUMENT_LABELS[i] }));
@@ -71,7 +70,6 @@ export default function OptionChainPicker({
   onDone,
   onClose,
 }: Props) {
-  const dialogRef = useDialogFocus();
   const [instrument, setInstrument] = useState<Instrument>(initialInstrument);
   const [pickedExpiry, setPickedExpiry] = useState<string | null>(initialExpiry ?? null);
   const [view, setView] = useState<View>("ltp");
@@ -89,13 +87,6 @@ export default function OptionChainPicker({
   const scrolledForRef = useRef<string | null>(null);
   const expiriesRequestedRef = useRef<Set<Instrument>>(new Set());
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
 
   // --- Expiries --------------------------------------------------------------
 
@@ -380,207 +371,187 @@ export default function OptionChainPicker({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Option chain"
-        className="glass-panel flex h-[88vh] w-full max-w-3xl flex-col overflow-hidden"
-      >
-        {/* Header */}
-        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <div className="w-36">
-            <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} size="sm" />
-          </div>
-          <div className="text-sm font-semibold">
-            {spot !== null ? <span className="font-mono tabular-nums">{spot.toFixed(2)}</span> : <span className="text-muted-foreground">Spot —</span>}
-          </div>
-          <div className="w-28">
-            <Select value={expiry ?? ""} onChange={setPickedExpiry} options={expiryOptions} size="sm" />
-          </div>
-          <div role="tablist" className="flex overflow-hidden rounded-lg border border-border">
-            {VIEWS.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                role="tab"
-                aria-selected={view === v.id}
-                onClick={() => setView(v.id)}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  view === v.id ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-auto flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <XIcon className="size-4" />
-          </button>
+    <Modal onClose={onClose} ariaLabel="Option chain" className="flex h-full sm:max-w-3xl flex-col overflow-hidden sm:h-[88dvh]">
+      {/* Header */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+        <div className="w-36">
+          <Select value={instrument} onChange={handleInstrumentChange} options={INSTRUMENT_OPTIONS} size="sm" />
         </div>
+        <div className="text-sm font-semibold">
+          {spot !== null ? <span className="font-mono tabular-nums">{spot.toFixed(2)}</span> : <span className="text-muted-foreground">Spot —</span>}
+        </div>
+        <div className="w-28">
+          <Select value={expiry ?? ""} onChange={setPickedExpiry} options={expiryOptions} size="sm" />
+        </div>
+        <div role="tablist" className="flex overflow-hidden rounded-lg border border-border">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              role="tab"
+              aria-selected={view === v.id}
+              onClick={() => setView(v.id)}
+              className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                view === v.id ? "bg-accent-solid text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="ml-auto flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
 
-        {(status === "token_expired" || status === "network_error") && (
-          <div className="shrink-0 px-4 pt-3">
-            <LivePricingBanners tokenExpired={status === "token_expired"} offline={status === "network_error"} />
-          </div>
-        )}
+      {(status === "token_expired" || status === "network_error") && (
+        <div className="shrink-0 px-4 pt-3">
+          <LivePricingBanners tokenExpired={status === "token_expired"} offline={status === "network_error"} />
+        </div>
+      )}
 
-        {/* Ladder */}
-        <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto">
-          <div className="min-w-[560px]">
-            <div className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_4.5rem_3rem_minmax(0,1fr)] border-b border-border bg-card text-xs text-muted-foreground">
-              <div className="flex items-center gap-1 px-2 py-2">
-                {headerCells[view].call.map(([label, cls], i) => (
-                  <span key={i} className={`truncate ${cls}`}>
-                    {label}
-                  </span>
-                ))}
-              </div>
-              <div className="py-2 text-center">Strike</div>
-              <div className="py-2 text-center">IV</div>
-              <div className="flex items-center gap-1 px-2 py-2">
-                {headerCells[view].put.map(([label, cls], i) => (
-                  <span key={i} className={`truncate ${cls}`}>
-                    {label}
-                  </span>
-                ))}
-              </div>
+      {/* Ladder */}
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto">
+        <div className="min-w-[560px]">
+          <div className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_4.5rem_3rem_minmax(0,1fr)] border-b border-border bg-card text-xs text-muted-foreground">
+            <div className="flex items-center gap-1 px-2 py-2">
+              {headerCells[view].call.map(([label, cls], i) => (
+                <span key={i} className={`truncate ${cls}`}>
+                  {label}
+                </span>
+              ))}
             </div>
-
-            {loading ? (
-              <LoadingState className="h-48" label="Loading option chain…" />
-            ) : rows.length === 0 ? (
-              <p className="p-8 text-center text-sm text-muted-foreground">
-                {noExpiries
-                  ? `No ${INSTRUMENT_LABELS[instrument]} expiries are listed right now.`
-                  : status === "token_expired"
-                    ? "Reconnect Upstox in Settings to see the option chain."
-                    : `Couldn't load the ${formatExpiry(expiry ?? today, today)} chain.`}
-              </p>
-            ) : (
-              rows.map((row) => {
-                const strike = row.strike_price!;
-                const isAtm = strike === atmStrike;
-                const iv = row.call_options?.option_greeks?.iv ?? row.put_options?.option_greeks?.iv;
-                return (
-                  <div
-                    key={strike}
-                    ref={isAtm ? atmRef : undefined}
-                    className={`grid grid-cols-[minmax(0,1fr)_4.5rem_3rem_minmax(0,1fr)] border-b border-border/50 text-sm ${
-                      isAtm ? "bg-accent/10" : ""
-                    }`}
-                  >
-                    {renderSide(row, "CE")}
-                    <div className="flex items-center justify-center bg-muted/50">
-                      <span
-                        className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${
-                          isAtm ? "bg-accent-solid text-accent-foreground" : ""
-                        }`}
-                      >
-                        {strike}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-center bg-muted/30 font-mono text-xs tabular-nums text-muted-foreground">
-                      {iv ? iv.toFixed(1) : "–"}
-                    </div>
-                    {renderSide(row, "PE")}
-                  </div>
-                );
-              })
-            )}
+            <div className="py-2 text-center">Strike</div>
+            <div className="py-2 text-center">IV</div>
+            <div className="flex items-center gap-1 px-2 py-2">
+              {headerCells[view].put.map(([label, cls], i) => (
+                <span key={i} className={`truncate ${cls}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Selection */}
-        {selectedList.length > 0 && (
-          <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-border px-4 py-2">
-            {selectedList.map(([key, leg]) => (
-              <div key={key} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs">
-                <span
-                  className={`flex size-5 items-center justify-center rounded font-bold ${
-                    leg.side === "buy" ? "bg-info/20 text-info" : "bg-danger-fg/15 text-danger-fg"
+          {loading ? (
+            <LoadingState className="h-48" label="Loading option chain…" />
+          ) : rows.length === 0 ? (
+            <p className="p-8 text-center text-sm text-muted-foreground">
+              {noExpiries
+                ? `No ${INSTRUMENT_LABELS[instrument]} expiries are listed right now.`
+                : status === "token_expired"
+                  ? "Reconnect Upstox in Settings to see the option chain."
+                  : `Couldn't load the ${formatExpiry(expiry ?? today, today)} chain.`}
+            </p>
+          ) : (
+            rows.map((row) => {
+              const strike = row.strike_price!;
+              const isAtm = strike === atmStrike;
+              const iv = row.call_options?.option_greeks?.iv ?? row.put_options?.option_greeks?.iv;
+              return (
+                <div
+                  key={strike}
+                  ref={isAtm ? atmRef : undefined}
+                  className={`grid grid-cols-[minmax(0,1fr)_4.5rem_3rem_minmax(0,1fr)] border-b border-border/50 text-sm ${
+                    isAtm ? "bg-accent/10" : ""
                   }`}
                 >
-                  {leg.side === "buy" ? "B" : "S"}
-                </span>
-                <span className="font-medium">
-                  {formatExpiry(leg.expiry, today)} {leg.strike} {leg.type}
-                </span>
-                <span className="font-mono text-muted-foreground">@{leg.ltp ?? "–"}</span>
-                <button
-                  type="button"
-                  aria-label="Fewer lots"
-                  onClick={() => setLots(key, leg.lots - 1)}
-                  className="flex size-5 items-center justify-center rounded border border-border hover:bg-muted"
-                >
-                  −
-                </button>
-                <span className="w-8 text-center font-mono tabular-nums">{leg.lots}L</span>
-                <button
-                  type="button"
-                  aria-label="More lots"
-                  onClick={() => setLots(key, leg.lots + 1)}
-                  className="flex size-5 items-center justify-center rounded border border-border hover:bg-muted"
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  aria-label="Remove"
-                  onClick={() => removeLeg(key)}
-                  className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-danger-fg"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <span className="text-sm text-muted-foreground">
-            {selectedList.length} leg{selectedList.length === 1 ? "" : "s"} selected
-            {replaceWarning && instrument !== initialInstrument ? " · replaces the legs on screen" : ""}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setSelected({})}
-              disabled={selectedList.length === 0}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 active:scale-95"
-            >
-              Clear All
-            </button>
-            <button
-              type="button"
-              onClick={handleDone}
-              disabled={selectedList.length === 0}
-              className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
-            >
-              {doneLabel(selectedList.length)}
-            </button>
-          </div>
+                  {renderSide(row, "CE")}
+                  <div className="flex items-center justify-center bg-muted/50">
+                    <span
+                      className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${
+                        isAtm ? "bg-accent-solid text-accent-foreground" : ""
+                      }`}
+                    >
+                      {strike}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-center bg-muted/30 font-mono text-xs tabular-nums text-muted-foreground">
+                    {iv ? iv.toFixed(1) : "–"}
+                  </div>
+                  {renderSide(row, "PE")}
+                </div>
+              );
+            })
+          )}
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+
+      {/* Selection */}
+      {selectedList.length > 0 && (
+        <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-border px-4 py-2">
+          {selectedList.map(([key, leg]) => (
+            <div key={key} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs">
+              <span
+                className={`flex size-5 items-center justify-center rounded font-bold ${
+                  leg.side === "buy" ? "bg-info/20 text-info" : "bg-danger-fg/15 text-danger-fg"
+                }`}
+              >
+                {leg.side === "buy" ? "B" : "S"}
+              </span>
+              <span className="font-medium">
+                {formatExpiry(leg.expiry, today)} {leg.strike} {leg.type}
+              </span>
+              <span className="font-mono text-muted-foreground">@{leg.ltp ?? "–"}</span>
+              <button
+                type="button"
+                aria-label="Fewer lots"
+                onClick={() => setLots(key, leg.lots - 1)}
+                className="flex size-5 items-center justify-center rounded border border-border hover:bg-muted"
+              >
+                −
+              </button>
+              <span className="w-8 text-center font-mono tabular-nums">{leg.lots}L</span>
+              <button
+                type="button"
+                aria-label="More lots"
+                onClick={() => setLots(key, leg.lots + 1)}
+                className="flex size-5 items-center justify-center rounded border border-border hover:bg-muted"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                aria-label="Remove"
+                onClick={() => removeLeg(key)}
+                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-danger-fg"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+        <span className="text-sm text-muted-foreground">
+          {selectedList.length} leg{selectedList.length === 1 ? "" : "s"} selected
+          {replaceWarning && instrument !== initialInstrument ? " · replaces the legs on screen" : ""}
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setSelected({})}
+            disabled={selectedList.length === 0}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 active:scale-95"
+          >
+            Clear All
+          </button>
+          <button
+            type="button"
+            onClick={handleDone}
+            disabled={selectedList.length === 0}
+            className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
+          >
+            {doneLabel(selectedList.length)}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

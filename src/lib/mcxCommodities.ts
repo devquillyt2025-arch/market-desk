@@ -34,24 +34,19 @@ const INFO: Record<string, CommodityInfo> = {
   ZINCMINI: { name: "Zinc Mini", glyph: "Zn", unit: "₹/kg" },
   ALUMINIUM: { name: "Aluminium", glyph: "Al", unit: "₹/kg" },
   ALUMINI: { name: "Aluminium Mini", glyph: "Al", unit: "₹/kg" },
-  LEAD: { name: "Lead", glyph: "Pb", unit: "₹/kg" },
-  LEADMINI: { name: "Lead Mini", glyph: "Pb", unit: "₹/kg" },
-  NICKEL: { name: "Nickel", glyph: "Ni", unit: "₹/kg" },
   COTTON: { name: "Cotton", glyph: "CO", unit: "₹/bale" },
   COTTONOIL: { name: "Cottonseed Oil", glyph: "CO", unit: "" },
   KAPAS: { name: "Kapas", glyph: "KA", unit: "" },
-  CARDAMOM: { name: "Cardamom", glyph: "CD", unit: "" },
-  MENTHAOIL: { name: "Mentha Oil", glyph: "MO", unit: "" },
   SUNOIL: { name: "Sunflower Oil", glyph: "SO", unit: "" },
-  STEELREBAR: { name: "Steel Rebar", glyph: "SR", unit: "" },
   ELECDMBL: { name: "Electricity", glyph: "EL", unit: "" },
 };
 
 /**
- * The commodities on the Heatmap's Commodities tab and in the Watchlist's starting list: the liquid energy and base/precious
- * metals, in the order a trader reads them. Each is quoted on its current-month future.
+ * The commodities a fresh Watchlist starts with (and its database seed): the liquid energy and base/precious metals, in the
+ * order a trader reads them. Each is quoted on its current-month future. The Heatmap's Commodities tab is not limited to these -
+ * it shows every commodity the exchange lists (see commodityFutures).
  */
-export const HEATMAP_COMMODITIES = ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC", "ALUMINIUM", "LEAD", "NICKEL"] as const;
+export const STARTING_COMMODITIES = ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC", "ALUMINIUM"] as const;
 
 function titleCase(text: string): string {
   return text
@@ -65,6 +60,28 @@ function titleCase(text: string): string {
 /** The MCX indices (MCXBULLDEX, MCXMETLDEX) trade as futures too, but they are indices, not commodities. */
 export function isMcxCommodity(symbol: string): boolean {
   return !symbol.startsWith("MCX");
+}
+
+/**
+ * Commodities the exchange lists that this app deliberately doesn't offer, anywhere: not on the Heatmap, not in the Watchlist's
+ * search, not as an instrument. The Heatmap and the search read the exchange's own contract list, so removing a commodity from the
+ * app's tables alone would not keep it out - it would reappear the moment the exchange listed it. This list does.
+ */
+export const NOT_OFFERED_COMMODITIES: ReadonlySet<string> = new Set(["MENTHAOIL", "CARDAMOM", "LEAD", "LEADMINI", "NICKEL"]);
+
+/** A commodity the app offers: an MCX commodity (not one of its indices) that isn't in NOT_OFFERED_COMMODITIES. */
+export function isOfferedCommodity(symbol: string): boolean {
+  return isMcxCommodity(symbol) && !NOT_OFFERED_COMMODITIES.has(symbol);
+}
+
+/**
+ * The commodities among a set of MCX futures, in the order given. The exchange's list also carries its two indices (MCXBULLDEX,
+ * MCXMETLDEX), which trade as futures but aren't commodities, and commodities this app doesn't offer (NOT_OFFERED_COMMODITIES).
+ * Taking the commodities from the exchange's own list, rather than from a list written down here, means one that starts trading
+ * later shows up without a code change.
+ */
+export function commodityFutures<T extends { symbol: string }>(futures: Iterable<T>): T[] {
+  return [...futures].filter((future) => isOfferedCommodity(future.symbol));
 }
 
 /** "Crude Oil", "Gold Mini" - from the catalog, or tidied from the exchange's own name for a commodity not in it. */

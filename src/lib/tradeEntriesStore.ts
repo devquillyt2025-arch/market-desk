@@ -150,14 +150,6 @@ export async function updateTradeEntry(id: string, input: AddTradeEntryInput): P
   );
 }
 
-export async function setTradeEntryStatus(id: string, status: TradeEntryStatus): Promise<void> {
-  const { error } = await supabase
-    .from("trade_entries")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
-}
-
 /**
  * Narrow, single-field update — for Live Portfolio's inline "set expiry"
  * picker, used on rows that already have strike_price + option_type but

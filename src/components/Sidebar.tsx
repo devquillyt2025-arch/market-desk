@@ -1,62 +1,25 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { lock } from "@/app/lock/actions";
+import { LockIcon, MenuIcon } from "@/components/icons";
+import { NAV_LINKS, SETTINGS_LINK } from "@/components/navLinks";
 import ThemeToggle from "@/components/ThemeToggle";
-import {
-  ActivityIcon,
-  BarChartIcon,
-  CalendarIcon,
-  EyeIcon,
-  FlaskIcon,
-  GridIcon,
-  LinkIcon,
-  LineChartIcon,
-  LockIcon,
-  MenuIcon,
-  NoteIcon,
-  ReceiptIcon,
-  SettingsIcon,
-  TrendingUpIcon,
-  WalletIcon,
-  XIcon,
-} from "@/components/icons";
+import { SECONDARY_GROUP_START } from "@/lib/navPages";
 
 /**
- * Live Portfolio, Watchlist, Heatmap and Important Links come first — the tabs checked
- * most often through the day — followed by the workflow tabs (Brokerage, Paper
- * Trade, Analysis, Trade Entries, Reports, Payment). Notes and Logs are reference
- * utilities, so they sit in their own group after a divider (see
- * SECONDARY_GROUP_START) rather than interrupting the tabs above.
+ * The desktop rail (1024px and up). On a phone there is no sidebar: the tab bar and top bar (MobileChrome.tsx) take its place,
+ * and both read the page list from navLinks.ts - Live Portfolio, Watchlist, Heatmap and Important Links first (the tabs checked
+ * most often through the day), then the workflow tabs, and Notes and Logs in their own group after a divider.
  *
  * Expanded and collapsed share one vertical rhythm — same header height, row
  * height, gap and divider — so every icon stays at the same height when the
  * rail is toggled and only the width changes.
  */
-const LINKS = [
-  { href: "/portfolio", label: "Live Portfolio", icon: TrendingUpIcon },
-  { href: "/watchlist", label: "Watchlist", icon: EyeIcon },
-  { href: "/heatmap", label: "Heatmap", icon: GridIcon },
-  { href: "/links", label: "Important Links", icon: LinkIcon },
-  { href: "/", label: "Brokerage", icon: ReceiptIcon },
-  { href: "/paper-trade", label: "Paper Trade", icon: FlaskIcon },
-  { href: "/analysis", label: "Analysis", icon: LineChartIcon },
-  { href: "/entries", label: "Trade Entries", icon: CalendarIcon },
-  { href: "/reports", label: "Reports", icon: BarChartIcon },
-  { href: "/payment", label: "Payment", icon: WalletIcon },
-  { href: "/notes", label: "Notes", icon: NoteIcon },
-  { href: "/logs", label: "Logs", icon: ActivityIcon },
-] as const;
-
-/** Pinned below the scrolling list, not part of it — settings isn't a workflow tab. */
-const SETTINGS_LINK = { href: "/settings", label: "Settings", icon: SettingsIcon } as const;
-
-/** Everything from this index on (Notes/Logs) renders as a visually separate "secondary" group, below a divider. */
-const SECONDARY_GROUP_START = 10;
 
 const COLLAPSE_STORAGE_KEY = "marketdesk:sidebar-collapsed";
 
@@ -96,7 +59,7 @@ function CollapsibleLabel({
   return (
     <span
       className={`inline-block overflow-hidden whitespace-nowrap align-middle transition-[max-width,opacity] ${COLLAPSE_TRANSITION} ${
-        collapsed ? "lg:max-w-0 lg:opacity-0" : "max-w-[180px] opacity-100"
+        collapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"
       } ${className ?? ""}`}
     >
       {children}
@@ -110,24 +73,22 @@ type NavItemProps = {
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   collapsed: boolean;
-  onClick: () => void;
 };
 
 /** Shared by both the scrolling nav list and the pinned Settings item below it, so they stay visually identical. */
-function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavItemProps) {
+function NavItem({ href, label, icon: Icon, active, collapsed }: NavItemProps) {
   return (
     <Link
       href={href}
-      onClick={onClick}
       title={collapsed ? undefined : label}
-      className={`group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-sm font-medium transition-colors ${
+      className={`group relative flex items-center rounded-lg py-3 text-sm font-medium transition-colors ${
         active ? "text-accent" : "text-muted-foreground hover:bg-card hover:text-foreground"
-      } ${collapsed ? "lg:justify-center lg:gap-0 lg:px-0" : ""}`}
+      } ${collapsed ? "justify-center" : "gap-3 px-3.5"}`}
     >
       {active && (
         <motion.span
           layoutId="active-nav-pill"
-          className={`absolute inset-0 rounded-lg bg-card shadow-sm ${collapsed ? "lg:bg-accent/10 lg:shadow-none" : ""}`}
+          className={`absolute inset-0 rounded-lg ${collapsed ? "bg-accent/10" : "bg-card shadow-sm"}`}
           transition={{ type: "spring", stiffness: 500, damping: 35 }}
         />
       )}
@@ -136,7 +97,7 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
         {label}
       </CollapsibleLabel>
 
-      {/* Hover tooltip — only meaningful once the inline label is gone (collapsed, desktop only). */}
+      {/* Hover tooltip — only meaningful once the inline label is gone (collapsed). */}
       {collapsed && (
         <span
           role="tooltip"
@@ -149,14 +110,10 @@ function NavItem({ href, label, icon: Icon, active, collapsed, onClick }: NavIte
   );
 }
 
-/**
- * Hidden at lg+ once collapsed (never on mobile, where the drawer always
- * shows the full brand regardless of the desktop-only collapsed flag) —
- * the collapse toggle button below takes over the same visual spot.
- */
+/** Hidden once collapsed — the collapse toggle button below takes over the same visual spot. */
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link href="/portfolio" className={`flex items-center gap-2 pointer-coarse:min-h-11 ${collapsed ? "lg:hidden" : ""}`}>
+    <Link href="/portfolio" className={`${collapsed ? "hidden" : "flex"} items-center gap-2`}>
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground">
         M
       </span>
@@ -169,7 +126,6 @@ function Brand({ collapsed }: { collapsed: boolean }) {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -199,157 +155,108 @@ export default function Sidebar() {
   if (pathname === "/lock") return null;
 
   return (
-    <>
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/80 px-4 py-3 backdrop-blur pointer-coarse:py-2 lg:hidden">
-        <Brand collapsed={false} />
+    <aside
+      className={`sticky top-0 hidden h-screen flex-col border-r border-border bg-background transition-[width] duration-[500ms] ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${
+        collapsed ? "w-[76px]" : "w-64"
+      }`}
+    >
+      {/* Fixed height: the collapse button (size-8) and the logo that replaces it (size-7) would otherwise give the two states different header heights, shifting every nav item below. */}
+      <div
+        className={`flex h-16 shrink-0 items-center gap-2 transition-[padding] duration-[500ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        }`}
+      >
+        <Brand collapsed={collapsed} />
+        {/* Collapsed only: the logo itself becomes the expand toggle, replacing the hamburger. */}
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Open menu"
-          className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+          onClick={toggleCollapsed}
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+          className={`${collapsed ? "flex" : "hidden"} size-7 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 active:scale-90`}
         >
-          <MenuIcon className="size-5" />
+          M
         </button>
-      </header>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar"
+          className={`${collapsed ? "hidden" : "flex"} size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-card hover:text-foreground active:scale-90`}
+        >
+          <MenuIcon className="size-4" />
+        </button>
+      </div>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          />
-        )}
-      </AnimatePresence>
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-background transition-transform duration-200 lg:sticky lg:inset-auto lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-[width] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          open ? "translate-x-0" : "-translate-x-full"
-        } ${collapsed ? "lg:w-[76px]" : "lg:w-64"}`}
+      {/*
+        No overflow-y-auto here (unlike before this redesign): the hover
+        tooltips below are absolutely positioned to escape the rail to the
+        right, and any ancestor overflow clipping — including overflow-y
+        alone, since an unset overflow-x computes to auto rather than
+        visible once overflow-y isn't visible — would cut them off. The 11
+        items fit a laptop-height viewport in both states; revisit (portal
+        the tooltip, or scroll only when needed) if the list grows.
+      */}
+      <nav
+        className={`flex flex-1 flex-col gap-1 py-2 transition-[padding] duration-[500ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed ? "px-2" : "px-3"
+        }`}
       >
-        {/* Fixed height: the collapse button (size-8) and the logo that replaces it (size-7) would otherwise give the two states different header heights, shifting every nav item below. */}
-        <div
-          className={`flex h-16 shrink-0 items-center justify-between gap-2 px-4 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:justify-center lg:px-2" : ""
-          }`}
-        >
-          <Brand collapsed={collapsed} />
-          {/* Collapsed-desktop only: the logo itself becomes the expand toggle, replacing the hamburger. */}
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            className={`hidden size-7 shrink-0 items-center justify-center rounded-md bg-accent-solid text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 active:scale-90 ${
-              collapsed ? "lg:flex" : ""
+        {NAV_LINKS.flatMap((link, index) => {
+          const item = (
+            <NavItem key={link.href} href={link.href} label={link.label} icon={link.icon} active={pathname === link.href} collapsed={collapsed} />
+          );
+
+          if (index === SECONDARY_GROUP_START) {
+            return [<div key={`divider-${link.href}`} className="mx-1 my-1.5 border-t border-border/70" />, item];
+          }
+          return [item];
+        })}
+      </nav>
+
+      {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. Theme toggle rides alongside it so switching themes never requires opening Settings first. */}
+      {/*
+        Collapsed, only Settings stays: the theme toggle and lock fold away
+        with the labels (same max-width/opacity transition as
+        CollapsibleLabel, so they slide in step with the rail's width), which
+        keeps the footer one row high in both states. `invisible` takes them
+        out of the tab order while folded; listed in the transition, it only
+        flips once the fade-out has finished.
+      */}
+      <div
+        className={`shrink-0 border-t border-border py-2 transition-[padding] duration-[500ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed ? "px-2" : "px-3"
+        }`}
+      >
+        <div className={`flex items-center ${collapsed ? "gap-0" : "gap-1"}`}>
+          <div className="min-w-0 flex-1">
+            <NavItem
+              href={SETTINGS_LINK.href}
+              label={SETTINGS_LINK.label}
+              icon={SETTINGS_LINK.icon}
+              active={pathname === SETTINGS_LINK.href}
+              collapsed={collapsed}
+            />
+          </div>
+          <div
+            className={`flex shrink-0 items-center gap-1 overflow-hidden transition-[max-width,opacity,visibility] ${COLLAPSE_TRANSITION} ${
+              collapsed ? "invisible max-w-0 opacity-0" : "max-w-20 opacity-100"
             }`}
           >
-            M
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="Close menu"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden active:scale-90"
-          >
-            <XIcon className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
-            className={`hidden size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-card hover:text-foreground active:scale-90 ${
-              collapsed ? "" : "lg:flex"
-            }`}
-          >
-            <MenuIcon className="size-4" />
-          </button>
-        </div>
-
-        {/*
-          No overflow-y-auto here (unlike before this redesign): the hover
-          tooltips below are absolutely positioned to escape the rail to the
-          right, and any ancestor overflow clipping — including overflow-y
-          alone, since an unset overflow-x computes to auto rather than
-          visible once overflow-y isn't visible — would cut them off. The 11
-          items fit a laptop-height viewport in both states; revisit (portal
-          the tooltip, or scroll only when needed) if the list grows.
-        */}
-        <nav
-          className={`flex flex-1 flex-col gap-1 px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:px-2" : ""
-          }`}
-        >
-          {LINKS.flatMap((link, index) => {
-            const item = (
-              <NavItem
-                key={link.href}
-                href={link.href}
-                label={link.label}
-                icon={link.icon}
-                active={pathname === link.href}
-                collapsed={collapsed}
-                onClick={() => setOpen(false)}
-              />
-            );
-
-            if (index === SECONDARY_GROUP_START) {
-              return [<div key={`divider-${link.href}`} className="mx-1 my-1.5 border-t border-border/70" />, item];
-            }
-            return [item];
-          })}
-        </nav>
-
-        {/* Pinned below the scrolling list — settings isn't a workflow tab, so it stays anchored at the bottom edge instead of scrolling with the rest. Theme toggle rides alongside it so switching themes never requires opening Settings first. */}
-        {/*
-          Collapsed, only Settings stays: the theme toggle and lock fold away
-          with the labels (same max-width/opacity transition as
-          CollapsibleLabel, so they slide in step with the rail's width), which
-          keeps the footer one row high in both states. `invisible` takes them
-          out of the tab order while folded; listed in the transition, it only
-          flips once the fade-out has finished.
-        */}
-        <div
-          className={`shrink-0 border-t border-border px-3 py-2 transition-[padding] lg:duration-[500ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            collapsed ? "lg:px-2" : ""
-          }`}
-        >
-          <div className={`flex items-center gap-1 ${collapsed ? "lg:gap-0" : ""}`}>
-            <div className="min-w-0 flex-1">
-              <NavItem
-                href={SETTINGS_LINK.href}
-                label={SETTINGS_LINK.label}
-                icon={SETTINGS_LINK.icon}
-                active={pathname === SETTINGS_LINK.href}
-                collapsed={collapsed}
-                onClick={() => setOpen(false)}
-              />
-            </div>
-            <div
-              className={`flex shrink-0 items-center gap-1 overflow-hidden transition-[max-width,opacity,visibility] ${COLLAPSE_TRANSITION} ${
-                collapsed ? "lg:invisible lg:max-w-0 lg:opacity-0" : "max-w-20 opacity-100"
-              }`}
-            >
-              <ThemeToggle />
-              <form action={lock}>
-                <button
-                  type="submit"
-                  aria-label="Lock MarketDesk"
-                  title="Lock"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <LockIcon className="size-[18px]" />
-                </button>
-              </form>
-            </div>
+            <ThemeToggle />
+            <form action={lock}>
+              <button
+                type="submit"
+                aria-label="Lock MarketDesk"
+                title="Lock"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <LockIcon className="size-[18px]" />
+              </button>
+            </form>
           </div>
         </div>
-      </aside>
-    </>
+      </div>
+    </aside>
   );
 }

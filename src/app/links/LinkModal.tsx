@@ -7,11 +7,10 @@
  * and Escape still do, so you are never trapped, but a stray click can't throw your work away.
  */
 
-import { motion } from "framer-motion";
 import type { FormEvent, ReactNode } from "react";
 
 import { AlertCircleIcon, GridIcon, LinkIcon, NoteIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons";
-import { useDialogFocus } from "@/lib/useDialogFocus";
+import Modal from "@/components/Modal";
 import { useSettled } from "@/lib/useSettled";
 
 import { LinkCardFace, toneStyle } from "./LinkCard";
@@ -52,7 +51,6 @@ function Field({ id, label, optional, icon, className = "", children }: { id: st
 }
 
 export function LinkModal({ editing, values, onChange, groupNames, error, saving, dirty, onSubmit, onClose }: LinkModalProps) {
-  const dialogRef = useDialogFocus<HTMLFormElement>(onClose);
   const groupName = values.group.trim() || "My Links";
   const tone = toneForGroup(groupName);
   const normalized = normalizeUrl(values.url);
@@ -65,30 +63,16 @@ export function LinkModal({ editing, values, onChange, groupNames, error, saving
   const urlInvalid = error?.startsWith("Enter a valid") ?? false;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
-      onClick={() => {
+    <Modal
+      onClose={onClose}
+      // A stray tap on the backdrop must not throw away what has been typed: only an untouched form closes that way.
+      onBackdropClick={() => {
         if (!dirty && !saving) onClose();
       }}
+      ariaLabelledBy="link-modal-title"
+      className="sm:max-w-4xl"
     >
-      <motion.form
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="link-modal-title"
-        onSubmit={onSubmit}
-        onClick={(e) => e.stopPropagation()}
-        noValidate
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        className="glass-panel flex max-h-[90dvh] w-full max-w-4xl flex-col overflow-y-auto"
-      >
+      <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-col">
         {/* The popup's own accent: a lit hairline along the top edge. */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" />
 
@@ -258,7 +242,7 @@ export function LinkModal({ editing, values, onChange, groupNames, error, saving
             {saving ? "Saving…" : editing ? "Save changes" : "Save link"}
           </button>
         </div>
-      </motion.form>
-    </motion.div>
+      </form>
+    </Modal>
   );
 }

@@ -1,29 +1,32 @@
 /**
- * Server-side proxy for one index future's live quote — what prices a futures position in Live Portfolio.
- * Same reasoning as option-chain/route.ts for living here: the token stays server-side.
+ * Server-side proxy for one future's live quote (an index future or an MCX commodity future) — what prices a futures
+ * position in Live Portfolio. Same reasoning as option-chain/route.ts for living here: the token stays server-side.
  *
  * `GET ?instrument=NIFTY&expiry=2026-12-29` -> `{ instrumentKey, ltp, prevClose, oi, volume }`. A future has no
- * row in an option chain, and its instrument key is only in Upstox's instrument file (see futures.ts), so the
- * contract is looked up there and then quoted with the same call the Watchlist uses.
+ * row in an option chain, and its instrument key is only in Upstox's instrument file (see futures.ts for the indices,
+ * mcx.ts for the commodities), so the contract is looked up there and then quoted with the same call the Watchlist uses.
  */
 
 import { NextResponse } from "next/server";
 
 import { isUpstoxGetError, upstoxData, upstoxErrorResponse, upstoxGet } from "@/lib/upstox/api";
 import { futureContractId, futuresExchangeFor, getIndexFutures, parseFutureQuote } from "@/lib/upstox/futures";
+import { getMcxContracts, isMcxError, mcxFutureKey } from "@/lib/upstox/mcx";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
-import { INDEX_INSTRUMENTS, type IndexInstrument } from "@/lib/types";
+import { COMMODITY_INSTRUMENTS, INDEX_INSTRUMENTS, type CommodityInstrument, type IndexInstrument } from "@/lib/types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+const isIndex = (value: string): value is IndexInstrument => (INDEX_INSTRUMENTS as readonly string[]).includes(value);
+const isCommodity = (value: string): value is CommodityInstrument => (COMMODITY_INSTRUMENTS as readonly string[]).includes(value);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const instrument = searchParams.get("instrument");
   const expiry = searchParams.get("expiry");
-  if (!instrument || !(INDEX_INSTRUMENTS as readonly string[]).includes(instrument) || !expiry || !ISO_DATE.test(expiry)) {
-    return NextResponse.json({ error: "Query must be ?instrument=NIFTY|BANKNIFTY|SENSEX&expiry=yyyy-mm-dd." }, { status: 400 });
+  if (!instrument || !(isIndex(instrument) || isCommodity(instrument)) || !expiry || !ISO_DATE.test(expiry)) {
+    return NextResponse.json({ error: "Query must be ?instrument=NIFTY|BANKNIFTY|SENSEX|<an MCX commodity>&expiry=yyyy-mm-dd." }, { status: 400 });
   }
-  const index = instrument as IndexInstrument;
 
   let token: string | null;
   try {
@@ -33,9 +36,16 @@ export async function GET(request: Request) {
   }
   if (!token) return NextResponse.json({ error: "token_expired" }, { status: 401 });
 
-  const futures = await getIndexFutures([futuresExchangeFor(index)]);
-  if (isUpstoxGetError(futures)) return upstoxErrorResponse(futures);
-  const key = futures.keyByContract.get(futureContractId(index, expiry));
+  let key: string | null;
+  if (isIndex(instrument)) {
+    const futures = await getIndexFutures([futuresExchangeFor(instrument)]);
+    if (isUpstoxGetError(futures)) return upstoxErrorResponse(futures);
+    key = futures.keyByContract.get(futureContractId(instrument, expiry)) ?? null;
+  } else {
+    const mcx = await getMcxContracts();
+    if (isMcxError(mcx)) return upstoxErrorResponse(mcx);
+    key = mcxFutureKey(mcx.contracts, instrument as CommodityInstrument, expiry);
+  }
   if (!key) {
     return NextResponse.json({ error: `No ${instrument} future is listed for ${expiry}.` }, { status: 404 });
   }

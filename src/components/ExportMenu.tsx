@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { ChevronDownIcon, DownloadIcon, RefreshIcon } from "@/components/icons";
+import { alignForMenu } from "@/lib/alignForMenu";
 
 export type ExportFormat = "csv" | "pdf" | "json";
 
@@ -44,6 +45,9 @@ const BUSY_LABELS: Record<ExportFormat, string> = {
   json: "Exporting…",
 };
 
+/** The menu's width in px (w-72), for deciding which edge it hangs from. */
+const MENU_WIDTH = 288;
+
 type ExportMenuProps = {
   onSelect: (format: ExportFormat) => void | Promise<void>;
 };
@@ -51,6 +55,8 @@ type ExportMenuProps = {
 export default function ExportMenu({ onSelect }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<ExportFormat | null>(null);
+  // Which edge of the button the menu hangs from, chosen as it opens so it stays on screen (see menuAlign).
+  const [align, setAlign] = useState<"left" | "right">("right");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -63,8 +69,8 @@ export default function ExportMenu({ onSelect }: ExportMenuProps) {
     function handlePointerDown(e: MouseEvent) {
       if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
   async function choose(format: ExportFormat) {
@@ -119,10 +125,14 @@ export default function ExportMenu({ onSelect }: ExportMenuProps) {
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setAlign(alignForMenu(wrapperRef.current, MENU_WIDTH));
+          setOpen(!open);
+        }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && !open) {
             e.preventDefault();
+            setAlign(alignForMenu(wrapperRef.current, MENU_WIDTH));
             setOpen(true);
           }
         }}
@@ -153,7 +163,7 @@ export default function ExportMenu({ onSelect }: ExportMenuProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
             transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute right-0 top-full z-[500] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 shadow-lg"
+            className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-[500] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 shadow-lg`}
           >
             {OPTIONS.map((option, index) => (
               <button

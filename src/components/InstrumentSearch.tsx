@@ -75,12 +75,12 @@ export default function InstrumentSearch({ options, value, onChange }: Instrumen
     }
     window.addEventListener("scroll", updateCoords, true);
     window.addEventListener("resize", updateCoords);
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("scroll", updateCoords, true);
       window.removeEventListener("resize", updateCoords);
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);

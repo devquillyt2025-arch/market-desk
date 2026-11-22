@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { iconTone, instrumentIconKind } from "@/lib/instrumentIcon";
-import { HEATMAP_COMMODITIES } from "@/lib/mcxCommodities";
+import { STARTING_COMMODITIES } from "@/lib/mcxCommodities";
 
 describe("which icon an instrument gets", () => {
   it("draws the commodities the Watchlist starts with", () => {
-    const kinds = Object.fromEntries(HEATMAP_COMMODITIES.map((symbol) => [symbol, instrumentIconKind({ kind: "commodity", symbol })]));
+    const kinds = Object.fromEntries(STARTING_COMMODITIES.map((symbol) => [symbol, instrumentIconKind({ kind: "commodity", symbol })]));
     assert.deepEqual(kinds, {
       CRUDEOIL: "oil",
       NATURALGAS: "gas",
@@ -15,8 +15,6 @@ describe("which icon an instrument gets", () => {
       COPPER: "copper",
       ZINC: "metal",
       ALUMINIUM: "metal",
-      LEAD: "metal",
-      NICKEL: "metal",
     });
   });
 

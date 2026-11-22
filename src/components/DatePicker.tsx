@@ -6,6 +6,12 @@
  * OS/browser and can't be reached by CSS at all, so it always looked out of
  * place next to every other themed control in a modal. This renders the
  * whole calendar itself, so it picks up the same tokens as everything else.
+ *
+ * On a phone the calendar is a bottom sheet (like every other pop-up there):
+ * large day cells to tap, and nothing to fall off the screen. On a wider
+ * screen it is a popup under the field, kept inside the viewport - a popup
+ * anchored to the field's left edge used to hang 67px off a 390px screen
+ * when the field was in the right-hand column of a form.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
@@ -13,6 +19,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CalendarIcon, ChevronDownIcon } from "@/components/icons";
+import Modal from "@/components/Modal";
+import { popupPosition } from "@/lib/sheet";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 type DatePickerProps = {
   /** ISO `yyyy-mm-dd`, matching what the native date input produced. */
@@ -43,6 +52,10 @@ const MONTH_LABELS = [
 const DEFAULT_TRIGGER_CLASS =
   "flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/30";
 
+/** The popup's size (w-64, and about this tall with six week rows) - what popupPosition needs to keep it on screen. */
+const POPUP_WIDTH = 256;
+const POPUP_HEIGHT = 352;
+
 /** Parsed as local midnight, not UTC — so the day-of-month never shifts by timezone. */
 function parseISODate(iso: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -64,60 +77,19 @@ function isSameDay(a: Date, b: Date): boolean {
 
 type Coords = { top: number; left: number };
 
-export default function DatePicker({ value, onChange, id, triggerClassName, clearable }: DatePickerProps) {
-  const selected = parseISODate(value);
-  const [open, setOpen] = useState(false);
-  const [viewMonth, setViewMonth] = useState(() => selected ?? new Date());
-  const [coords, setCoords] = useState<Coords | null>(null);
-  // The portal target (document.body) doesn't exist during server rendering
-  // — this flips true only after mounting in the browser, so the portal is
-  // skipped for the SSR/hydration pass and rendered only on the client.
-  const [mounted, setMounted] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
+type CalendarProps = {
+  viewMonth: Date;
+  setViewMonth: (month: Date) => void;
+  selected: Date | null;
+  clearable?: boolean;
+  /** Larger day cells for a thumb. */
+  large: boolean;
+  onPick: (date: Date) => void;
+  onClear: () => void;
+};
 
-  useEffect(() => {
-    // Unlike the `open`-driven state below, there's no user event to hook
-    // this off of — detecting "now running in the browser, past the
-    // SSR/hydration pass" is exactly what an effect is for.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-
-    function updateCoords() {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (rect) setCoords({ top: rect.bottom + 4, left: rect.left });
-    }
-    updateCoords();
-
-    function handlePointerDown(e: MouseEvent) {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target)) return;
-      if (popupRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    // Capture phase: `scroll` doesn't bubble, so this is the only way to
-    // notice the *modal's own* inner scroll container moving, not just the
-    // window itself — keeps the popup glued to the field either way instead
-    // of drifting off or (as a portal, now unclipped) staying stuck in place.
-    window.addEventListener("scroll", updateCoords, true);
-    window.addEventListener("resize", updateCoords);
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("scroll", updateCoords, true);
-      window.removeEventListener("resize", updateCoords);
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
+/** The month grid and its Today / Clear row - the same inside the popup and inside the phone's sheet. */
+function Calendar({ viewMonth, setViewMonth, selected, clearable, large, onPick, onClear }: CalendarProps) {
   const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth();
   const startOffset = new Date(year, month, 1).getDay();
@@ -135,6 +107,159 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
   );
   const today = new Date();
 
+  return (
+    <>
+      <div className="flex items-center justify-between pb-2">
+        <button
+          type="button"
+          onClick={() => setViewMonth(new Date(year, month - 1, 1))}
+          aria-label="Previous month"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronDownIcon className="size-3.5 rotate-90" />
+        </button>
+        <span className={`font-medium ${large ? "text-base" : "text-sm"}`}>
+          {MONTH_LABELS[month]} {year}
+        </span>
+        <button
+          type="button"
+          onClick={() => setViewMonth(new Date(year, month + 1, 1))}
+          aria-label="Next month"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronDownIcon className="size-3.5 -rotate-90" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-1 text-center">
+        {WEEKDAY_LABELS.map((label, i) => (
+          <span key={i} className="text-[11px] font-medium text-muted-foreground">
+            {label}
+          </span>
+        ))}
+        {cells.map((date) => {
+          const inMonth = date.getMonth() === month;
+          const isSelected = selected ? isSameDay(date, selected) : false;
+          const isToday = isSameDay(date, today);
+          return (
+            <button
+              key={toISODate(date)}
+              type="button"
+              onClick={() => onPick(date)}
+              aria-current={isToday ? "date" : undefined}
+              title={isToday ? "Today" : undefined}
+              className={`mx-auto flex items-center justify-center rounded-md text-sm transition-colors ${large ? "size-11 text-base" : "size-8"} ${
+                isSelected
+                  ? // Still marks today when it's also the chosen date — an outer ring around the solid fill.
+                    `bg-accent-solid font-medium text-accent-foreground ${isToday ? "ring-2 ring-accent/40 ring-offset-2 ring-offset-card" : ""}`
+                  : isToday
+                    ? "bg-accent/15 font-semibold text-accent ring-1 ring-inset ring-accent/60 hover:bg-accent/25"
+                    : inMonth
+                      ? "text-foreground hover:bg-muted"
+                      : "text-muted-foreground/40 hover:bg-muted"
+              }`}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 flex gap-1">
+        <button
+          type="button"
+          onClick={() => onPick(new Date())}
+          className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+        >
+          Today
+        </button>
+        {clearable && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+export default function DatePicker({ value, onChange, id, triggerClassName, clearable }: DatePickerProps) {
+  const selected = parseISODate(value);
+  const [open, setOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => selected ?? new Date());
+  const [coords, setCoords] = useState<Coords | null>(null);
+  // The portal target (document.body) doesn't exist during server rendering
+  // — this flips true only after mounting in the browser, so the portal is
+  // skipped for the SSR/hydration pass and rendered only on the client.
+  const [mounted, setMounted] = useState(false);
+  // Under 640px the calendar is a bottom sheet; from there up, a popup under the field.
+  const roomy = useMediaQuery("(min-width: 640px)", true);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Unlike the `open`-driven state below, there's no user event to hook
+    // this off of — detecting "now running in the browser, past the
+    // SSR/hydration pass" is exactly what an effect is for.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
+
+  /** Under the field, kept inside the viewport (see popupPosition). */
+  function placePopup(): Coords | null {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return popupPosition({
+      triggerLeft: rect.left,
+      triggerTop: rect.top,
+      triggerBottom: rect.bottom,
+      width: POPUP_WIDTH,
+      height: POPUP_HEIGHT,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
+  }
+
+  useEffect(() => {
+    // The sheet on a phone positions itself; only the popup follows the field.
+    if (!open || !roomy) return;
+
+    function updateCoords() {
+      const next = placePopup();
+      if (next) setCoords(next);
+    }
+    updateCoords();
+
+    // pointerdown, not mousedown: a touch (a tablet in the roomy layout) only synthesises a mouse event after the fact.
+    function handlePointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    // Capture phase: `scroll` doesn't bubble, so this is the only way to
+    // notice the *modal's own* inner scroll container moving, not just the
+    // window itself — keeps the popup glued to the field either way instead
+    // of drifting off or (as a portal, now unclipped) staying stuck in place.
+    window.addEventListener("scroll", updateCoords, true);
+    window.addEventListener("resize", updateCoords);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("scroll", updateCoords, true);
+      window.removeEventListener("resize", updateCoords);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, roomy]);
+
   function toggleOpen() {
     setOpen((prev) => {
       const next = !prev;
@@ -150,8 +275,8 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
         // `coords` land in the same render — otherwise the popup would
         // render once at its stale position (or 0,0) before the effect
         // catches up a frame later.
-        const rect = triggerRef.current?.getBoundingClientRect();
-        if (rect) setCoords({ top: rect.bottom + 4, left: rect.left });
+        const placed = placePopup();
+        if (placed) setCoords(placed);
       }
       return next;
     });
@@ -161,6 +286,15 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
     onChange(toISODate(date));
     setOpen(false);
   }
+
+  function clearDate() {
+    onChange("");
+    setOpen(false);
+  }
+
+  const calendar = (large: boolean) => (
+    <Calendar viewMonth={viewMonth} setViewMonth={setViewMonth} selected={selected} clearable={clearable} large={large} onPick={selectDate} onClear={clearDate} />
+  );
 
   return (
     <>
@@ -190,7 +324,8 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
           // block for any ordinary `position: absolute`/`fixed` descendant —
           // so the popup stayed trapped inside the modal's box, and the
           // modal's own `overflow-y-auto` grew a scrollbar to fit it instead
-          // of letting it float freely above everything.
+          // of letting it float freely above everything. The phone's sheet is
+          // portaled for the same reason.
           //
           // AnimatePresence itself stays mounted unconditionally (portaled
           // every render) so it can see the calendar go from present to
@@ -199,8 +334,18 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
           // (AnimatePresence included) the instant `open` flips, before it
           // gets a chance to animate anything out.
           <AnimatePresence>
-            {open && coords && (
+            {open && !roomy && (
+              // Above the dialog the field is in (z 300) and its confirmations (400). The marker is how a surrounding popover
+              // (Reports' custom range) tells a tap on this calendar from one outside it.
+              <Modal key="date-sheet" onClose={() => setOpen(false)} ariaLabel="Choose a date" z={500} className="sm:max-w-sm">
+                <div data-picker-popup="" className="px-4 pb-4 pt-1">
+                  {calendar(true)}
+                </div>
+              </Modal>
+            )}
+            {open && roomy && coords && (
               <motion.div
+                key="date-popup"
                 ref={popupRef}
                 // Lets a surrounding popover (Reports' custom range) tell a click on this calendar from one outside it.
                 data-picker-popup=""
@@ -211,83 +356,7 @@ export default function DatePicker({ value, onChange, id, triggerClassName, clea
                 style={{ position: "fixed", top: coords.top, left: coords.left }}
                 className="z-[500] w-64 rounded-lg border border-border bg-card p-3 shadow-lg"
               >
-              <div className="flex items-center justify-between pb-2">
-                <button
-                  type="button"
-                  onClick={() => setViewMonth(new Date(year, month - 1, 1))}
-                  aria-label="Previous month"
-                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <ChevronDownIcon className="size-3.5 rotate-90" />
-                </button>
-                <span className="text-sm font-medium">
-                  {MONTH_LABELS[month]} {year}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setViewMonth(new Date(year, month + 1, 1))}
-                  aria-label="Next month"
-                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <ChevronDownIcon className="size-3.5 -rotate-90" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-7 gap-y-1 text-center">
-                {WEEKDAY_LABELS.map((label, i) => (
-                  <span key={i} className="text-[11px] font-medium text-muted-foreground">
-                    {label}
-                  </span>
-                ))}
-                {cells.map((date) => {
-                  const inMonth = date.getMonth() === month;
-                  const isSelected = selected ? isSameDay(date, selected) : false;
-                  const isToday = isSameDay(date, today);
-                  return (
-                    <button
-                      key={toISODate(date)}
-                      type="button"
-                      onClick={() => selectDate(date)}
-                      aria-current={isToday ? "date" : undefined}
-                      title={isToday ? "Today" : undefined}
-                      className={`mx-auto flex size-8 items-center justify-center rounded-md text-sm transition-colors ${
-                        isSelected
-                          ? // Still marks today when it's also the chosen date — an outer ring around the solid fill.
-                            `bg-accent-solid font-medium text-accent-foreground ${isToday ? "ring-2 ring-accent/40 ring-offset-2 ring-offset-card" : ""}`
-                          : isToday
-                            ? "bg-accent/15 font-semibold text-accent ring-1 ring-inset ring-accent/60 hover:bg-accent/25"
-                            : inMonth
-                              ? "text-foreground hover:bg-muted"
-                              : "text-muted-foreground/40 hover:bg-muted"
-                      }`}
-                    >
-                      {date.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-2 flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => selectDate(new Date())}
-                  className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-accent transition-colors hover:bg-accent/10"
-                >
-                  Today
-                </button>
-                {clearable && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange("");
-                      setOpen(false);
-                    }}
-                    className="flex-1 rounded-md py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+                {calendar(false)}
               </motion.div>
             )}
           </AnimatePresence>,

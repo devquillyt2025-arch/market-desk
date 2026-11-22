@@ -393,3 +393,26 @@ export function PlayIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function CommoditiesIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      {/* Wheat/grain stalk = agricultural; bar + flame = energy; coin = metals */}
+      <path d="M12 2v20M8 6c0 0 1.5 2 4 2s4-2 4-2" />
+      <path d="M6 10c0 0 2 2.5 6 2.5S18 10 18 10" />
+      <path d="M4 15h16" />
+      <path d="M7 19h10" />
+    </svg>
+  );
+}
+
+/** Three dots in a row: "more" - the tab bar's last slot, which opens the pages that aren't on it. */
+export function DotsIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <circle cx="5.5" cy="12" r="1.4" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+      <circle cx="18.5" cy="12" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}

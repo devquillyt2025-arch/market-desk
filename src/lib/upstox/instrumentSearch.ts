@@ -6,7 +6,7 @@
  * commodity once per expiry month while the Watchlist wants it once.
  */
 
-import { commodityName, commodityUnit, contractMonthLabel, isMcxCommodity } from "@/lib/mcxCommodities";
+import { commodityName, commodityUnit, contractMonthLabel, isOfferedCommodity } from "@/lib/mcxCommodities";
 import type { WatchSearchResult } from "@/lib/watchlist";
 import { commodityItemKey, GIFT_NIFTY } from "@/lib/watchlist";
 import type { McxFuture } from "@/lib/upstox/mcx";
@@ -26,7 +26,7 @@ export function searchCommodities(futures: ReadonlyMap<string, McxFuture>, query
 
   const hits: { result: WatchSearchResult; rank: number }[] = [];
   for (const future of futures.values()) {
-    if (!isMcxCommodity(future.symbol)) continue;
+    if (!isOfferedCommodity(future.symbol)) continue;
     const name = commodityName(future.symbol, future.name);
     const haystack = `${future.symbol} ${name} ${future.name}`.toLowerCase();
     if (!terms.every((term) => haystack.includes(term))) continue;

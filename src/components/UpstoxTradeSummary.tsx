@@ -8,14 +8,14 @@
  * pieces is three trades.
  */
 
-import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { AnimatePresence } from "framer-motion";
+import { useState } from "react";
 
 import { XIcon } from "@/components/icons";
+import Modal from "@/components/Modal";
 import type { ReportSummary } from "@/lib/calculateReports";
 import { pnlColorClass } from "@/lib/format";
 import type { PnlChargesState } from "@/lib/useUpstoxReport";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 import { UPSTOX_SUMMARY_SCOPE_LABELS, type UpstoxChargesBreakdown, type UpstoxSummaryScope } from "@/lib/upstox/types";
 
 const inrPaise = new Intl.NumberFormat("en-IN", {
@@ -60,68 +60,40 @@ type ChargesDialogProps = {
 
 /** "Charges and Breakdown" popup, like the one behind Upstox's own "Charges & taxes" link. */
 function ChargesDialog({ charges, segment, caption, onClose }: ChargesDialogProps) {
-  const dialogRef = useDialogFocus();
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4 print:hidden"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="charges-dialog-title"
-        className="glass-panel flex w-full max-w-md flex-col overflow-hidden"
-      >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div>
-            <h2 id="charges-dialog-title" className="text-lg font-semibold tracking-tight">
-              Charges and Breakdown
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <XIcon className="size-4" />
-          </button>
+    <Modal onClose={onClose} ariaLabelledBy="charges-dialog-title" className="flex sm:max-w-md flex-col overflow-hidden print:hidden">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div>
+          <h2 id="charges-dialog-title" className="text-lg font-semibold tracking-tight">
+            Charges and Breakdown
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
         </div>
-        <dl className="px-5 py-3">
-          {CHARGE_LINES.filter((line) => line.always || charges[line.key] !== 0).map((line) => (
-            <Row
-              key={line.key}
-              // The tax Upstox's API files under "stt" is the commodities transaction tax on MCX - both, when the two are added together.
-              label={line.key === "stt" ? (segment === "COM" ? "Commodities transaction tax" : segment === "ALL" ? "Securities & commodities transaction tax" : line.label) : line.label}
-              value={inrPaise.format(charges[line.key])}
-            />
-          ))}
-          <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-2 pb-1.5 text-sm font-semibold">
-            <dt>Total</dt>
-            <dd className="font-mono tabular-nums">{inrPaise.format(charges.total)}</dd>
-          </div>
-        </dl>
-      </motion.div>
-    </motion.div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
+      <dl className="px-5 py-3">
+        {CHARGE_LINES.filter((line) => line.always || charges[line.key] !== 0).map((line) => (
+          <Row
+            key={line.key}
+            // The tax Upstox's API files under "stt" is the commodities transaction tax on MCX - both, when the two are added together.
+            label={line.key === "stt" ? (segment === "COM" ? "Commodities transaction tax" : segment === "ALL" ? "Securities & commodities transaction tax" : line.label) : line.label}
+            value={inrPaise.format(charges[line.key])}
+          />
+        ))}
+        <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-2 pb-1.5 text-sm font-semibold">
+          <dt>Total</dt>
+          <dd className="font-mono tabular-nums">{inrPaise.format(charges.total)}</dd>
+        </div>
+      </dl>
+    </Modal>
   );
 }
 

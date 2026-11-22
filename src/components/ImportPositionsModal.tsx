@@ -7,16 +7,15 @@
  * replace or extend the legs already on screen.
  */
 
-import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import { XIcon } from "@/components/icons";
 import LoadingState from "@/components/LoadingState";
+import Modal from "@/components/Modal";
 import { getCachedLivePortfolioEntries, getLivePortfolioEntries } from "@/lib/livePortfolioEntriesStore";
 import { getCachedPaperTradeEntries, getPaperTradeEntries } from "@/lib/paperTradeEntriesStore";
 import { isImportableEntry, type PriceMode } from "@/lib/strategyTransfer";
 import { INSTRUMENTS, INSTRUMENT_LABELS, type Instrument, type TradeEntry } from "@/lib/types";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 
 export type ImportSource = "live" | "paper";
 export type ImportMode = "replace" | "add";
@@ -66,7 +65,6 @@ function Radio<T extends string>({
 }
 
 export default function ImportPositionsModal({ source, currentInstrument, today, hasLegs, onImport, onClose }: Props) {
-  const dialogRef = useDialogFocus();
   const [entries, setEntries] = useState<TradeEntry[] | null>(
     source === "live" ? getCachedLivePortfolioEntries() : getCachedPaperTradeEntries(),
   );
@@ -92,13 +90,6 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
     };
   }, [source]);
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
 
   const open = useMemo(
     () =>
@@ -137,173 +128,153 @@ export default function ImportPositionsModal({ source, currentInstrument, today,
   const loading = entries === null && !loadFailed;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Import from ${SOURCE_LABELS[source]}`}
-        className="glass-panel flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden"
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-lg font-semibold tracking-tight">Import from {SOURCE_LABELS[source]}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <XIcon className="size-4" />
-          </button>
-        </div>
+    <Modal onClose={onClose} ariaLabel={`Import from ${SOURCE_LABELS[source]}`} className="flex sm:max-w-xl flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+        <h2 className="text-lg font-semibold tracking-tight">Import from {SOURCE_LABELS[source]}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-          {loading ? (
-            <LoadingState className="h-32" label="Loading positions…" />
-          ) : loadFailed && entries === null ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Couldn&apos;t load {SOURCE_LABELS[source]}. Check your connection and try again.
-            </p>
-          ) : open.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No open option or future positions in {SOURCE_LABELS[source]}. Options need a strike, CE/PE, expiry and the
-              &quot;Hold&quot; status; a future needs its expiry and that status.
-            </p>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                {INSTRUMENTS.filter((i) => counts[i]).map((i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      setPickedInstrument(i);
-                      setDeselected(new Set());
-                    }}
-                    className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-                      i === instrument
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {INSTRUMENT_LABELS[i]} <span className="text-xs opacity-70">{counts[i]}</span>
-                  </button>
-                ))}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+        {loading ? (
+          <LoadingState className="h-32" label="Loading positions…" />
+        ) : loadFailed && entries === null ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Couldn&apos;t load {SOURCE_LABELS[source]}. Check your connection and try again.
+          </p>
+        ) : open.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No open option or future positions in {SOURCE_LABELS[source]}. Options need a strike, CE/PE, expiry and the
+            &quot;Hold&quot; status; a future needs its expiry and that status.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              {INSTRUMENTS.filter((i) => counts[i]).map((i) => (
                 <button
+                  key={i}
                   type="button"
-                  onClick={() =>
-                    setDeselected(chosen.length === rows.filter((e) => !isExpired(e)).length ? new Set(rows.map((e) => e.id)) : new Set())
-                  }
-                  className="ml-auto text-sm font-medium text-accent hover:underline"
+                  onClick={() => {
+                    setPickedInstrument(i);
+                    setDeselected(new Set());
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                    i === instrument
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
                 >
-                  {chosen.length === rows.filter((e) => !isExpired(e)).length ? "Select none" : "Select all"}
+                  {INSTRUMENT_LABELS[i]} <span className="text-xs opacity-70">{counts[i]}</span>
                 </button>
-              </div>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setDeselected(chosen.length === rows.filter((e) => !isExpired(e)).length ? new Set(rows.map((e) => e.id)) : new Set())
+                }
+                className="ml-auto text-sm font-medium text-accent hover:underline"
+              >
+                {chosen.length === rows.filter((e) => !isExpired(e)).length ? "Select none" : "Select all"}
+              </button>
+            </div>
 
-              <ul className="flex flex-col gap-1.5">
-                {rows.map((e) => {
-                  const expired = isExpired(e);
-                  const price = e.side === "sell" ? e.sell_price : e.buy_price;
-                  return (
-                    <li key={e.id}>
-                      <label
-                        className={`flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm ${
-                          expired ? "opacity-50" : "cursor-pointer hover:bg-muted"
+            <ul className="flex flex-col gap-1.5">
+              {rows.map((e) => {
+                const expired = isExpired(e);
+                const price = e.side === "sell" ? e.sell_price : e.buy_price;
+                return (
+                  <li key={e.id}>
+                    <label
+                      className={`flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm ${
+                        expired ? "opacity-50" : "cursor-pointer hover:bg-muted"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!expired && !deselected.has(e.id)}
+                        disabled={expired}
+                        onChange={() => toggle(e.id)}
+                        className="size-4 accent-accent"
+                      />
+                      <span
+                        className={`flex size-6 shrink-0 items-center justify-center rounded text-xs font-bold ${
+                          e.side === "buy" ? "bg-info/20 text-info" : "bg-danger-fg/15 text-danger-fg"
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={!expired && !deselected.has(e.id)}
-                          disabled={expired}
-                          onChange={() => toggle(e.id)}
-                          className="size-4 accent-accent"
-                        />
-                        <span
-                          className={`flex size-6 shrink-0 items-center justify-center rounded text-xs font-bold ${
-                            e.side === "buy" ? "bg-info/20 text-info" : "bg-danger-fg/15 text-danger-fg"
-                          }`}
-                        >
-                          {e.side === "buy" ? "B" : "S"}
-                        </span>
-                        <span className="font-medium">
-                          {e.strike_price == null ? "Future" : `${e.strike_price.toFixed(0)} ${e.option_type}`}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {new Date(`${e.expiry_date}T00:00:00Z`).toLocaleDateString("en-IN", {
-                            day: "numeric",
-                            month: "short",
-                            timeZone: "UTC",
-                          })}
-                          {expired ? " · expired" : ""}
-                        </span>
-                        <span className="ml-auto text-right font-mono text-xs tabular-nums text-muted-foreground">
-                          {e.lots} lot{e.lots === 1 ? "" : "s"} @ {price}
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
+                        {e.side === "buy" ? "B" : "S"}
+                      </span>
+                      <span className="font-medium">
+                        {e.strike_price == null ? "Future" : `${e.strike_price.toFixed(0)} ${e.option_type}`}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {new Date(`${e.expiry_date}T00:00:00Z`).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          timeZone: "UTC",
+                        })}
+                        {expired ? " · expired" : ""}
+                      </span>
+                      <span className="ml-auto text-right font-mono text-xs tabular-nums text-muted-foreground">
+                        {e.lots} lot{e.lots === 1 ? "" : "s"} @ {price}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prices</span>
-                  <Radio value="entry" current={priceMode} onChange={setPriceMode} label="Entry price" hint="What the position was opened at" />
-                  <Radio value="live" current={priceMode} onChange={setPriceMode} label="Current market price" hint="Live LTP from the option chain (a future's own quote)" />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Legs on screen</span>
-                  <Radio
-                    value="replace"
-                    current={effectiveMode}
-                    onChange={setMode}
-                    label="Replace current legs"
-                    disabled={!hasLegs}
-                  />
-                  <Radio
-                    value="add"
-                    current={effectiveMode}
-                    onChange={setMode}
-                    label="Add to current legs"
-                    hint={switching ? "Different underlying — will replace" : undefined}
-                    disabled={!hasLegs || switching}
-                  />
-                </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prices</span>
+                <Radio value="entry" current={priceMode} onChange={setPriceMode} label="Entry price" hint="What the position was opened at" />
+                <Radio value="live" current={priceMode} onChange={setPriceMode} label="Current market price" hint="Live LTP from the option chain (a future's own quote)" />
               </div>
-            </>
-          )}
-        </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Legs on screen</span>
+                <Radio
+                  value="replace"
+                  current={effectiveMode}
+                  onChange={setMode}
+                  label="Replace current legs"
+                  disabled={!hasLegs}
+                />
+                <Radio
+                  value="add"
+                  current={effectiveMode}
+                  onChange={setMode}
+                  label="Add to current legs"
+                  hint={switching ? "Different underlying — will replace" : undefined}
+                  disabled={!hasLegs || switching}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={chosen.length === 0}
-            onClick={() => onImport(instrument, chosen, { mode: effectiveMode, priceMode })}
-            className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
-          >
-            Import {chosen.length} leg{chosen.length === 1 ? "" : "s"}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={chosen.length === 0}
+          onClick={() => onImport(instrument, chosen, { mode: effectiveMode, priceMode })}
+          className="rounded-lg bg-accent-solid px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50 active:scale-95"
+        >
+          Import {chosen.length} leg{chosen.length === 1 ? "" : "s"}
+        </button>
+      </div>
+    </Modal>
   );
 }

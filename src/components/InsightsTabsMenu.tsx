@@ -10,6 +10,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { SettingsIcon } from "@/components/icons";
 import Switch from "@/components/Switch";
+import { alignForMenu } from "@/lib/alignForMenu";
 import { OPTIONAL_INSIGHTS_TABS, type InsightsTabPrefs, type OptionalInsightsTab } from "@/lib/insightsTabPrefs";
 
 export default function InsightsTabsMenu({
@@ -20,6 +21,8 @@ export default function InsightsTabsMenu({
   onChange: (id: OptionalInsightsTab, shown: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Which edge of the button the menu hangs from, chosen as it opens so it stays on screen (see menuAlign).
+  const [align, setAlign] = useState<"left" | "right">("right");
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -35,10 +38,10 @@ export default function InsightsTabsMenu({
       setOpen(false);
       buttonRef.current?.focus();
     }
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
@@ -48,7 +51,10 @@ export default function InsightsTabsMenu({
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) setAlign(alignForMenu(rootRef.current, 320));
+          setOpen(!open);
+        }}
         aria-expanded={open}
         aria-controls={menuId}
         title="Choose which insight tabs to show"
@@ -64,7 +70,7 @@ export default function InsightsTabsMenu({
           id={menuId}
           role="group"
           aria-label="Insight tabs to show"
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-3 shadow-lg"
+          className={`absolute ${align === "right" ? "right-0" : "left-0"} top-[calc(100%+6px)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-3 shadow-lg`}
         >
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Show these tabs</p>
           <ul className="mt-2 flex flex-col gap-3">

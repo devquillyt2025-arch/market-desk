@@ -31,6 +31,7 @@ import {
   type StrategyLeg,
 } from "@/lib/calculateStrategy";
 import { simulationInputsFromLegs } from "@/lib/averaging";
+import { alignForMenu } from "@/lib/alignForMenu";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { loadLastSpots, saveLastSpot, type StoredSpot } from "@/lib/lastKnownPrices";
 import { loadSavedAnalysis, saveAnalysis } from "@/lib/savedAnalysis";
@@ -129,6 +130,8 @@ const INPUT_CLASS =
 
 function ImportMenu({ onPick }: { onPick: (source: ImportSource | "file") => void }) {
   const [open, setOpen] = useState(false);
+  // Which edge of the button the menu hangs from, chosen as it opens so it stays on screen (see menuAlign).
+  const [align, setAlign] = useState<"left" | "right">("right");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,10 +142,10 @@ function ImportMenu({ onPick }: { onPick: (source: ImportSource | "file") => voi
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
@@ -157,7 +160,10 @@ function ImportMenu({ onPick }: { onPick: (source: ImportSource | "file") => voi
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) setAlign(alignForMenu(ref.current, 224));
+          setOpen(!open);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
@@ -169,7 +175,7 @@ function ImportMenu({ onPick }: { onPick: (source: ImportSource | "file") => voi
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+4px)] z-50 w-56 rounded-lg border border-border bg-card p-1 shadow-lg"
+          className={`absolute ${align === "right" ? "right-0" : "left-0"} top-[calc(100%+4px)] z-50 w-56 rounded-lg border border-border bg-card p-1 shadow-lg`}
         >
           {items.map((item) => (
             <button

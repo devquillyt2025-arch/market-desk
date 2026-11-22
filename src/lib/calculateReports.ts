@@ -5,7 +5,7 @@
  * TradeEntry[] has the same shape and goes through the same maths.
  */
 
-import { calculateBrokerage, optionsSegmentFor, type BrokerageSegment } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, derivativeSegmentFor, type BrokerageSegment } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { localIsoDate } from "@/lib/localDate";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
@@ -46,12 +46,12 @@ export type ReportTrade = {
 /**
  * The tracked instruments (the NIFTY/BANKNIFTY/SENSEX indices, and MCX
  * crude oil and gold) are all derivatives — an entry is Options when it
- * carries a strike/option type, otherwise it's a Futures trade (billed at the
- * index futures rates, even for a commodity - commodity futures aren't
- * modelled). Neither Delivery nor Intraday (equity-only segments) applies here.
+ * carries a strike/option type, otherwise it's a Futures trade (at the index
+ * futures rates, or MCX's for a commodity). Neither Delivery nor Intraday
+ * (equity-only segments) applies here.
  */
 function entryBrokerageSegment(entry: TradeEntry): BrokerageSegment {
-  return entry.option_type ? optionsSegmentFor(entry.instrument) : "FUTURES";
+  return derivativeSegmentFor(entry.instrument, !entry.option_type);
 }
 
 /** The day the entry's sell order went in - the entry day for a short, the closing day for a long - which is when STT was charged. */

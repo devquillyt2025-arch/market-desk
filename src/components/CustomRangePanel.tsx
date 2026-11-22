@@ -34,7 +34,8 @@ export default function CustomRangePanel({ from, to, onFromChange, onToChange, o
   useEffect(() => {
     function handlePointerDown(e: MouseEvent) {
       const target = e.target as Element;
-      if (panelRef.current?.contains(target) || target.closest?.("[data-picker-popup]")) return;
+      // A tap on the phone calendar sheet counts as inside, and so does one on its dimmed backdrop or grab handle (which carry no marker).
+      if (panelRef.current?.contains(target) || target.closest?.("[data-picker-popup], .modal-overlay")) return;
       onClose();
     }
     function handleKeyDown(e: KeyboardEvent) {
@@ -45,10 +46,10 @@ export default function CustomRangePanel({ from, to, onFromChange, onToChange, o
     // fires that option's own handler (which reopens this panel) before a
     // bubbling listener here would run, and this would then close it straight
     // after. Running first, the reopen wins.
-    document.addEventListener("mousedown", handlePointerDown, true);
+    document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);

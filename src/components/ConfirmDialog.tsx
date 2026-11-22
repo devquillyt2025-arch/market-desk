@@ -8,11 +8,8 @@
  * just clears that state without the caller needing to know anything else.
  */
 
-import { motion } from "framer-motion";
-import { useEffect } from "react";
-
+import Modal from "@/components/Modal";
 import { AlertCircleIcon } from "@/components/icons";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 
 type ConfirmDialogProps = {
   title: string;
@@ -31,38 +28,11 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const dialogRef = useDialogFocus();
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      // Higher than the app's other modals (z-[300]) so this can stack on
-      // top when a delete is confirmed from inside an already-open editor.
-      className="glass-backdrop fixed inset-0 z-[400] flex items-center justify-center p-4"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
-        className="glass-panel w-full max-w-sm p-5"
-      >
+    // Higher than the app's other modals (z 300) so this can stack on top when a delete is confirmed from inside an
+    // already-open editor. Escape and a tap outside both cancel.
+    <Modal onClose={onCancel} role="alertdialog" ariaLabelledBy="confirm-dialog-title" z={400} className="sm:max-w-sm">
+      <div className="p-5">
         <div className="flex items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-loss/10 text-danger-fg">
             <AlertCircleIcon className="size-5" />
@@ -92,7 +62,7 @@ export default function ConfirmDialog({
             {confirmLabel}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </Modal>
   );
 }

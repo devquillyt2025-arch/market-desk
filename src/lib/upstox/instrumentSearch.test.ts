@@ -13,6 +13,12 @@ const futures = new Map<string, McxFuture>([
   fut("GOLDPETAL", "GOLD", "2026-11-30"),
   fut("SILVER", "SILVER", "2026-12-04"),
   fut("MCXBULLDEX", "MCXBULLDEX"),
+  // Listed by the exchange, but not offered by the app.
+  fut("LEAD", "LEAD", "2026-11-30"),
+  fut("LEADMINI", "LEAD", "2026-11-30"),
+  fut("NICKEL", "NICKEL", "2026-12-16"),
+  fut("CARDAMOM", "CARDAMOM", "2026-11-30"),
+  fut("MENTHAOIL", "MENTHAOIL", "2026-11-30"),
 ]);
 
 describe("cleanQuery", () => {
@@ -27,6 +33,14 @@ describe("cleanQuery", () => {
 });
 
 describe("searchCommodities", () => {
+  it("does not offer Lead, Lead Mini, Nickel, Cardamom or Mentha Oil, though the exchange lists them", () => {
+    for (const query of ["lead", "nickel", "cardamom", "mentha", "LEADMINI", "Mentha Oil", "ni", "ca"]) {
+      const found = searchCommodities(futures, query).map((r) => r.symbol);
+      for (const symbol of ["LEAD", "LEADMINI", "NICKEL", "CARDAMOM", "MENTHAOIL"]) assert.ok(!found.includes(symbol), `"${query}" found ${symbol}`);
+    }
+    assert.deepEqual(searchCommodities(futures, "lead"), []);
+  });
+
   it("finds a commodity by name or symbol, case-insensitively", () => {
     assert.deepEqual(searchCommodities(futures, "crude").map((r) => r.symbol), ["CRUDEOIL", "CRUDEOILM"]);
     assert.deepEqual(searchCommodities(futures, "SILVER").map((r) => r.symbol), ["SILVER"]);

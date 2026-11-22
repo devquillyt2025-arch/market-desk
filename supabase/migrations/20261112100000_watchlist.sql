@@ -21,8 +21,7 @@ create table watchlist_items (
 
 create index watchlist_items_order_idx on watchlist_items (sort_order, created_at);
 
--- Starting list: the three indices and the main MCX energy and metals - the same commodities the Heatmap's
--- Commodities tab shows. (The app's DEFAULT_WATCHLIST in src/lib/watchlist.ts must match - a test checks.)
+-- Starting list: the three indices and the main MCX energy and metals. (The app's DEFAULT_WATCHLIST in src/lib/watchlist.ts must match - a test checks.)
 insert into watchlist_items (kind, item_key, symbol, name, sort_order) values
   ('index', 'NSE_INDEX|Nifty 50', 'NIFTY', 'Nifty 50', 1),
   ('index', 'NSE_INDEX|Nifty Bank', 'BANKNIFTY', 'Bank Nifty', 2),
@@ -33,9 +32,7 @@ insert into watchlist_items (kind, item_key, symbol, name, sort_order) values
   ('commodity', 'MCX_COM|SILVER', 'SILVER', 'Silver', 7),
   ('commodity', 'MCX_COM|COPPER', 'COPPER', 'Copper', 8),
   ('commodity', 'MCX_COM|ZINC', 'ZINC', 'Zinc', 9),
-  ('commodity', 'MCX_COM|ALUMINIUM', 'ALUMINIUM', 'Aluminium', 10),
-  ('commodity', 'MCX_COM|LEAD', 'LEAD', 'Lead', 11),
-  ('commodity', 'MCX_COM|NICKEL', 'NICKEL', 'Nickel', 12)
+  ('commodity', 'MCX_COM|ALUMINIUM', 'ALUMINIUM', 'Aluminium', 10)
 on conflict (item_key) do nothing;
 
 grant usage on schema public to anon, authenticated;

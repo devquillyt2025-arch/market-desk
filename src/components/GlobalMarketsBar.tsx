@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useGlobalMarketsContext } from "@/components/GlobalMarketsProvider";
 import { ChevronDownIcon } from "@/components/icons";
@@ -28,6 +28,23 @@ function Bar() {
   const markets = useGlobalMarketsContext();
   const [prefs, savePrefs] = useTickerPrefs();
   const [collapsed, setCollapsed] = useState(false);
+  const barRef = useRef<HTMLElement>(null);
+
+  // The strip's real height, as --ticker-h on the page: a page locked to the window on a desktop (PAGE_HEIGHT_LOCK_CLASS) takes it
+  // off its height, so it fills what is left instead of running a strip's height past the bottom. Follows the strip folding and unfolding.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const update = () => root.style.setProperty("--ticker-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--ticker-h");
+    };
+  }, []);
 
   useEffect(() => {
     // Defaulting to expanded and syncing from localStorage only after mount avoids a hydration mismatch.
@@ -84,6 +101,7 @@ function Bar() {
 
   return (
     <section
+      ref={barRef}
       aria-label="Global market prices"
       // top-0 on phones too: the mobile header scrolls away (its sticky wrapper is only as tall as itself), so there is nothing to tuck under.
       className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur print:hidden"
@@ -129,7 +147,8 @@ function Bar() {
           aria-controls={collapsed ? undefined : STRIP_ID}
           aria-label={collapsed ? "Show global prices" : "Hide global prices"}
           title={collapsed ? "Show global prices" : "Hide global prices"}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:size-9"
+          data-compact=""
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <ChevronDownIcon className={`size-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
         </button>

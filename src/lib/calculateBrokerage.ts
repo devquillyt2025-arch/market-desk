@@ -14,12 +14,16 @@
  * transaction tax), 0.05% on the sell side, not the 0.1% STT of index options,
  * and MCX's transaction charge differs from NSE's - from Upstox's help-center
  * page on commodity pricing. CTT is reported in the `stt` field.
+ *
+ * MCX commodity futures are a segment of their own too: CTT is 0.01% on the sell side (non-agricultural), and MCX's transaction
+ * charge on a future is 0.0021%. These two are the published statutory / exchange rates, not read off Upstox's calculator the
+ * way the index-futures rate was - check them against it before trusting a rupee-exact figure.
  */
 
 import { round2, type TradeLegInput } from "@/lib/calculateTrade";
 import { isCommodityInstrument, type Instrument } from "@/lib/types";
 
-export type BrokerageSegment = "DELIVERY" | "INTRADAY" | "FUTURES" | "OPTIONS" | "COMMODITY_OPTIONS";
+export type BrokerageSegment = "DELIVERY" | "INTRADAY" | "FUTURES" | "OPTIONS" | "COMMODITY_OPTIONS" | "COMMODITY_FUTURES";
 
 type SegmentRates = {
   label: string;
@@ -35,7 +39,7 @@ type SegmentRates = {
   stampDutyBuyPercent: number;
 };
 
-export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
+const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
   DELIVERY: {
     label: "Delivery",
     brokeragePerOrder: 20,
@@ -82,6 +86,15 @@ export const SEGMENT_RATES: Record<BrokerageSegment, SegmentRates> = {
     transactionChargePercent: 0.0418,
     stampDutyBuyPercent: 0.003,
   },
+  COMMODITY_FUTURES: {
+    label: "Commodity futures",
+    brokeragePerOrder: 20,
+    brokeragePercent: 0.05,
+    sttBuyPercent: 0,
+    sttSellPercent: 0.01,
+    transactionChargePercent: 0.0021,
+    stampDutyBuyPercent: 0.002,
+  },
 };
 
 /**
@@ -95,6 +108,16 @@ const STT_SELL_PERCENT_BEFORE_HIKE: Partial<Record<BrokerageSegment, number>> = 
 /** The charge segment an option on `instrument` is billed under - the indices' options, or MCX commodity options. */
 export function optionsSegmentFor(instrument: Instrument): BrokerageSegment {
   return isCommodityInstrument(instrument) ? "COMMODITY_OPTIONS" : "OPTIONS";
+}
+
+/** The charge segment a future on `instrument` is billed under - the index futures, or MCX commodity futures. */
+export function futuresSegmentFor(instrument: Instrument): BrokerageSegment {
+  return isCommodityInstrument(instrument) ? "COMMODITY_FUTURES" : "FUTURES";
+}
+
+/** The charge segment of a derivative on `instrument`: its future's if it is one, otherwise its option's. */
+export function derivativeSegmentFor(instrument: Instrument, isFuture: boolean): BrokerageSegment {
+  return isFuture ? futuresSegmentFor(instrument) : optionsSegmentFor(instrument);
 }
 
 const SEBI_CHARGE_PERCENT = 0.0001; // ₹10 per crore of turnover, same across segments
@@ -194,12 +217,4 @@ export function calculateBrokerage(
     netSellValue: round2(netSellValue),
     pointsToBreakeven: round2(pointsToBreakeven),
   };
-}
-
-export function brokerageRuleText(segment: BrokerageSegment): string {
-  const rates = SEGMENT_RATES[segment];
-  if (rates.brokeragePercent === null) {
-    return `flat ₹${rates.brokeragePerOrder} per order`;
-  }
-  return `₹${rates.brokeragePerOrder} or ${rates.brokeragePercent}% of order value, whichever is lower, per order`;
 }

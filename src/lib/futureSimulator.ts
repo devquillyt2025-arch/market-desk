@@ -8,10 +8,13 @@
  * What-if engine models it in - the odds, the chart and the margin check come from that engine; see whatIf.ts.
  */
 
-import { calculateBrokerage } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, futuresSegmentFor } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
+import type { Instrument } from "@/lib/types";
 
 export type FuturePosition = {
+  /** Which future it is, so an MCX commodity is charged at MCX's rates; left out, the index futures' rates apply. */
+  instrument?: Instrument;
   side: "buy" | "sell";
   lots: number;
   lotSize: number;
@@ -68,7 +71,7 @@ function snapshot(side: FuturePosition["side"], lots: number, lotSize: number, a
 }
 
 export function simulateFuture(position: FuturePosition, order: FutureOrder): FutureSimulation {
-  const { side, lots, lotSize, avgPrice, livePrice } = position;
+  const { instrument, side, lots, lotSize, avgPrice, livePrice } = position;
   const before = snapshot(side, lots, lotSize, avgPrice, livePrice);
   const s = sign(side);
   const orderLots = order.kind === "exit" ? Math.min(Math.max(Math.floor(order.lots), 0), lots) : Math.max(Math.floor(order.lots), 0);
@@ -89,7 +92,7 @@ export function simulateFuture(position: FuturePosition, order: FutureOrder): Fu
   const buying = order.kind === "add" ? side === "buy" : side === "sell";
   const charges =
     orderQty > 0
-      ? calculateBrokerage("FUTURES", [buying ? { buyPrice: order.price, sellPrice: 0 } : { buyPrice: 0, sellPrice: order.price }], orderQty).totalCharges
+      ? calculateBrokerage(instrument ? futuresSegmentFor(instrument) : "FUTURES", [buying ? { buyPrice: order.price, sellPrice: 0 } : { buyPrice: 0, sellPrice: order.price }], orderQty).totalCharges
       : 0;
 
   return { before, after, booked, charges, lots: orderLots };

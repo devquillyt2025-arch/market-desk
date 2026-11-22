@@ -15,7 +15,7 @@ import {
   RANGE_PHRASES,
   type HeatmapRange,
 } from "@/lib/heatmap/ranges";
-import { HEATMAP_COMMODITIES, commodityGlyph, commodityName, commodityUnit } from "@/lib/mcxCommodities";
+import { commodityGlyph, commodityName, commodityUnit, isOfferedCommodity } from "@/lib/mcxCommodities";
 import type { HeatmapQuote, IndexQuote } from "@/lib/upstox/types";
 import { HEATMAP_POLL_MS, useHeatmap } from "@/lib/useHeatmap";
 
@@ -223,10 +223,13 @@ export default function HeatmapView() {
   const tiles = useMemo(() => {
     if (!quotes) return null;
     const quoteBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
-    // Either an index's stocks or the commodities - one shape, so ranking and rendering don't care which.
+    // Either an index's stocks or the commodities - one shape, so ranking and rendering don't care which. A commodity tile is
+    // whatever the server priced (every commodity the exchange lists, bar the ones the app doesn't offer); an index's tiles are its
+    // constituents. The offered check is repeated here because the quotes can be a result saved on this device before a commodity was
+    // taken off the list - on a morning the token has lapsed that saved copy is what is shown.
     const symbols: { symbol: string; stock: HeatmapStock | null }[] =
       index === COMMODITIES_TAB
-        ? HEATMAP_COMMODITIES.map((symbol) => ({ symbol, stock: null }))
+        ? quotes.filter((q) => isOfferedCommodity(q.symbol)).map((q) => ({ symbol: q.symbol, stock: null }))
         : getHeatmapStocks(index).map((stock) => ({ symbol: stock.symbol, stock }));
     return symbols
       .flatMap(({ symbol, stock }) => {
@@ -363,7 +366,10 @@ export default function HeatmapView() {
 
         {isCommodities && tiles && tiles.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Each tile is the commodity&apos;s current-month MCX future, in rupees per the unit shown.
+            Each tile is the commodity&apos;s current-month MCX future, in rupees per the unit shown. Mini and micro contracts sit beside the
+            full-size one: they follow the same price in smaller lots. A contract that hasn&apos;t traded yet is left out.
+            {range === "1D" &&
+              " A day is the latest session against the one before it, so after the close and over a weekend it still shows that day's move (Upstox's own previous close is reset after hours and would read as flat)."}
             {range !== "1D" &&
               " Beyond a day, changes use that contract's own price history, which only starts when the contract began trading — so a long period may show “—” — and the move can include a roll to a new month."}
           </p>

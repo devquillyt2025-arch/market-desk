@@ -39,7 +39,7 @@ describe("parseMcxInstruments", () => {
     }),
     // None of these is a tracked option.
     option({ instrument_key: "MCX_FO|fut", instrument_type: "FUT", strike_price: 0 }),
-    option({ instrument_key: "MCX_FO|silver", underlying_symbol: "SILVER" }),
+    option({ instrument_key: "MCX_FO|cotton", underlying_symbol: "COTTON" }),
     option({ instrument_key: "NSE_FO|1", segment: "NSE_FO" }),
     option({ instrument_key: "MCX_FO|nostrike", strike_price: 0 }),
   ]);

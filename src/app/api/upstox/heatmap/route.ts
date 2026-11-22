@@ -22,12 +22,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { istDateString } from "@/lib/calculateStrategy";
 import { COMMODITIES_TAB, getHeatmapStocks, heatmapInstrumentKey, isHeatmapTabId } from "@/lib/heatmap/constituents";
 import { DEFAULT_HEATMAP_RANGE, isHeatmapRange, rangeStartDate, type HeatmapRange } from "@/lib/heatmap/ranges";
+import { sessionReference } from "@/lib/heatmap/sessionMove";
 import { closeOnOrBefore, getDailyCloses } from "@/lib/upstox/dailyCloses";
+import { getLastTradeTimes } from "@/lib/upstox/lastTrades";
 import { UPSTOX_INSTRUMENT_KEYS } from "@/lib/upstox/instrumentKeys";
 import { getMcxContracts, isMcxError } from "@/lib/upstox/mcx";
 import { getUpstoxAccessToken } from "@/lib/upstox/token";
 import type { HeatmapQuote, IndexQuote } from "@/lib/upstox/types";
-import { HEATMAP_COMMODITIES } from "@/lib/mcxCommodities";
+import { commodityFutures } from "@/lib/mcxCommodities";
 import { INDEX_INSTRUMENTS } from "@/lib/types";
 
 type LtpEntry = { instrument_token?: string; last_price?: number; cp?: number };
@@ -71,10 +73,9 @@ export async function GET(request: NextRequest) {
   if (index === COMMODITIES_TAB) {
     const mcx = await getMcxContracts();
     if (isMcxError(mcx)) return NextResponse.json({ error: mcx.error }, { status: mcx.status });
-    tiles = HEATMAP_COMMODITIES.flatMap((symbol) => {
-      const future = mcx.futures.get(symbol);
-      return future ? [{ symbol, key: future.key }] : [];
-    });
+    // Every commodity the exchange lists - the mini and micro contracts too - not a fixed few. One that hasn't traded (Upstox lists
+    // Cotton, Kapas with no price at all) is dropped further down with the other zero prices, and appears once it trades.
+    tiles = commodityFutures(mcx.futures.values()).map((future) => ({ symbol: future.symbol, key: future.key }));
   } else {
     tiles = getHeatmapStocks(index).map((stock) => ({ symbol: stock.symbol, key: heatmapInstrumentKey(stock) }));
   }
@@ -121,6 +122,24 @@ export async function GET(request: NextRequest) {
   const referenceByKey = new Map<string, number | null>();
   if (range === "1D") {
     for (const [key, entry] of entryByToken) referenceByKey.set(key, entry.cp ?? null);
+
+    // MCX: Upstox resets its "previous close" after the close - for some contracts, not others - so Gold reads +0.14% beside
+    // Gold Mini's -4.41% when both fell about 4.4%. The latest session against the one before it, from the price history,
+    // is right at every hour and equals `cp` wherever `cp` is right (see heatmap/sessionMove.ts). Best effort: a contract whose
+    // history or last trade can't be had keeps `cp`.
+    if (index === COMMODITIES_TAB) {
+      const today = istDateString(Date.now());
+      const lastTrades = await getLastTradeTimes(token, stockKeys);
+      for (let i = 0; i < stockKeys.length; i += HISTORY_BATCH_SIZE) {
+        await Promise.all(
+          stockKeys.slice(i, i + HISTORY_BATCH_SIZE).map(async (key) => {
+            const history = await getDailyCloses(token, key, today);
+            if ("error" in history) return;
+            referenceByKey.set(key, sessionReference({ closes: history.closes, lastTradeMs: lastTrades.get(key) ?? null, cp: entryByToken.get(key)?.cp ?? null }));
+          }),
+        );
+      }
+    }
   } else {
     const today = istDateString(Date.now());
     const startDate = rangeStartDate(range, today);

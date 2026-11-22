@@ -151,7 +151,7 @@ function parseFileLeg(raw: unknown, index: number): DraftLegInput {
 export function parseStrategyImport(data: unknown): ParsedStrategy {
   if (isObject(data) && !Array.isArray(data) && data.format === FILE_FORMAT) {
     if (!isInstrument(data.instrument)) {
-      throw new Error("The file's underlying isn't Nifty, Bank Nifty, Sensex, crude oil, gold or natural gas.");
+      throw new Error("The file's underlying isn't a tracked index or commodity.");
     }
     if (!Array.isArray(data.legs)) throw new Error("The file has no legs.");
     return { instrument: data.instrument, legs: data.legs.map(parseFileLeg), skipped: 0 };

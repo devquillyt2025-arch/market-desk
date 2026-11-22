@@ -76,7 +76,7 @@ describe("natural gas contracts in Upstox's MCX list", () => {
   const parsed = parseMcxInstruments([
     row({}),
     row({ instrument_key: "MCX_FO|590394", instrument_type: "CE", underlying_symbol: "NATGASMINI", underlying_key: "MCX_FO|581136", strike_price: 490, lot_size: 250, qty_multiplier: 250 }),
-    row({ instrument_key: "MCX_FO|silver", underlying_symbol: "SILVER" }), // still not tracked
+    row({ instrument_key: "MCX_FO|cotton", underlying_symbol: "COTTON" }), // still not tracked
   ]);
 
   it("keeps natural gas and its mini, at their own lot sizes", () => {

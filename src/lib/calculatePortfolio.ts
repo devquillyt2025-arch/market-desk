@@ -6,7 +6,7 @@
  * calculateBrokerage.ts as-is rather than reimplementing either.
  */
 
-import { calculateBrokerage, optionsSegmentFor, type BrokerageBreakdown } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, derivativeSegmentFor, type BrokerageBreakdown } from "@/lib/calculateBrokerage";
 import { round2 } from "@/lib/calculateTrade";
 import { localIsoDate } from "@/lib/localDate";
 import { atmIvOfRows, spotOfRows } from "@/lib/strategyFutures";
@@ -308,7 +308,7 @@ function pricedRow(
   const { buyPrice, sellPrice } = syntheticPrices(entry, liveLtp);
   const livePnl = calculateEntryPnl({ instrument: entry.instrument, lots: entry.lots, buyPrice, sellPrice });
   const qty = entry.lots * DEFAULT_LOT_SIZES[entry.instrument];
-  const segment = isFutureEntry(entry) ? "FUTURES" : optionsSegmentFor(entry.instrument);
+  const segment = derivativeSegmentFor(entry.instrument, isFutureEntry(entry));
   const brokerageIfClosed = calculateBrokerage(segment, [{ buyPrice, sellPrice }], qty).totalCharges;
 
   return {
@@ -463,7 +463,7 @@ function averagePrice(value: number, quantity: number): number | null {
 
 /**
  * The charges on a position squared off today, line by line - brokerage, STT, exchange, GST, stamp duty, SEBI - billed under the
- * segment it traded in: a future at the futures rates, an option at its own. Null while either average is unknown (nothing bought or
+ * segment it traded in: a future at its futures rates (the index's or MCX's), an option at its own. Null while either average is unknown (nothing bought or
  * nothing sold). The Closed Today table and its detail popup both read this, so they can't disagree about a future.
  */
 export function closedPositionCharges(position: UpstoxPosition): BrokerageBreakdown | null {
@@ -471,7 +471,7 @@ export function closedPositionCharges(position: UpstoxPosition): BrokerageBreakd
   const sellAvg = averagePrice(position.sellValue, position.sellQuantity);
   if (buyAvg == null || sellAvg == null) return null;
   const isFuture = position.strike === null || position.optionType === null;
-  return calculateBrokerage(isFuture ? "FUTURES" : optionsSegmentFor(position.instrument), [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity);
+  return calculateBrokerage(derivativeSegmentFor(position.instrument, isFuture), [{ buyPrice: buyAvg, sellPrice: sellAvg }], position.buyQuantity);
 }
 
 export function summariseClosedPosition(position: UpstoxPosition): ClosedPositionSummary {

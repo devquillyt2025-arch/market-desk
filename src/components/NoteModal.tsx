@@ -1,13 +1,13 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
+import Modal from "@/components/Modal";
 import { CheckIcon, CopyIcon, TrashIcon, XIcon } from "@/components/icons";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_LABELS } from "@/lib/noteColors";
 import type { Note, NoteColor } from "@/lib/notesStore";
-import { useDialogFocus } from "@/lib/useDialogFocus";
 
 const PICKABLE_COLORS = Object.keys(NOTE_COLOR_CLASSES) as Exclude<NoteColor, "default">[];
 
@@ -20,7 +20,6 @@ type NoteModalProps = {
 };
 
 export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: NoteModalProps) {
-  const dialogRef = useDialogFocus(handleSave);
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [color, setColor] = useState<NoteColor>(note.color);
@@ -52,8 +51,8 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
         setShowColorPicker(false);
       }
     }
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
   }, [showColorPicker]);
 
   function handleSave() {
@@ -105,164 +104,144 @@ export default function NoteModal({ note, isNew, onSave, onClose, onDelete }: No
 
   return (
     <>
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.12 }}
-      className="glass-backdrop fixed inset-0 z-[300] flex items-center justify-center p-5"
-      onClick={handleSave}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: -4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: -4, transition: { duration: 0.12, ease: "easeIn" } }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={isNew ? "New note" : "Edit note"}
-        className={`glass-panel flex max-h-[88vh] w-full max-w-2xl flex-col overflow-y-auto ${colorClasses ? colorClasses.border : ""}`}
-      >
-        {colorClasses && <div className={`h-1 shrink-0 rounded-t-xl ${colorClasses.swatch}`} />}
+    <Modal onClose={handleSave} onBackdropClick={handleSave} ariaLabel={isNew ? "New note" : "Edit note"} className={`flex sm:max-w-2xl flex-col ${colorClasses ? colorClasses.border : ""}`}>
+      {colorClasses && <div className={`h-1 shrink-0 rounded-t-xl ${colorClasses.swatch}`} />}
 
-        <div className="shrink-0 px-6 pt-6">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title"
-            className="w-full bg-transparent text-lg font-bold text-foreground outline-none placeholder:text-muted-foreground/60"
-          />
-        </div>
+      <div className="shrink-0 px-6 pt-6">
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title"
+          className="w-full bg-transparent text-lg font-bold text-foreground outline-none placeholder:text-muted-foreground/60"
+        />
+      </div>
 
-        <hr className="mx-6 mt-4 shrink-0 border-border" />
+      <hr className="mx-6 mt-4 shrink-0 border-border" />
 
-        <div className="flex flex-1 flex-col">
-          <textarea
-            ref={contentRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Take a note…"
-            spellCheck
-            className="w-full flex-1 resize-none whitespace-pre-wrap bg-transparent p-6 font-mono text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60"
-            style={{ minHeight: 150 }}
-          />
+      <div className="flex flex-1 flex-col">
+        <textarea
+          ref={contentRef}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Take a note…"
+          spellCheck
+          className="w-full flex-1 resize-none whitespace-pre-wrap bg-transparent p-6 font-mono text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60"
+          style={{ minHeight: 150 }}
+        />
 
-          <div className="flex flex-wrap items-center gap-1.5 px-6 pb-6">
-            {tags.map((t) => (
-              <span
-                key={t}
-                className="flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent"
-              >
-                #{t}
-                <button
-                  type="button"
-                  onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
-                  aria-label={`Remove tag ${t}`}
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  <XIcon className="size-2.5" />
-                </button>
-              </span>
-            ))}
-            <input
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={addTag}
-              placeholder={tags.length ? "" : "+ add tag"}
-              aria-label="Add tag"
-              className="min-w-[60px] flex-1 bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/60"
-            />
-          </div>
-        </div>
-
-        <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCopy}
-              title={copied ? "Copied!" : "Copy"}
-              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        <div className="flex flex-wrap items-center gap-1.5 px-6 pb-6">
+          {tags.map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent"
             >
-              {copied ? <CheckIcon className="size-4 text-profit" /> : <CopyIcon className="size-4" />}
-            </button>
-
-            <div ref={colorBtnRef} className="relative">
+              #{t}
               <button
                 type="button"
-                onClick={() => setShowColorPicker((prev) => !prev)}
-                title="Change color"
-                className={`flex size-6 items-center justify-center rounded-full border ${
-                  colorClasses ? `${colorClasses.swatch} border-transparent` : "border-muted-foreground/40 bg-background"
-                }`}
-              />
-
-              {showColorPicker && (
-                <div className="absolute bottom-10 left-0 z-10 flex items-center gap-2 rounded-xl border border-border bg-card p-3 shadow-lg">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setColor("default");
-                      setShowColorPicker(false);
-                    }}
-                    title={NOTE_COLOR_LABELS.default}
-                    className={`size-6 shrink-0 rounded-full border bg-background ${
-                      color === "default" ? "ring-2 ring-offset-2 ring-offset-card ring-accent" : "border-muted-foreground/40"
-                    }`}
-                  />
-                  {PICKABLE_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => {
-                        setColor(c);
-                        setShowColorPicker(false);
-                      }}
-                      title={NOTE_COLOR_LABELS[c]}
-                      className={`size-6 shrink-0 rounded-full ${NOTE_COLOR_CLASSES[c].swatch} ${
-                        color === c ? "ring-2 ring-offset-2 ring-offset-card ring-accent" : ""
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setPinned((prev) => !prev)}
-              aria-pressed={pinned}
-              title={pinned ? "Unpin" : "Pin"}
-              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                pinned ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {pinned ? "Pinned" : "Pin"}
-            </button>
-
-            {!isNew && (
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                title="Delete note"
-                className="flex size-8 items-center justify-center rounded-md text-danger-fg transition-colors hover:bg-loss/10"
+                onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
+                aria-label={`Remove tag ${t}`}
+                className="ml-0.5 text-muted-foreground hover:text-foreground"
               >
-                <TrashIcon className="size-4" />
+                <XIcon className="size-2.5" />
               </button>
-            )}
-          </div>
+            </span>
+          ))}
+          <input
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={addTag}
+            placeholder={tags.length ? "" : "+ add tag"}
+            aria-label="Add tag"
+            className="min-w-[60px] flex-1 bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/60"
+          />
+        </div>
+      </div>
+
+      <div className="sticky bottom-0 flex shrink-0 items-center justify-between border-t border-border bg-bg-surface-alt p-4">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSave}
-            className="rounded-lg bg-accent-solid px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+            onClick={handleCopy}
+            title={copied ? "Copied!" : "Copy"}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            Done
+            {copied ? <CheckIcon className="size-4 text-profit" /> : <CopyIcon className="size-4" />}
           </button>
+
+          <div ref={colorBtnRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColorPicker((prev) => !prev)}
+              title="Change color"
+              className={`flex size-6 items-center justify-center rounded-full border ${
+                colorClasses ? `${colorClasses.swatch} border-transparent` : "border-muted-foreground/40 bg-background"
+              }`}
+            />
+
+            {showColorPicker && (
+              <div className="absolute bottom-10 left-0 z-10 flex items-center gap-2 rounded-xl border border-border bg-card p-3 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setColor("default");
+                    setShowColorPicker(false);
+                  }}
+                  title={NOTE_COLOR_LABELS.default}
+                  className={`size-6 shrink-0 rounded-full border bg-background ${
+                    color === "default" ? "ring-2 ring-offset-2 ring-offset-card ring-accent" : "border-muted-foreground/40"
+                  }`}
+                />
+                {PICKABLE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => {
+                      setColor(c);
+                      setShowColorPicker(false);
+                    }}
+                    title={NOTE_COLOR_LABELS[c]}
+                    className={`size-6 shrink-0 rounded-full ${NOTE_COLOR_CLASSES[c].swatch} ${
+                      color === c ? "ring-2 ring-offset-2 ring-offset-card ring-accent" : ""
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setPinned((prev) => !prev)}
+            aria-pressed={pinned}
+            title={pinned ? "Unpin" : "Pin"}
+            className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              pinned ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {pinned ? "Pinned" : "Pin"}
+          </button>
+
+          {!isNew && (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              title="Delete note"
+              className="flex size-8 items-center justify-center rounded-md text-danger-fg transition-colors hover:bg-loss/10"
+            >
+              <TrashIcon className="size-4" />
+            </button>
+          )}
         </div>
-      </motion.div>
-    </motion.div>
+        <button
+          type="button"
+          onClick={handleSave}
+          className="rounded-lg bg-accent-solid px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+        >
+          Done
+        </button>
+      </div>
+    </Modal>
 
     <AnimatePresence>
       {confirmingDelete && (

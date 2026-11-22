@@ -8,7 +8,7 @@
 
 export class CommodityStorageMissingError extends Error {
   constructor() {
-    super("commodity positions (crude oil, gold, natural gas) can't be saved until the commodity migration is applied.");
+    super("commodity positions can't be saved until the commodity migration is applied.");
     this.name = "CommodityStorageMissingError";
   }
 }

@@ -83,10 +83,10 @@ function Body({
   const sim = useMemo(
     () =>
       simulateFuture(
-        { side, lots: leg.lots, lotSize: leg.lotSize, avgPrice: entryPrice, livePrice: live },
+        { instrument: leg.instrument, side, lots: leg.lots, lotSize: leg.lotSize, avgPrice: entryPrice, livePrice: live },
         { kind, lots: orderLots, price },
       ),
-    [side, leg.lots, leg.lotSize, entryPrice, live, kind, orderLots, price],
+    [leg.instrument, side, leg.lots, leg.lotSize, entryPrice, live, kind, orderLots, price],
   );
 
   // The same order, put to the what-if engine (which prices the future in index terms) for the odds, chart and margin.

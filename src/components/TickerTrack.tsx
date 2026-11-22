@@ -125,7 +125,8 @@ export default function TickerTrack({
           onClick={() => setPaused((value) => !value)}
           aria-label={paused ? "Resume the ticker" : "Pause the ticker"}
           title={paused ? "Resume the ticker" : "Pause the ticker"}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:size-9"
+          data-compact=""
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {paused ? <PlayIcon className="size-4" /> : <PauseIcon className="size-4" />}
         </button>

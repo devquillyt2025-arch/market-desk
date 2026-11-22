@@ -319,14 +319,56 @@ body {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
   select,
   textarea,
-  button:not([class*="size-"]):not([class*="underline"]) {
+  button:not([class*="size-"]):not([class*="underline"]):not([data-compact]) {
     min-height: 44px;
   }
-  button[class*="size-7"],
-  button[class*="size-8"],
-  button[class*="size-9"] {
+  button[class*="size-7"]:not([data-compact]),
+  button[class*="size-8"]:not([data-compact]),
+  button[class*="size-9"]:not([data-compact]) {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+/*
+ * What makes it feel like an app rather than a web page, on a touch screen. (Unlayered, like the rules above, so it
+ * outranks the utilities.)
+ *  - no grey flash on a tap, no double-tap-to-zoom delay, no "save image / copy link" callout from a long press on a control;
+ *  - controls aren't text you can accidentally select by holding a thumb on them;
+ *  - a field is never smaller than 16px: iOS zooms the whole page in when one that is focuses, and leaves it zoomed;
+ *  - nothing bounces the page itself: the content area scrolls inside the app screen (see the shell in layout.tsx).
+ */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  overscroll-behavior-y: none;
+}
+@media (pointer: coarse) {
+  a,
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="option"],
+  summary,
+  select,
+  label[for] {
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+  }
+  button,
+  [role="tab"],
+  nav a,
+  header a {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 
@@ -448,5 +490,233 @@ body {
       0 20px 50px rgba(0, 0, 0, 0.6),
       0 0 60px rgba(120, 105, 252, 0.1),
       /* Barely-visible edge glow where the backdrop's glass meets the card. */ 0 0 0 1px rgba(120, 105, 252, 0.1);
+  }
+
+  /*
+   * The pop-up shell (components/Modal.tsx). On a phone the panel is a bottom sheet: it sits on the bottom edge, full
+   * width, rounded at the top, and never taller than the part of the screen it may use - what doesn't fit scrolls inside
+   * it. From 640px up it is the centred card. The overlay is a fixed box over the screen; while the keyboard is up Modal
+   * sets its top/height inline so it covers only the part above the keys. env(safe-area-inset-*) keeps the sheet clear of a
+   * notch and of the home indicator (needs viewport-fit=cover, see layout.tsx).
+   */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-top: max(env(safe-area-inset-top, 0px), 12px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .modal-sheet {
+    width: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 20px 20px 0 0;
+    border-bottom-width: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* The grab handle: sticky so it stays put as the sheet's content scrolls beneath it; the whole strip is the drag target. */
+  .modal-handle {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 8px 0 6px;
+    background: var(--bg-base);
+    touch-action: none;
+    cursor: grab;
+  }
+  .modal-handle > span {
+    width: 40px;
+    height: 5px;
+    border-radius: 9999px;
+    background: var(--border-strong);
+  }
+
+  @media (min-width: 640px) {
+    .modal-overlay {
+      align-items: center;
+      padding: 1rem;
+    }
+    .modal-sheet {
+      max-height: min(88dvh, 100%);
+      border-radius: 12px;
+      border-bottom-width: 1px;
+      padding-bottom: 0;
+    }
+  }
+
+  /* A phone repaints a 32px blur of the whole page every frame of a sheet sliding up; a light one reads the same and doesn't stutter. */
+  @media (max-width: 639px) {
+    .glass-backdrop {
+      backdrop-filter: blur(6px) saturate(140%);
+      -webkit-backdrop-filter: blur(6px) saturate(140%);
+    }
+  }
+}
+
+/* A price that has just ticked: the figure is washed green (up) or red (down) and fades back over a second. The Commodities cards replay
+   it by remounting the figure on each tick. Colour is the only thing that moves, so nothing shifts; a reduced-motion setting skips it. */
+@keyframes tick-up {
+  from {
+    background-color: color-mix(in srgb, var(--profit) 34%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes tick-down {
+  from {
+    background-color: color-mix(in srgb, var(--danger-fg) 34%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.tick-up {
+  animation: tick-up 0.9s ease-out 1 both;
+}
+
+.tick-down {
+  animation: tick-down 0.9s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-up,
+  .tick-down {
+    animation: none;
+  }
+}
+
+/*
+ * The insight tabs (Risk & Probability, Simulate, Reward : Risk).
+ *  - .dial-sweep: the chance-of-profit ring draws itself in once, from empty, when it first appears (a change after that is a
+ *    plain transition). Skipped for anyone who has asked for less motion.
+ *  - .range-pro: a slider whose track fills up to a glowing thumb. The caller sets --fill (a percentage) inline; Firefox has its
+ *    own "progress" part for the filled stretch, WebKit/Blink get it from a gradient on the track.
+ */
+@keyframes dial-sweep {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+
+.dial-sweep {
+  animation: dial-sweep 0.9s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
+  transition: stroke-dasharray 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dial-knob {
+  animation: dial-knob 0.9s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
+}
+
+@keyframes dial-knob {
+  from {
+    opacity: 0;
+  }
+  60% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial-sweep,
+  .dial-knob {
+    animation: none;
+  }
+}
+
+.range-pro {
+  --fill: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 32px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.range-pro::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, var(--accent-solid) 0, var(--accent-solid) var(--fill), var(--muted) var(--fill), var(--muted) 100%);
+}
+
+.range-pro::-moz-range-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+
+.range-pro::-moz-range-progress {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--accent-solid);
+}
+
+.range-pro::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -9px;
+  border-radius: 9999px;
+  border: 5px solid var(--accent-solid);
+  background: #ffffff;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--accent-solid) 24%, transparent),
+    0 4px 10px rgb(0 0 0 / 0.35);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.range-pro::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 5px solid var(--accent-solid);
+  background: #ffffff;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--accent-solid) 24%, transparent),
+    0 4px 10px rgb(0 0 0 / 0.35);
+}
+
+.range-pro:active::-webkit-slider-thumb {
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 9px color-mix(in srgb, var(--accent-solid) 26%, transparent),
+    0 4px 12px rgb(0 0 0 / 0.4);
+}
+
+.range-pro:focus-visible {
+  outline: none;
+}
+
+.range-pro:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.range-pro:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .range-pro::-webkit-slider-thumb {
+    transition: none;
   }
 }

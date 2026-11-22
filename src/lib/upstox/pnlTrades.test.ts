@@ -50,11 +50,12 @@ describe("parseScrip", () => {
     });
   });
 
-  it("knows the mini contracts and gold, and leaves other commodities as untracked", () => {
+  it("knows the mini contracts, gold, silver and metals, and leaves other commodities as untracked", () => {
     assert.equal(parseScrip("CRUDEOILM 17 Nov 2026 PE 7700", "OPT")?.instrument, "CRUDEOILM");
     assert.equal(parseScrip("GOLD 26 Nov 2026 CE 150000", "OPT")?.instrument, "GOLD");
     assert.equal(parseScrip("GOLDM 26 Nov 2026 CE 150000", "OPT")?.instrument, "GOLDM");
-    assert.equal(parseScrip("SILVER 27 Nov 2026 CE 180000", "OPT")?.instrument, null);
+    assert.equal(parseScrip("SILVER 27 Nov 2026 CE 180000", "OPT")?.instrument, "SILVER");
+    assert.equal(parseScrip("COTTON 27 Nov 2026 CE 50000", "OPT")?.instrument, null);
   });
 });
 
@@ -279,13 +280,13 @@ describe("index rows keep working beside MCX ones", () => {
 
   it("reads a mixed F&O and MCX report: both become trades, the rest are counted, P&L covers every row", () => {
     const stockOption = { quantity: 500, scrip_name: "RELIANCE 24 Nov 2026 CE 1500", trade_type: "OPT", buy_date: "02-11-2026", sell_date: "03-11-2026", buy_amount: 5000, sell_amount: 4000 };
-    const silver = { quantity: 1, scrip_name: "SILVER 27 Nov 2026 CE 180000", trade_type: "OPT", buy_date: "02-11-2026", sell_date: "03-11-2026", buy_amount: 20000, sell_amount: 21000 };
-    const { groups, otherCount, otherNames, grossPnl } = groupReportRows([NIFTY_ROW, ...CRUDE_ROWS, stockOption, silver]);
+    const agri = { quantity: 1, scrip_name: "COTTON 27 Nov 2026 CE 50000", trade_type: "OPT", buy_date: "02-11-2026", sell_date: "03-11-2026", buy_amount: 20000, sell_amount: 21000 };
+    const { groups, otherCount, otherNames, grossPnl } = groupReportRows([NIFTY_ROW, ...CRUDE_ROWS, stockOption, agri]);
 
     const trades = tradesFromGroups(groups, new Map());
     assert.deepEqual(trades.map((t) => t.instrument), ["NIFTY", "CRUDEOIL"]); // oldest entry first
     assert.equal(otherCount, 2);
-    assert.deepEqual([...otherNames].sort(), ["RELIANCE", "SILVER"]);
+    assert.deepEqual([...otherNames].sort(), ["COTTON", "RELIANCE"]);
     assert.equal(grossPnl, 2600 + 14910 - 1000 + 1000);
   });
 

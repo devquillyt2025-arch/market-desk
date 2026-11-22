@@ -5,9 +5,29 @@ export type IndexInstrument = (typeof INDEX_INSTRUMENTS)[number];
 /**
  * MCX commodity option underlyings, named by Upstox's `underlying_symbol`. The
  * mini contracts are separate instruments because they have a different lot —
- * and a crude, gold or natural gas position could be in either.
+ * and a position could be in any contract size.
  */
-export const COMMODITY_INSTRUMENTS = ["CRUDEOIL", "CRUDEOILM", "GOLD", "GOLDM", "NATURALGAS", "NATGASMINI"] as const;
+export const COMMODITY_INSTRUMENTS = [
+  "CRUDEOIL",
+  "CRUDEOILM",
+  "NATURALGAS",
+  "NATGASMINI",
+  "ELECDMBL",
+  "GOLD",
+  "GOLDM",
+  "GOLDTEN",
+  "GOLDGUINEA",
+  "GOLDPETAL",
+  "SILVER",
+  "SILVERM",
+  "SILVERMIC",
+  "SILVER100",
+  "COPPER",
+  "ZINC",
+  "ZINCMINI",
+  "ALUMINIUM",
+  "ALUMINI",
+] as const;
 export type CommodityInstrument = (typeof COMMODITY_INSTRUMENTS)[number];
 
 export const INSTRUMENTS = [...INDEX_INSTRUMENTS, ...COMMODITY_INSTRUMENTS] as const;
@@ -27,10 +47,23 @@ export const INSTRUMENT_LABELS: Record<Instrument, string> = {
   SENSEX: "Sensex",
   CRUDEOIL: "Crude Oil",
   CRUDEOILM: "Crude Oil Mini",
-  GOLD: "Gold",
-  GOLDM: "Gold Mini",
   NATURALGAS: "Natural Gas",
   NATGASMINI: "Natural Gas Mini",
+  ELECDMBL: "Electricity",
+  GOLD: "Gold",
+  GOLDM: "Gold Mini",
+  GOLDTEN: "Gold Ten",
+  GOLDGUINEA: "Gold Guinea",
+  GOLDPETAL: "Gold Petal",
+  SILVER: "Silver",
+  SILVERM: "Silver Mini",
+  SILVERMIC: "Silver Micro",
+  SILVER100: "Silver 100",
+  COPPER: "Copper",
+  ZINC: "Zinc",
+  ZINCMINI: "Zinc Mini",
+  ALUMINIUM: "Aluminium",
+  ALUMINI: "Aluminium Mini",
 };
 
 /**
@@ -48,10 +81,23 @@ export const DEFAULT_LOT_SIZES: Record<Instrument, number> = {
   SENSEX: 20,
   CRUDEOIL: 100, // barrels, quoted per barrel
   CRUDEOILM: 10,
-  GOLD: 100, // 1 kg lot, quoted per 10 g
-  GOLDM: 10, // 100 g lot, quoted per 10 g
   NATURALGAS: 1250, // mmBtu, quoted per mmBtu
   NATGASMINI: 250,
+  ELECDMBL: 1000,
+  GOLD: 100, // 1 kg lot, quoted per 10 g
+  GOLDM: 10, // 100 g lot, quoted per 10 g
+  GOLDTEN: 1, // 10 g lot, quoted per 10 g
+  GOLDGUINEA: 1, // 8 g lot, quoted per 8 g
+  GOLDPETAL: 1, // 1 g lot, quoted per 1 g
+  SILVER: 30, // 30 kg, quoted per kg
+  SILVERM: 5, // 5 kg, quoted per kg
+  SILVERMIC: 1, // 1 kg, quoted per kg
+  SILVER100: 1, // 100 g
+  COPPER: 2500, // 2500 kg, quoted per kg
+  ZINC: 5000, // 5000 kg, quoted per kg
+  ZINCMINI: 1000, // 1000 kg, quoted per kg
+  ALUMINIUM: 5000, // 5000 kg, quoted per kg
+  ALUMINI: 1000, // 1000 kg, quoted per kg
 };
 
 /** The day of the month of the `n`th (1-based) Sunday of a month (`month0` is 0 for January). */
@@ -86,12 +132,26 @@ export function sessionCloseIst(instrument: Instrument | undefined, iso: string)
 }
 
 /** What a position is written on, for telling apart books that can't be treated as one market. Mini and full contracts share a family. */
-export type UnderlyingFamily = "index" | "crude" | "gold" | "natgas";
+export type UnderlyingFamily =
+  | "index"
+  | "crude"
+  | "gold"
+  | "natgas"
+  | "silver"
+  | "copper"
+  | "zinc"
+  | "aluminium"
+  | "power";
 
 export function underlyingFamily(instrument: Instrument): UnderlyingFamily {
   if (instrument === "CRUDEOIL" || instrument === "CRUDEOILM") return "crude";
-  if (instrument === "GOLD" || instrument === "GOLDM") return "gold";
+  if (instrument === "GOLD" || instrument === "GOLDM" || instrument === "GOLDTEN" || instrument === "GOLDGUINEA" || instrument === "GOLDPETAL") return "gold";
   if (instrument === "NATURALGAS" || instrument === "NATGASMINI") return "natgas";
+  if (instrument === "SILVER" || instrument === "SILVERM" || instrument === "SILVERMIC" || instrument === "SILVER100") return "silver";
+  if (instrument === "COPPER") return "copper";
+  if (instrument === "ZINC" || instrument === "ZINCMINI") return "zinc";
+  if (instrument === "ALUMINIUM" || instrument === "ALUMINI") return "aluminium";
+  if (instrument === "ELECDMBL") return "power";
   return "index";
 }
 
@@ -102,10 +162,23 @@ export const STRIKE_STEPS: Record<Instrument, number> = {
   SENSEX: 100,
   CRUDEOIL: 50,
   CRUDEOILM: 50,
+  NATURALGAS: 5,
+  NATGASMINI: 5,
+  ELECDMBL: 10,
   GOLD: 500,
   GOLDM: 500,
-  NATURALGAS: 5, // strikes run 75, 80, 85, ...
-  NATGASMINI: 5,
+  GOLDTEN: 500,
+  GOLDGUINEA: 500,
+  GOLDPETAL: 100,
+  SILVER: 500,
+  SILVERM: 500,
+  SILVERMIC: 500,
+  SILVER100: 500,
+  COPPER: 10,
+  ZINC: 5,
+  ZINCMINI: 5,
+  ALUMINIUM: 5,
+  ALUMINI: 5,
 };
 
 /**
@@ -120,10 +193,23 @@ export const ORDER_QUANTITY_PER_LOT: Record<Instrument, number> = {
   SENSEX: DEFAULT_LOT_SIZES.SENSEX,
   CRUDEOIL: 1,
   CRUDEOILM: 1,
-  GOLD: 1,
-  GOLDM: 1,
   NATURALGAS: 1,
   NATGASMINI: 1,
+  ELECDMBL: 1,
+  GOLD: 1,
+  GOLDM: 1,
+  GOLDTEN: 1,
+  GOLDGUINEA: 1,
+  GOLDPETAL: 1,
+  SILVER: 1,
+  SILVERM: 1,
+  SILVERMIC: 1,
+  SILVER100: 1,
+  COPPER: 1,
+  ZINC: 1,
+  ZINCMINI: 1,
+  ALUMINIUM: 1,
+  ALUMINI: 1,
 };
 
 export const NOTE_COLORS = [

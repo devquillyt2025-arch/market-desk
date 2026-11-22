@@ -29,6 +29,18 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * Whether a dropdown or a calendar is open that takes Escape before the dialog does. The calendar on a phone is itself a dialog (a
+ * bottom sheet) carrying the marker, so inside its own panel the marker means nothing - otherwise Escape could never close it.
+ */
+function popupTakesEscape(dialog: HTMLElement): boolean {
+  for (const el of document.querySelectorAll('[data-picker-popup], [role="listbox"]')) {
+    if (el.hasAttribute("data-picker-popup") && dialog.contains(el)) continue;
+    return true;
+  }
+  return false;
+}
+
 /** The newest dialog is last in the document — the one a stray Tab should be pulled into. */
 function isTopmostDialog(dialog: HTMLElement): boolean {
   const all = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
@@ -58,7 +70,7 @@ export function useDialogFocus<T extends HTMLElement = HTMLDivElement>(onEscape?
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (!onEscapeRef.current || !dialog || !isTopmostDialog(dialog)) return;
-        if (document.querySelector('[data-picker-popup], [role="listbox"]')) return;
+        if (popupTakesEscape(dialog)) return;
         onEscapeRef.current();
         return;
       }

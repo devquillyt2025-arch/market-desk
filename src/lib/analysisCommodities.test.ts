@@ -70,8 +70,8 @@ describe("importing a natural gas position into Analysis", () => {
 
   it("still refuses a file for an underlying the app doesn't track", () => {
     assert.throws(
-      () => parseStrategyImport({ format: "marketdesk-strategy", version: 1, instrument: "SILVER", legs: [] }),
-      /crude oil, gold or natural gas/,
+      () => parseStrategyImport({ format: "marketdesk-strategy", version: 1, instrument: "UNKNOWN", legs: [] }),
+      /tracked index or commodity/,
     );
   });
 });
@@ -98,7 +98,7 @@ describe("the saved strategy", () => {
   });
 
   it("treats an underlying the app doesn't track as nothing saved", () => {
-    stubStorage(JSON.stringify({ instrument: "SILVER", legs: [], spotOverride: "" }));
+    stubStorage(JSON.stringify({ instrument: "UNKNOWN", legs: [], spotOverride: "" }));
     assert.equal(loadSavedAnalysis(), null);
   });
 });

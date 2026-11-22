@@ -59,13 +59,13 @@ const quote = (changePct: number | null, over: Partial<WatchQuote> = {}): WatchQ
 });
 
 describe("DEFAULT_WATCHLIST", () => {
-  it("is the three indices followed by the nine commodities, numbered 1 to 12", () => {
-    assert.equal(DEFAULT_WATCHLIST.length, 12);
+  it("is the three indices followed by the seven commodities, numbered 1 to 10", () => {
+    assert.equal(DEFAULT_WATCHLIST.length, 10);
     assert.deepEqual(DEFAULT_WATCHLIST.slice(0, 3).map((s) => s.symbol), ["NIFTY", "BANKNIFTY", "SENSEX"]);
     assert.ok(DEFAULT_WATCHLIST.slice(0, 3).every((s) => s.kind === "index"));
-    assert.deepEqual(DEFAULT_WATCHLIST.slice(3).map((s) => s.symbol), ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC", "ALUMINIUM", "LEAD", "NICKEL"]);
+    assert.deepEqual(DEFAULT_WATCHLIST.slice(3).map((s) => s.symbol), ["CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "ZINC", "ALUMINIUM"]);
     assert.ok(DEFAULT_WATCHLIST.slice(3).every((s) => s.kind === "commodity"));
-    assert.deepEqual(DEFAULT_WATCHLIST.map((s) => s.sortOrder), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    assert.deepEqual(DEFAULT_WATCHLIST.map((s) => s.sortOrder), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("identifies a commodity by its symbol, not by a contract that expires", () => {

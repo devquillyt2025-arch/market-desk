@@ -9,6 +9,7 @@
  */
 
 import { logEvent } from "@/lib/activityLog";
+import { isOfferedCommodity } from "@/lib/mcxCommodities";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeToTableChanges } from "@/lib/supabase/realtime";
 import type { WatchlistItemRow } from "@/lib/types";
@@ -53,7 +54,9 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
     if (isMissingTableError(error)) throw new WatchlistStorageMissingError();
     throw error;
   }
-  cachedItems = (data ?? []).map(fromRow);
+  // A saved commodity the app no longer offers (a row from before it was taken off the list) is left out of what the page shows, so the
+  // list agrees with the search and the Heatmap whatever the table still holds. The row itself is not touched.
+  cachedItems = (data ?? []).map(fromRow).filter((item) => item.kind !== "commodity" || isOfferedCommodity(item.symbol));
   return cachedItems;
 }
 

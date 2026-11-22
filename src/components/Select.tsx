@@ -125,11 +125,11 @@ export default function Select<T extends string>({
     // an inner one (a modal body, Reports' content), not the window.
     window.addEventListener("scroll", updatePlacement, true);
     window.addEventListener("resize", updatePlacement);
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     return () => {
       window.removeEventListener("scroll", updatePlacement, true);
       window.removeEventListener("resize", updatePlacement);
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [open, align, options.length]);
 

@@ -18,7 +18,7 @@
  * Everything else is held to expiry, which is what the Risk tab assumes too.
  */
 
-import { calculateBrokerage, optionsSegmentFor } from "@/lib/calculateBrokerage";
+import { calculateBrokerage, derivativeSegmentFor } from "@/lib/calculateBrokerage";
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import {
   impliedVolFromPrice,
@@ -429,10 +429,10 @@ function openLeg(u: Underlying, q: ChainQuote, side: Side, lots: number, price: 
 
 // --- Applying a move ----------------------------------------------------------------
 
-/** Brokerage, taxes and fees of one order at its real `price` - the futures rates for a future, the options rates for an option. */
+/** Brokerage, taxes and fees of one order at its real `price` - the futures rates for a future (the index's or MCX's), the options rates for an option. */
 function orderCharges(instrument: Instrument, side: Side, price: number, qty: number, isFuture = false): number {
   const leg = side === "sell" ? { sellPrice: price, buyPrice: 0 } : { buyPrice: price, sellPrice: 0 };
-  return calculateBrokerage(isFuture ? "FUTURES" : optionsSegmentFor(instrument), [leg], qty).totalCharges;
+  return calculateBrokerage(derivativeSegmentFor(instrument, isFuture), [leg], qty).totalCharges;
 }
 
 export function applyChanges(book: Book, unders: Underlying[], changes: Change[]): Applied {

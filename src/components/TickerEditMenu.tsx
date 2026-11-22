@@ -128,7 +128,8 @@ export default function TickerEditMenu({ prefs, save }: { prefs: TickerPrefs; sa
         aria-controls={open ? panelId : undefined}
         aria-label="Edit ticker list"
         title="Edit ticker list"
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:size-9"
+        data-compact=""
+        className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <PencilIcon className="size-4" />
       </button>

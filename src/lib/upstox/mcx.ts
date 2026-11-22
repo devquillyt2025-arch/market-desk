@@ -22,9 +22,9 @@
 import { gunzipSync } from "node:zlib";
 
 import { istDateString } from "@/lib/calculateStrategy";
-import { COMMODITY_INSTRUMENTS, type CommodityInstrument } from "@/lib/types";
+import { COMMODITY_INSTRUMENTS, DEFAULT_LOT_SIZES, type CommodityInstrument } from "@/lib/types";
 import type { UpstoxGetError } from "@/lib/upstox/api";
-import type { OptionContract } from "@/lib/upstox/contracts";
+import type { PositionContract } from "@/lib/upstox/contracts";
 
 const MCX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.json.gz";
 const IST_OFFSET_MS = 5.5 * 3_600_000;
@@ -50,8 +50,8 @@ export type McxFuture = {
 export type McxContracts = {
   /** Every MCX commodity's current-month future, by underlying symbol (CRUDEOIL, GOLD, COPPER, ...). */
   futures: Map<string, McxFuture>;
-  /** Option contract by Upstox instrument_key. */
-  contracts: Map<string, OptionContract>;
+  /** Option and future contracts by Upstox instrument_key. */
+  contracts: Map<string, PositionContract>;
   /** The futures contract each option expiry is written on, as `${instrument}|${yyyy-mm-dd}` → instrument_key. */
   underlyingKeys: Map<string, string>;
   /** The strike ladder of each expiry, as `${instrument}|${yyyy-mm-dd}` → strikes ascending. */
@@ -68,6 +68,18 @@ export function isMcxError(result: McxResult): result is UpstoxGetError {
 
 export function mcxUnderlyingKeyId(instrument: CommodityInstrument, expiry: string): string {
   return `${instrument}|${expiry}`;
+}
+
+/**
+ * The instrument key a commodity's future is quoted under for one expiry, or null when none is listed (the month has expired, or
+ * Upstox has not listed it yet). `McxContracts.futures` only holds each commodity's nearest month, but a position can be in a later
+ * one, so this looks through every contract. Exported for testing.
+ */
+export function mcxFutureKey(contracts: ReadonlyMap<string, PositionContract>, instrument: CommodityInstrument, expiry: string): string | null {
+  for (const [key, contract] of contracts) {
+    if (contract.instrument === instrument && contract.strike === null && contract.optionType === null && contract.expiry === expiry) return key;
+  }
+  return null;
 }
 
 function isCommodity(value: unknown): value is CommodityInstrument {
@@ -94,7 +106,7 @@ export function parseMcxInstruments(rows: unknown, todayIso: string = istDateStr
   if (!Array.isArray(rows)) return null;
 
   const futures = new Map<string, McxFuture>();
-  const contracts = new Map<string, OptionContract>();
+  const contracts = new Map<string, PositionContract>();
   const underlyingKeys = new Map<string, string>();
   const strikesByExpiry = new Map<string, Map<number, McxStrike>>();
   const expirySets = new Map<CommodityInstrument, Set<string>>();
@@ -115,6 +127,12 @@ export function parseMcxInstruments(rows: unknown, todayIso: string = istDateStr
           expiry,
           tradingSymbol: typeof row.trading_symbol === "string" ? row.trading_symbol : symbol,
         });
+      }
+      if (isCommodity(symbol)) {
+        const lotSize = positive(row.qty_multiplier) ?? positive(row.lot_size) ?? DEFAULT_LOT_SIZES[symbol];
+        if (lotSize) {
+          contracts.set(key, { instrument: symbol, strike: null, optionType: null, expiry, lotSize });
+        }
       }
       continue;
     }

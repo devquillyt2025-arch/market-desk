@@ -5,7 +5,7 @@
  */
 
 import { formatLevel } from "@/lib/format";
-import { commodityGlyph, commodityUnit, contractMonthLabel, HEATMAP_COMMODITIES, commodityName } from "@/lib/mcxCommodities";
+import { commodityGlyph, commodityUnit, contractMonthLabel, STARTING_COMMODITIES, commodityName } from "@/lib/mcxCommodities";
 
 /** The Watchlist page's two parts: the saved list of Indian instruments, and the global prices (the headline indices, and what MCX follows). */
 export const WATCH_TABS = ["india", "global"] as const;
@@ -84,7 +84,7 @@ export const INDEX_SEEDS: Omit<WatchlistSeed, "sortOrder">[] = [
  */
 export const DEFAULT_WATCHLIST: WatchlistSeed[] = [
   ...INDEX_SEEDS,
-  ...HEATMAP_COMMODITIES.map((symbol) => ({ kind: "commodity" as const, itemKey: commodityItemKey(symbol), symbol, name: commodityName(symbol) })),
+  ...STARTING_COMMODITIES.map((symbol) => ({ kind: "commodity" as const, itemKey: commodityItemKey(symbol), symbol, name: commodityName(symbol) })),
 ].map((seed, i) => ({ ...seed, sortOrder: i + 1 }));
 
 /** One hit from the Add popup's search - everything needed to put it on the list. */
