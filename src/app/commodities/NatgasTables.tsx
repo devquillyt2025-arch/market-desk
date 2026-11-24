@@ -68,7 +68,7 @@ function Head({ tile, tone, title, sub, pill }: { tile: string; tone: "accent" |
 
 const Sub = ({ children }: { children: ReactNode }) => <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{children}</span>;
 
-export function MarketTable({ figures, nymexState, nowMs }: { figures: DeskFigures; nymexState: NymexState; nowMs: number }) {
+export function MarketTable({ figures, nymexState, nowMs, mcxMonth }: { figures: DeskFigures; nymexState: NymexState; nowMs: number; mcxMonth: string }) {
   const f = figures;
   const direction = moveDirection(f.movePct);
   const change = f.nymexNow - f.nymexAtClose;
@@ -92,7 +92,7 @@ export function MarketTable({ figures, nymexState, nowMs }: { figures: DeskFigur
         <tr>
           <td aria-hidden="true" />
           <th scope="col" className={HEAD}>
-            <Head tile="₹" tone="accent" title="MCX" sub="India · ₹" pill={<Pill tone="shut">Shut</Pill>} />
+            <Head tile="₹" tone="accent" title="MCX" sub={mcxMonth ? <Both short={`₹ · ${mcxMonth}`} full={`India · ₹ · ${mcxMonth}`} /> : "India · ₹"} pill={<Pill tone="shut">Shut</Pill>} />
           </th>
           <th scope="col" className={HEAD}>
             <Head tile="$" tone="neutral" title="NYMEX" sub={<Both short={`$ · ${f.nymexLabel}`} full={`outside · $ · ${f.nymexLabel}`} />} pill={nymexPill} />
@@ -180,16 +180,15 @@ export function MarketTable({ figures, nymexState, nowMs }: { figures: DeskFigur
 export function ConversionNote({ figures, nowMs }: { figures: DeskFigures; nowMs: number }) {
   const f = figures;
   if (f.rate === null || f.rateAsOf === null) {
-    return <p className="mt-3 text-xs leading-relaxed text-muted-foreground">The rupee column needs the USD/INR rate, which isn&apos;t available right now. The expected open above doesn&apos;t depend on it.</p>;
+    return <p className="mt-3 text-xs text-muted-foreground">No USD/INR rate right now. The estimate doesn&apos;t need it.</p>;
   }
   return (
-    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-      NYMEX in ₹ is its dollar price × ₹{f.rate.toFixed(2)} per $ (USD/INR, {istStamp(f.rateAsOf, nowMs)}).
+    <p className="mt-3 text-xs text-muted-foreground">
+      At ₹{f.rate.toFixed(2)} per $ ({istStamp(f.rateAsOf, nowMs)}).
       {f.premiumPct !== null && (
         <>
           {" "}
-          MCX was {f.premiumPct >= 0 ? "dearer" : "cheaper"} than that by <span className="font-medium text-foreground tabular-nums">{formatMovePct(Math.abs(f.premiumPct)).replace("+", "")}</span> when it closed, so the two rupee columns won&apos;t match to the paisa. The expected
-          open moves MCX by NYMEX&apos;s change and keeps that gap.
+          MCX was {f.premiumPct >= 0 ? "dearer" : "cheaper"} than NYMEX in ₹ by <span className="font-medium text-foreground tabular-nums">{formatMovePct(Math.abs(f.premiumPct)).replace("+", "")}</span>; the estimate keeps that gap.
         </>
       )}
     </p>

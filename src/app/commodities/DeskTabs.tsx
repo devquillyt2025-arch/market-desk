@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The views of the Commodities page as a tab strip, beside the line that says what is on the board: the contracts (that line is
- * its label), the natural gas desk and the long/short planner. The Natural gas tab carries a live preview - "Live" while MCX trades, the
+ * The views of the Commodities page as a tab strip: the contracts (the line that says what is on the board is
+ * its label), the natural gas desk and the trade plan. The Natural gas tab carries a live preview - "Live" while MCX trades, the
  * opening gap while it is shut - so the answer is visible before the tab is opened. The selected pill glides between the two
  * (a shared layout animation that stands still for anyone who prefers less motion), and the arrow keys, Home and End move
  * between them as a tab strip should.

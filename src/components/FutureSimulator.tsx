@@ -21,6 +21,7 @@ import Stepper from "@/components/Stepper";
 import type { PortfolioRow } from "@/lib/calculatePortfolio";
 import { simulateFuture, type FutureOrder } from "@/lib/futureSimulator";
 import { formatLevel } from "@/lib/format";
+import { isCommodityInstrument } from "@/lib/types";
 import type { UpstoxOptionChainResult } from "@/lib/upstox/types";
 import { buildBook, buildUnderlyings, bookScale, evaluate, evaluateChanges, livePrice, type Book, type BookLeg } from "@/lib/whatIf";
 
@@ -225,11 +226,11 @@ function Body({
                   change={sim.before.lots > 0 && sim.after.lots > 0 ? signedPoints(sim.after.pointsToBreakeven - sim.before.pointsToBreakeven) : ""}
                 />
                 <Line
-                  label="Per 100-point move in the index"
+                  label={isCommodityInstrument(leg.instrument) ? "Per 100-point move in the price" : "Per 100-point move in the index"}
                   before={moneyOrDash(sim.before.lots > 0 ? sim.before.per100Points : null)}
                   after={moneyOrDash(sim.after.lots > 0 ? sim.after.per100Points : null)}
                   change={signedMoney(sim.after.per100Points - sim.before.per100Points)}
-                  hint="What a 100-point rise in the index adds to or takes off the position (negative for a short)."
+                  hint={`What a 100-point rise in the ${isCommodityInstrument(leg.instrument) ? "price" : "index"} adds to or takes off the position (negative for a short).`}
                 />
                 {kind === "exit" && <Line label="Booked by this exit" before="" after={money(sim.booked)} className={sim.booked >= 0 ? "text-profit" : "text-danger-fg"} hint="Before brokerage and taxes." />}
                 <Line label="Brokerage and taxes on this order" before="" after={money(sim.charges)} hint="Estimated, at the futures rates." />
@@ -242,7 +243,11 @@ function Body({
       <Reveal index={3}>
         <MoveDetail title="What it does to your whole book" subtitle={`${verb} ${sim.lots} lot${sim.lots === 1 ? "" : "s"} · ${move.action.detail}`} move={move} base={base} scale={scale} book={book} group={group} />
         <p className="mt-4 text-xs text-muted-foreground">
-          The future is measured against the index with its gap to it (₹{Math.round(leg.basis ?? 0)} today) held where it is, and it uses the at-the-money volatility of its expiry. See the note under Risk &amp; Probability.
+          {isCommodityInstrument(leg.instrument) ? (
+            "The future is measured against its own price (its options are written on it, so there is no index and no gap), and it uses the at-the-money volatility of the options written on it. See the note under Risk & Probability."
+          ) : (
+            <>The future is measured against the index with its gap to it (₹{Math.round(leg.basis ?? 0)} today) held where it is, and it uses the at-the-money volatility of its expiry. See the note under Risk &amp; Probability.</>
+          )}
         </p>
       </Reveal>
     </div>

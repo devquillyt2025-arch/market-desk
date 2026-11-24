@@ -46,7 +46,7 @@ function moodColor(avgPct: number | null): string {
   return mood === "up" ? "var(--profit)" : mood === "down" ? "var(--danger-fg)" : "var(--accent)";
 }
 
-function StatusPill({ feed, closesAt, hasPrices, tick }: { feed: Feed; closesAt: string | null; hasPrices: boolean; tick: number | null }) {
+export function StatusPill({ feed, closesAt, hasPrices, tick }: { feed: Feed; closesAt: string | null; hasPrices: boolean; tick: number | null }) {
   const status = {
     live: { label: "Live", detail: closesAt ? `MCX closes ${closesAt}` : "MCX open", dot: "bg-profit" },
     closed: { label: "Closed", detail: "Last traded prices", dot: "bg-muted-foreground" },

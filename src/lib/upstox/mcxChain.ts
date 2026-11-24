@@ -12,7 +12,7 @@
  */
 
 import { isUpstoxGetError, num, upstoxData, upstoxGet, type UpstoxGetError } from "@/lib/upstox/api";
-import { selectStrikes, mcxUnderlyingKeyId, type McxContracts } from "@/lib/upstox/mcx";
+import { selectStrikes, mcxChainExpiry, mcxFutureKey, mcxUnderlyingKeyId, type McxContracts } from "@/lib/upstox/mcx";
 import type { CommodityInstrument } from "@/lib/types";
 import type { UpstoxOptionChainStrike, UpstoxOptionLeg } from "@/lib/upstox/types";
 
@@ -67,10 +67,18 @@ export async function fetchMcxChain(
   expiry: string,
   extraStrikes: number[] = [],
 ): Promise<{ data: UpstoxOptionChainStrike[] } | UpstoxGetError> {
-  const id = mcxUnderlyingKeyId(instrument, expiry);
-  const underlyingKey = mcx.underlyingKeys.get(id);
-  const ladder = mcx.ladders.get(id);
-  if (!underlyingKey || !ladder) return { error: `No ${instrument} option expires on ${expiry}.`, status: 404 };
+  // `expiry` is an option expiry, or the expiry of a future (a position in one asks for its chain): see mcxChainExpiry.
+  const optionExpiry = mcxChainExpiry(mcx, instrument, expiry);
+  const id = optionExpiry ? mcxUnderlyingKeyId(instrument, optionExpiry) : null;
+  const underlyingKey = id ? mcx.underlyingKeys.get(id) : undefined;
+  const ladder = id ? mcx.ladders.get(id) : undefined;
+  if (!optionExpiry || !underlyingKey || !ladder) {
+    const futureListed = mcxFutureKey(mcx.contracts, instrument, expiry) !== null;
+    return {
+      error: futureListed ? `No ${instrument} options are listed on the future that expires on ${expiry}.` : `No ${instrument} option expires on ${expiry}.`,
+      status: 404,
+    };
+  }
 
   // The futures price is the spot the options are written on - and tells which strikes are near the money.
   const spotResult = await upstoxGet(token, `/v3/market-quote/ltp?${new URLSearchParams({ instrument_key: underlyingKey })}`);
@@ -95,7 +103,8 @@ export async function fetchMcxChain(
   }
 
   const data: UpstoxOptionChainStrike[] = strikes.map((s) => ({
-    expiry,
+    // The real option expiry, even when a future's date was asked for: whoever prices these options needs the date they end on.
+    expiry: optionExpiry,
     strike_price: s.strike,
     underlying_key: underlyingKey,
     underlying_spot_price: spot ?? undefined,

@@ -69,9 +69,7 @@ export default function NatgasPositions({ result, held }: { result: PositionsAtO
           )}
         </>
       )}
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        An estimate: options are repriced at their own volatility, held where it is, with the time until the open taken off. A gap can move volatility too. Gross of charges.
-      </p>
+      <p className="mt-3 text-xs text-muted-foreground">An estimate: options repriced at their own volatility, before charges.</p>
     </section>
   );
 }

@@ -6,6 +6,9 @@
  *
  * While MCX trades there is nothing to estimate: measured on 19 sessions in Oct-Nov 2026, MCX follows NYMEX within the same
  * minute, so NYMEX adds nothing to the price already on screen. The tab says so, shows that live price, and waits for the close.
+ *
+ * The contract can be chosen (any natural gas future still listed, or the one with the most business) - the same choice as on the
+ * Trade plan tab. The estimate then compares that contract's own last price with the NYMEX month it follows.
  * Loaded on demand (the Commodities page imports it lazily), so none of this costs anything until the tab is opened.
  */
 
@@ -17,12 +20,16 @@ import { ACCURACY, UNAVAILABLE_TEXT } from "@/components/ExpectedOpenPanel";
 import { ChevronDownIcon } from "@/components/icons";
 import { isExpectedOpenItem } from "@/lib/expectedOpen";
 import { formatAsOf } from "@/lib/format";
+import { contractMonthLabel } from "@/lib/mcxCommodities";
+import { shownContract, type ContractPref } from "@/lib/natgasContract";
 import {
   CLEAR_GAP_FROM_PCT,
+  contractMonthShort,
   deskFigures,
   istStamp,
   NO_GAP_BELOW_PCT,
   nymexOutlook,
+  oldPriceNote,
   parseNymexInput,
   positionsAtOpen,
   sessionHours,
@@ -33,6 +40,7 @@ import {
 import type { ExpectedOpenState } from "@/lib/useExpectedOpen";
 import { formatMovePct, moveDirection, type WatchQuote } from "@/lib/watchlist";
 
+import ContractSelect from "./ContractSelect";
 import { DIRECTION, MoveArrow } from "./direction";
 import { ConversionNote, MarketTable, OwnPrice } from "./NatgasTables";
 import NatgasPositions from "./NatgasPositions";
@@ -65,6 +73,15 @@ function SignalPill({ signal }: { signal: GapSignal }) {
       <MoveArrow direction={signal.direction} />
       {signal.headline}
     </span>
+  );
+}
+
+/** What sits under the status row. While another contract's answer is on its way the old one stays up, dimmed - never shown as the new one's. */
+function Body({ pending, children }: { pending: boolean; children: ReactNode }) {
+  return (
+    <div className={`space-y-3 transition-opacity ${pending ? "pointer-events-none opacity-50" : ""}`} aria-busy={pending}>
+      {children}
+    </div>
   );
 }
 
@@ -140,7 +157,7 @@ function Details({ nowMs, nymexLabel }: { nowMs: number; nymexLabel: string | nu
         </p>
         <p>{ACCURACY}</p>
         <p>
-          The label grades the move against that typical miss of {TYPICAL_MISS_PCT}%: under {NO_GAP_BELOW_PCT}% is no clear gap, up to {CLEAR_GAP_FROM_PCT}% leaning, and {CLEAR_GAP_FROM_PCT}% or more a clear gap. In a test over 19 sessions (27 Oct
+          The label grades the move against that typical miss of {TYPICAL_MISS_PCT}%: under {NO_GAP_BELOW_PCT}% is no clear gap, up to {CLEAR_GAP_FROM_PCT}% leaning, and {CLEAR_GAP_FROM_PCT}% or more a clear gap. The label describes the opening gap only, not the day. In a test over 19 sessions (27 Oct
           to 20 Nov 2026) MCX and its options followed NYMEX within about a minute while both were trading, which is why this tab goes quiet then.
         </p>
       </Disclosure>
@@ -148,9 +165,20 @@ function Details({ nowMs, nymexLabel }: { nowMs: number; nymexLabel: string | nu
   );
 }
 
-export default function NatgasDesk({ state, nowMs, liveQuote }: { state: ExpectedOpenState; nowMs: number; liveQuote: WatchQuote | undefined }) {
+type DeskProps = {
+  state: ExpectedOpenState;
+  nowMs: number;
+  liveQuote: WatchQuote | undefined;
+  /** The saved choice of contract (shared with the Trade plan tab) and how to change it. */
+  contract: ContractPref;
+  onContract: (next: ContractPref) => void;
+};
+
+export default function NatgasDesk({ state, nowMs, liveQuote, contract, onContract }: DeskProps) {
   const result = state.result;
   const natgas = result?.items.find((item) => item.market === "NATURALGAS");
+  /** Which future the answer is for, and the futures to pick from (absent while there is no answer, or none is listed). */
+  const choice = result?.natgas ?? null;
   const ready = natgas && isExpectedOpenItem(natgas) ? natgas : null;
   /** MCX is shut but the estimate can't be made yet (no price, no contract): the reason is shown instead. */
   const unavailable = natgas && !isExpectedOpenItem(natgas) ? natgas : null;
@@ -198,7 +226,16 @@ export default function NatgasDesk({ state, nowMs, liveQuote }: { state: Expecte
         : { tone: "shut", detail: when ? `shut until ${when}` : "shut" };
   const status = (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {choice && (
+          <ContractSelect
+            id="desk-contract"
+            contracts={choice.contracts}
+            value={shownContract(contract, choice.contracts, choice.contract.key)}
+            onChange={onContract}
+            hint={`${choice.contract.label}: ${choice.contract.reason}. The Trade plan tab follows the same choice.`}
+          />
+        )}
         <Chip tone={mcxChip.tone} label="MCX" detail={mcxChip.detail} />
         <Chip tone={nymexChip.tone} label="NYMEX" detail={nymexChip.detail} />
       </div>
@@ -216,26 +253,36 @@ export default function NatgasDesk({ state, nowMs, liveQuote }: { state: Expecte
 
   // ---- MCX is trading
   if (!mcxShut) {
+    const month = choice ? contractMonthLabel(choice.contract.expiry) : null;
+    // The board's live price is the front month's. Any other contract's comes with the answer: up to 30 seconds old, with when it traded.
+    const onBoard = !choice || choice.contract.key === choice.contracts[0]?.key;
+    const other = onBoard ? null : choice.last;
     return (
       <div className="space-y-3">
         {status}
-        <section aria-label="Natural gas: MCX is trading" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE.flat }}>
-          <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">MCX natural gas · trading now</h2>
-          {liveQuote ? (
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl">
-                <AnimatedNumber value={liveQuote.price} format={rupees} />
-              </span>
-              <ChangePill quote={liveQuote} />
-            </p>
-          ) : (
-            <p className="mt-1.5 text-2xl font-semibold tracking-tight">Trading until {hours.mcx.closes}</p>
-          )}
-          <p className="mt-3 text-sm">MCX follows NYMEX within the same minute, so NYMEX has nothing to add to the price you can already see.</p>
-          <p className="mt-1 text-xs text-muted-foreground">When MCX shuts at {hours.mcx.closes} this tab shows its last price, NYMEX in dollars and rupees, where MCX should open, and what that does to your positions.</p>
-        </section>
-        <SessionClock nowMs={nowMs} mcxOpen />
-        <Details nowMs={nowMs} nymexLabel={null} />
+        <Body pending={state.pending}>
+          <section aria-label="Natural gas: MCX is trading" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE.flat }}>
+            <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">MCX natural gas{month ? ` · ${month}` : ""} · trading now</h2>
+            {onBoard && liveQuote ? (
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl">
+                  <AnimatedNumber value={liveQuote.price} format={rupees} />
+                </span>
+                <ChangePill quote={liveQuote} />
+              </p>
+            ) : other ? (
+              <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl">{rupees(other.price)}</span>
+                <span className="text-xs text-muted-foreground">{other.lastTradeMs !== null ? `last traded ${istStamp(other.lastTradeMs, nowMs)}` : "last price"}</span>
+              </p>
+            ) : (
+              <p className="mt-1.5 text-2xl font-semibold tracking-tight">Trading until {hours.mcx.closes}</p>
+            )}
+            <p className="mt-3 text-sm text-muted-foreground">MCX follows NYMEX within the same minute, so there is nothing to estimate while it trades.</p>
+          </section>
+          <SessionClock nowMs={nowMs} mcxOpen />
+          <Details nowMs={nowMs} nymexLabel={null} />
+        </Body>
       </div>
     );
   }
@@ -245,67 +292,72 @@ export default function NatgasDesk({ state, nowMs, liveQuote }: { state: Expecte
     return (
       <div className="space-y-3">
         {status}
-        <section aria-label="Natural gas: no estimate yet" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE.flat }}>
-          <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Natural gas · expected MCX open</h2>
-          <p className="mt-1.5 text-2xl font-semibold tracking-tight">No estimate yet</p>
-          <p className="mt-2 max-w-prose text-sm text-muted-foreground">{unavailable ? UNAVAILABLE_TEXT[unavailable.reason] : "Waiting for prices."}</p>
-        </section>
-        <SessionClock nowMs={nowMs} mcxOpen={false} />
+        <Body pending={state.pending}>
+          <section aria-label="Natural gas: no estimate yet" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE.flat }}>
+            <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Natural gas · expected MCX open</h2>
+            <p className="mt-1.5 text-2xl font-semibold tracking-tight">No estimate yet</p>
+            <p className="mt-2 max-w-prose text-sm text-muted-foreground">{unavailable ? UNAVAILABLE_TEXT[unavailable.reason] : "Waiting for prices."}</p>
+          </section>
+          <SessionClock nowMs={nowMs} mcxOpen={false} />
+        </Body>
       </div>
     );
   }
 
   // ---- MCX is shut and there is an estimate
   const direction = moveDirection(figures.movePct);
+  const oldPrice = oldPriceNote(figures.mcxClosedAt, nowMs);
   return (
     <div className="space-y-3">
       {status}
-
-      <section aria-label="Natural gas: expected MCX open" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE[direction] }}>
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <div className="min-w-0">
-            <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Expected MCX open{figures.typed && " · from your NYMEX price"}</h2>
-            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl">
-                <AnimatedNumber value={figures.expectedOpen} format={rupees} />
-              </span>
-              <span className={`text-sm font-semibold tabular-nums ${DIRECTION[direction].text}`}>
-                {signedRupees(figures.changeRupees)} · {formatMovePct(figures.movePct)}
-              </span>
-            </p>
+      <Body pending={state.pending}>
+        <section aria-label="Natural gas: expected MCX open" className="rounded-2xl border border-l-[3px] border-border bg-card px-4 py-4 sm:px-5" style={{ borderLeftColor: EDGE[direction] }}>
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+            <div className="min-w-0">
+              <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Expected MCX open{figures.typed && " · from your NYMEX price"}</h2>
+              <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl">
+                  <AnimatedNumber value={figures.expectedOpen} format={rupees} />
+                </span>
+                <span className={`text-sm font-semibold tabular-nums ${DIRECTION[direction].text}`}>
+                  {signedRupees(figures.changeRupees)} · {formatMovePct(figures.movePct)}
+                </span>
+              </p>
+            </div>
+            <div className="flex flex-col items-start gap-1.5 sm:items-end">
+              <SignalPill signal={figures.signal} />
+              <p className="text-xs tabular-nums text-muted-foreground">
+                Likely range {rupees(figures.low)} – {rupees(figures.high)}
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col items-start gap-1.5 sm:items-end">
-            <SignalPill signal={figures.signal} />
-            <p className="text-xs tabular-nums text-muted-foreground">
-              Likely range {rupees(figures.low)} – {rupees(figures.high)}
-            </p>
-          </div>
-        </div>
-        <p className="mt-3 border-t border-border/60 pt-3 text-sm text-muted-foreground">
-          {figures.signal.detail} <span className="text-xs">This is the opening gap only, not a view on the day.</span>
-        </p>
-        <p className="sr-only" aria-live="polite">
-          {`Expected MCX open ${rupees(figures.expectedOpen)}, ${formatMovePct(figures.movePct)} from MCX's last price. ${figures.signal.headline}.`}
-        </p>
-      </section>
-
-      <section aria-label="MCX and NYMEX natural gas, in rupees and dollars">
-        <div className="-mx-1.5 sm:-mx-3">
-          <MarketTable figures={figures} nymexState={outlook.state} nowMs={nowMs} />
-        </div>
-        {figures.nymexShut && (
-          <p className="mt-3 text-xs text-warning-strong">
-            NYMEX is shut too, so this is its last price (as of {istStamp(figures.nymexAsOf, nowMs)}). It updates when NYMEX reopens{when ? ` (${when})` : ""}.
+          <p className="mt-3 border-t border-border/60 pt-3 text-sm text-muted-foreground">
+            {figures.signal.detail}
           </p>
-        )}
-        <ConversionNote figures={figures} nowMs={nowMs} />
-        <OwnPrice contractLabel={ready.nymex.label} active={own} nowMs={nowMs} feedPrice={ready.nymex.now} onUse={applyOwnPrice} onClear={() => setTyped(null)} />
-      </section>
+          <p className="sr-only" aria-live="polite">
+            {`Expected MCX open ${rupees(figures.expectedOpen)}, ${formatMovePct(figures.movePct)} from MCX's last price. ${figures.signal.headline}.`}
+          </p>
+        </section>
 
-      {book.held !== null && book.held > 0 && <NatgasPositions result={positions} held={book.held} />}
+        <section aria-label="MCX and NYMEX natural gas, in rupees and dollars">
+          <div className="-mx-1.5 sm:-mx-3">
+            <MarketTable figures={figures} nymexState={outlook.state} nowMs={nowMs} mcxMonth={contractMonthShort(ready.contract.expiry)} />
+          </div>
+          {oldPrice && <p className="mt-3 text-xs text-warning-strong">{oldPrice}</p>}
+          {figures.nymexShut && (
+            <p className="mt-3 text-xs text-warning-strong">
+              NYMEX is shut too: this is its last price, from {istStamp(figures.nymexAsOf, nowMs)}.
+            </p>
+          )}
+          <ConversionNote figures={figures} nowMs={nowMs} />
+          <OwnPrice contractLabel={ready.nymex.label} active={own} nowMs={nowMs} feedPrice={ready.nymex.now} onUse={applyOwnPrice} onClear={() => setTyped(null)} />
+        </section>
 
-      <SessionClock nowMs={nowMs} mcxOpen={false} />
-      <Details nowMs={nowMs} nymexLabel={ready.nymex.label} />
+        {book.held !== null && book.held > 0 && <NatgasPositions result={positions} held={book.held} />}
+
+        <SessionClock nowMs={nowMs} mcxOpen={false} />
+        <Details nowMs={nowMs} nymexLabel={ready.nymex.label} />
+      </Body>
     </div>
   );
 }

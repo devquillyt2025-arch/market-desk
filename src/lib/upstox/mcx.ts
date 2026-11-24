@@ -82,6 +82,25 @@ export function mcxFutureKey(contracts: ReadonlyMap<string, PositionContract>, i
   return null;
 }
 
+/**
+ * The option expiry whose chain answers a request for `expiry`. Usually `expiry` itself - but a commodity's options expire before
+ * the future they are written on (natural gas: options on 23 Dec, the Dec future on 28 Dec), so a position in the future asks for
+ * a date no option has. Then it is the soonest expiry of the options written on that very future (gold lists two a future, the
+ * nearer first), which is where the future's index level and volatility come from. Null when neither exists - an unlisted month,
+ * or a future whose options have all expired. Exported for testing.
+ */
+export function mcxChainExpiry(
+  mcx: Pick<McxContracts, "contracts" | "underlyingKeys" | "expiries">,
+  instrument: CommodityInstrument,
+  expiry: string,
+): string | null {
+  const expiries = mcx.expiries.get(instrument) ?? [];
+  if (expiries.includes(expiry)) return expiry;
+  const futureKey = mcxFutureKey(mcx.contracts, instrument, expiry);
+  if (!futureKey) return null;
+  return expiries.find((e) => mcx.underlyingKeys.get(mcxUnderlyingKeyId(instrument, e)) === futureKey) ?? null;
+}
+
 function isCommodity(value: unknown): value is CommodityInstrument {
   return typeof value === "string" && (COMMODITY_INSTRUMENTS as readonly string[]).includes(value);
 }

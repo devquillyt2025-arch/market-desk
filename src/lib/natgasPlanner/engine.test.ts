@@ -13,7 +13,8 @@ import { costFloor, fees, roundToTick, roundUpToTick } from "@/lib/natgasPlanner
 import { atr, flips, heikinAshi } from "@/lib/natgasPlanner/indicators";
 import { costShareTone, makePlan } from "@/lib/natgasPlanner/plan";
 import { buildReplay, countPlans, replayTimeframe, resolveTrade, statsOf, verdictFor } from "@/lib/natgasPlanner/replay";
-import { analyseTimeframe, entryWindow } from "@/lib/natgasPlanner/signals";
+import { pivotLevels } from "@/lib/natgasPlanner/pivots";
+import { analyseCandles, analyseTimeframe, entryWindow } from "@/lib/natgasPlanner/signals";
 import type { Candle } from "@/lib/natgasPlanner/types";
 
 const at = (iso: string) => Date.parse(iso);
@@ -397,6 +398,64 @@ describe("signals", () => {
   it("has no overview for a timeframe with no completed bar", () => {
     const { overview } = analyseTimeframe([], 5, now);
     assert.deepEqual([overview.green, overview.barsSinceFlip, overview.atr, overview.fresh, overview.direction], [null, null, null, false, null]);
+  });
+});
+
+describe("pivot levels", () => {
+  it("works out the classic pivot, three resistances and three supports - H 324.30, L 322.10, C 323.10 (worked by hand)", () => {
+    // P = 323.1667; R1 = 324.2333; S1 = 322.0333; R2 = 325.3667; S2 = 320.9667; R3 = 326.4333; S3 = 319.8333 - each to the 0.10 tick.
+    assert.deepEqual(pivotLevels({ h: 324.3, l: 322.1, c: 323.1 }), { r3: 326.4, r2: 325.4, r1: 324.2, p: 323.2, s1: 322.0, s2: 321.0, s3: 319.8 });
+  });
+
+  it("keeps the levels in order, resistances above the pivot and supports below", () => {
+    const l = pivotLevels({ h: 331.3, l: 322.1, c: 322.5 })!;
+    assert.ok(l.r3 > l.r2 && l.r2 > l.r1 && l.r1 > l.p && l.p > l.s1 && l.s1 > l.s2 && l.s2 > l.s3);
+  });
+
+  it("has none for a bar with nothing usable in it", () => {
+    assert.equal(pivotLevels({ h: NaN, l: 1, c: 1 }), null);
+    assert.equal(pivotLevels({ h: 1, l: 2, c: 1.5 }), null); // a low above its high
+  });
+
+  it("is a single level, the price itself, for a bar that never moved", () => {
+    const l = pivotLevels({ h: 322.5, l: 322.5, c: 322.5 })!;
+    assert.deepEqual(Object.values(l), Array(7).fill(322.5));
+  });
+});
+
+describe("the plain-candle reading", () => {
+  const rising = (m: number) => 295 + (m - 540) * 0.02;
+  const falling = (m: number) => 305 - (m - 540) * 0.02;
+  const now = at("2026-11-18T09:00:00+05:30");
+
+  it("is green on a rise and red on a fall, with the same ATR as the Heikin Ashi reading (same bars)", () => {
+    const up = [session("2026-11-16", rising), session("2026-11-17", rising)].flat();
+    const down = [session("2026-11-16", falling), session("2026-11-17", falling)].flat();
+    assert.equal(analyseCandles(up, 15, now).green, true);
+    assert.equal(analyseCandles(down, 15, now).green, false);
+    assert.equal(analyseCandles(up, 15, now).atr, analyseTimeframe(up, 15, now).overview.atr);
+  });
+
+  it("is not a fresh signal while a colour has simply gone on", () => {
+    const turn = (m: number) => (m < 11 * 60 ? 305 - (m - 540) * 0.03 : 305 - 5.4 + (m - 660) * 0.03);
+    const days = [session("2026-11-16", turn), session("2026-11-17", turn)].flat();
+    const o = analyseCandles(days, 5, now);
+    assert.equal(o.green, true);
+    assert.ok(o.barsSinceFlip !== null && o.barsSinceFlip > 0);
+    assert.equal(o.fresh, false);
+    assert.equal(o.direction, null);
+  });
+
+  it("carries the Heikin Ashi bar of the same moment on the Heikin Ashi reading only", () => {
+    const days = [session("2026-11-16", rising), session("2026-11-17", rising)].flat();
+    const ha = analyseTimeframe(days, 15, now).overview.lastHa;
+    assert.ok(ha && ha.h >= ha.l);
+    assert.equal(analyseCandles(days, 15, now).lastHa, null);
+  });
+
+  it("has no reading for a timeframe with no completed bar", () => {
+    const o = analyseCandles([], 5, now);
+    assert.deepEqual([o.green, o.barsSinceFlip, o.atr, o.fresh, o.direction], [null, null, null, false, null]);
   });
 });
 

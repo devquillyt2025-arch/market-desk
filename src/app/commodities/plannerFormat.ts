@@ -16,6 +16,15 @@ export function span(ms: number): string {
   const h = Math.floor(minutes / 60);
   return h > 0 ? `${h}h ${String(minutes % 60).padStart(2, "0")}m` : `${minutes}m`;
 }
+/** How long ago, as it is said: "just now", "7 sec ago", "1 min ago", "2h 05m ago". Never negative; a clock a moment behind the server reads "just now". */
+export function agoText(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 2) return "just now";
+  if (seconds < 60) return `${seconds} sec ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m ago`;
+}
 /** "10:15" for an instant, in IST. */
 export const istClock = (ms: number) => new Date(ms + 19_800_000).toISOString().slice(11, 16);
 /** "17 Nov 10:15" - a day and time in IST. */

@@ -9,7 +9,8 @@ import { beforeEach, describe, it } from "node:test";
 
 import { istDay } from "@/lib/natgasPlanner/bars";
 import type { Candle } from "@/lib/natgasPlanner/types";
-import { chooseActive, getPlanner, resetPlannerFeed, type NatgasFuture, type PlannerDeps } from "@/lib/natgasPlannerFeed";
+import { chooseActive, defaultFuture, ROLL_DAYS, type NatgasFuture } from "@/lib/natgasContract";
+import { getPlanner, resetPlannerFeed, type PlannerDeps } from "@/lib/natgasPlannerFeed";
 import { chunkRanges, fetchMinuteHistory, parseCandles } from "@/lib/upstox/minuteCandles";
 
 const at = (iso: string) => Date.parse(iso);
@@ -146,6 +147,127 @@ describe("which contract is active", () => {
   });
 });
 
+const FEB: NatgasFuture = { key: "MCX_FO|333", expiry: "2027-01-25", label: "NATURALGAS FUT 25 JAN 27" };
+const day = (iso: string) => iso;
+
+describe("the default contract", () => {
+  it("is the nearest while it has more than three days to run", () => {
+    const d = defaultFuture([NOV, DEC, FEB], day("2026-11-18")); // Nov expires in 6 days
+    assert.equal(d.key, NOV.key);
+    assert.equal(d.reason, "the nearest contract");
+  });
+
+  it("moves on to the next when the front month is about to expire - Dec-26 on 23 Nov, with Nov-26 expiring the next day", () => {
+    const d = defaultFuture([NOV, DEC, FEB], day("2026-11-23"));
+    assert.equal(d.key, DEC.key);
+    assert.match(d.reason, /Nov 2026 expires in 1 day/);
+    assert.equal(defaultFuture([NOV, DEC], day("2026-11-24")).key, DEC.key); // on the expiry day itself
+    assert.match(defaultFuture([NOV, DEC], day("2026-11-24")).reason, /expires in 0 days/);
+  });
+
+  it("draws the line at three days: three still rolls on, four does not", () => {
+    assert.equal(ROLL_DAYS, 3);
+    assert.equal(defaultFuture([NOV, DEC], day("2026-11-21")).key, DEC.key); // 3 days left
+    assert.equal(defaultFuture([NOV, DEC], day("2026-11-20")).key, NOV.key); // 4 days left
+  });
+
+  it("keeps rolling as the months pass, and uses the only contract there is", () => {
+    assert.equal(defaultFuture([DEC, FEB], day("2026-12-26")).key, FEB.key); // Dec-26 expires on the 28th: 2 days
+    assert.equal(defaultFuture([DEC], day("2026-12-27")).key, DEC.key);
+  });
+});
+
+describe("choosing the contract", () => {
+  beforeEach(() => {
+    resetPlannerFeed();
+    sleeps.length = 0;
+  });
+  const ROLLING = at("2026-11-23T10:30:00+05:30"); // Nov-26 expires tomorrow
+
+  it("opens on Dec-26 today, by the default rule, and lists every contract to choose from", async () => {
+    const up = fakeUpstox();
+    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: ROLLING, getFutures: async () => [NOV, DEC, FEB] }));
+    assert.ok(!("error" in r));
+    assert.equal(r.contract.key, DEC.key);
+    assert.equal(r.choice, "default");
+    assert.deepEqual(r.contracts.map((c) => c.key), [NOV.key, DEC.key, FEB.key]);
+    assert.ok(up.calls.daily.length === 0, "the default rule needs no volume lookups");
+  });
+
+  it("plans on the contract picked, whatever the default or the volumes say", async () => {
+    const up = fakeUpstox({ dailyVolumes: { [NOV.key]: { "2026-11-17": 9000 }, [DEC.key]: { "2026-11-17": 1 } } });
+    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: ROLLING, getFutures: async () => [NOV, DEC, FEB] }), FEB.key);
+    assert.ok(!("error" in r));
+    assert.equal(r.contract.key, FEB.key);
+    assert.equal(r.choice, "chosen");
+    assert.equal(r.contract.reason, "chosen by you");
+  });
+
+  it("goes by volume when asked for 'auto'", async () => {
+    const up = fakeUpstox({ dailyVolumes: { [NOV.key]: { "2026-11-20": 9000 }, [DEC.key]: { "2026-11-20": 100 } } });
+    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: ROLLING, getFutures: async () => [NOV, DEC, FEB] }), "auto");
+    assert.ok(!("error" in r));
+    assert.equal(r.contract.key, NOV.key);
+    assert.equal(r.choice, "auto");
+  });
+
+  it("falls back to the default for a contract that is no longer listed", async () => {
+    const up = fakeUpstox();
+    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: ROLLING, getFutures: async () => [DEC, FEB] }), "MCX_FO|999");
+    assert.ok(!("error" in r));
+    assert.equal(r.choice, "default");
+    assert.equal(r.contract.key, DEC.key);
+  });
+
+  it("asks Upstox for the candles of the contract picked - and only that one's", async () => {
+    const urls: string[] = [];
+    const up = fakeUpstox();
+    const fetchImpl = (async (u: RequestInfo | URL) => { urls.push(String(u)); return up.fetchImpl(u); }) as typeof fetch;
+    await getPlanner("t", 5, deps({ fetchImpl, now: ROLLING, getFutures: async () => [NOV, DEC, FEB] }), FEB.key);
+    const candleCalls = urls.filter((u) => /minutes\/1/.test(u));
+    assert.ok(candleCalls.length > 0);
+    assert.ok(candleCalls.every((u) => u.includes(encodeURIComponent(FEB.key))), candleCalls.join("\n"));
+  });
+
+  it("keeps each contract's history, so switching back and forth fetches it once", async () => {
+    const up = fakeUpstox({ todayCandles: todaySoFar });
+    const now = at("2026-11-18T10:07:30+05:30");
+    const base = deps({ fetchImpl: up.fetchImpl, now, getFutures: async () => [NOV, DEC] });
+    await getPlanner("t", 5, base, NOV.key);
+    const afterNov = up.calls.history.length;
+    await getPlanner("t", 5, base, DEC.key);
+    const afterDec = up.calls.history.length;
+    assert.ok(afterDec > afterNov, "the second contract has to be read once");
+    await getPlanner("t", 5, base, NOV.key);
+    await getPlanner("t", 5, base, DEC.key);
+    assert.equal(up.calls.history.length, afterDec, "going back and forth costs nothing");
+  });
+
+  it("does not mix the contracts' candles: each one's overview comes from its own", async () => {
+    // Nov rises through the days, Dec is flat: the two must not give the same answer.
+    const flatCandles = (d: string) => session(d).map((c) => ({ ...c, o: 300, h: 300.05, l: 299.95, c: 300 }));
+    history.clear();
+    for (const d of DAYS) history.set(d, session(d));
+    const up = fakeUpstox();
+    const fetchImpl = (async (u: RequestInfo | URL) => {
+      const url = String(u);
+      if (url.includes(encodeURIComponent(DEC.key)) && /minutes\/1\/\d{4}/.test(url)) {
+        const m = url.match(/minutes\/1\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})/)!;
+        const days = DAYS.filter((d) => d >= m[2] && d <= m[1]);
+        return Response.json({ data: { candles: days.flatMap(flatCandles).reverse().map(row) } });
+      }
+      return up.fetchImpl(u);
+    }) as typeof fetch;
+    const base = deps({ fetchImpl, now: NIGHT, getFutures: async () => [NOV, DEC] });
+    const nov = await getPlanner("t", 15, base, NOV.key);
+    const dec = await getPlanner("t", 15, base, DEC.key);
+    assert.ok(!("error" in nov) && !("error" in dec));
+    assert.equal(dec.lastClose, 300);
+    assert.notEqual(nov.lastClose, 300);
+    assert.notDeepEqual(nov.timeframes.map((t) => t.atr), dec.timeframes.map((t) => t.atr));
+  });
+});
+
 describe("getPlanner", () => {
   beforeEach(() => {
     resetPlannerFeed();
@@ -184,16 +306,17 @@ describe("getPlanner", () => {
 
   it("picks the contract with the volume and reads that one's candles", async () => {
     const up = fakeUpstox({ dailyVolumes: { [NOV.key]: { "2026-11-17": 100 }, [DEC.key]: { "2026-11-17": 9000 } } });
-    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: NIGHT }));
+    const r = await getPlanner("t", 5, deps({ fetchImpl: up.fetchImpl, now: NIGHT }), "auto");
     assert.ok(!("error" in r));
     assert.equal(r.contract.key, DEC.key);
+    assert.equal(r.choice, "auto");
     assert.match(r.contract.reason, /more business than Nov 2026/);
   });
 
   it("falls back to the nearer contract when the daily volumes can't be read", async () => {
     const up = fakeUpstox();
     const fetchImpl = (async (u: RequestInfo | URL) => (String(u).includes("/days/1/") ? new Response("x", { status: 500 }) : up.fetchImpl(u))) as typeof fetch;
-    const r = await getPlanner("t", 5, deps({ fetchImpl, now: NIGHT }));
+    const r = await getPlanner("t", 5, deps({ fetchImpl, now: NIGHT }), "auto");
     assert.ok(!("error" in r));
     assert.equal(r.contract.key, NOV.key);
     assert.match(r.contract.reason, /volumes unavailable/);

@@ -247,3 +247,21 @@ describe("weekends", () => {
     assert.deepEqual(weekendCarry(Date.parse("2026-11-19T20:00:00Z")), { days: 3, when: "until" });
   });
 });
+
+describe("a commodity future", () => {
+  it("has no premium card: its options are written on it, so there is no index for it to trade above", () => {
+    const natgas = row({
+      entry: entry({ instrument: "NATURALGAS", expiry_date: "2026-12-28" }),
+      liveLtp: 302,
+      underlyingSpot: 302,
+    });
+    assert.deepEqual(buildFutureCarries([natgas], NOW), []);
+  });
+
+  it("does not hide an index future held beside it", () => {
+    const natgas = row({ entry: entry({ id: "e2", instrument: "NATURALGAS", expiry_date: "2026-12-28" }), liveLtp: 302, underlyingSpot: 302 });
+    const items = buildFutureCarries([natgas, row()], NOW);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].instrument, "NIFTY");
+  });
+});

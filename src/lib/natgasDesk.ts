@@ -12,7 +12,7 @@
 import { isFutureEntry, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { toLeg } from "@/lib/calculateRisk";
 import { istDateString, priceLegs, strategyPnl, type StrategyLeg } from "@/lib/calculateStrategy";
-import { applyMove, expectedOpenMarketFor, impliedOpen, type ExpectedOpenItem, type UsdInr } from "@/lib/expectedOpen";
+import { applyMove, expectedOpenMarketFor, impliedOpen, lastScheduledCloseMs, type ExpectedOpenItem, type UsdInr } from "@/lib/expectedOpen";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
 import { DEFAULT_LOT_SIZES, mcxSessionCloseIst, usSummerTime } from "@/lib/types";
 
@@ -88,6 +88,31 @@ export function istStamp(ms: number, nowMs: number): string {
   const at = new Date(ms + IST_OFFSET_MS);
   const time = at.toISOString().slice(11, 16);
   return istDateString(ms) === istDateString(nowMs) ? time : `${WEEKDAY_NAMES[at.getUTCDay()]} ${time}`;
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** A contract's month as the NYMEX column writes it: "Dec 26" for a future expiring on 28 Dec 2026 ("" for a date that isn't one). */
+export function contractMonthShort(expiryIso: string): string {
+  const match = /^(\d{4})-(\d{2})-\d{2}/.exec(expiryIso);
+  const month = match ? MONTH_NAMES[Number(match[2]) - 1] : undefined;
+  return match && month ? `${month} ${match[1].slice(2)}` : "";
+}
+
+/** A price older than this, at MCX's last scheduled close, is worth a word: the far months trade seldom. */
+export const OLD_PRICE_AFTER_MS = 60 * MINUTE_MS;
+
+/**
+ * A caution for a contract whose last trade is well before MCX's last scheduled close - a far month that trades now and then, or any
+ * contract on a day MCX held a part session. The estimate scales that price by NYMEX's move since it was struck, which is as good as the
+ * price is fresh. Null when the price is recent enough (or its time isn't known).
+ */
+export function oldPriceNote(closedAt: number | null, nowMs: number): string | null {
+  if (closedAt === null) return null;
+  const close = lastScheduledCloseMs(nowMs);
+  const gap = close - closedAt;
+  if (gap <= OLD_PRICE_AFTER_MS) return null;
+  return `Last traded ${istStamp(closedAt, nowMs)}, ${ageText(gap)} before MCX closed, so this estimate is looser.`;
 }
 
 // --- The figures on the desk ---------------------------------------------------------

@@ -13,6 +13,7 @@ import type { ExpectedOpenItem } from "@/lib/expectedOpen";
 import {
   ageText,
   CLEAR_GAP_FROM_PCT,
+  contractMonthShort,
   dayBars,
   deskFigures,
   gapSignal,
@@ -20,6 +21,8 @@ import {
   NO_GAP_BELOW_PCT,
   nymexOutlook,
   nymexState,
+  OLD_PRICE_AFTER_MS,
+  oldPriceNote,
   parseNymexInput,
   positionsAtOpen,
   sessionHours,
@@ -90,6 +93,42 @@ const ITEM: ExpectedOpenItem = {
   movePct: ((3.236 / 3.255 - 1) * 100),
   expectedOpen: 307.9 * (3.236 / 3.255),
 };
+
+describe("contractMonthShort", () => {
+  it("writes a contract's month the way the NYMEX column does", () => {
+    assert.equal(contractMonthShort("2026-12-28"), "Dec 26");
+    assert.equal(contractMonthShort("2027-01-25"), "Jan 27");
+    assert.equal(contractMonthShort("2026-11-24"), "Nov 26");
+  });
+
+  it("is empty for something that is not a date", () => {
+    for (const bad of ["", "soon", "2026-13-01", "2026-00-10"]) assert.equal(contractMonthShort(bad), "", bad);
+  });
+});
+
+describe("oldPriceNote", () => {
+  const SAT = at("2026-11-14T10:00:00+05:30"); // MCX's last scheduled close was Fri 13 Nov 23:55 IST (US winter time)
+
+  it("says nothing for a price struck at the close, or within the hour before it", () => {
+    assert.equal(oldPriceNote(at("2026-11-13T23:54:59+05:30"), SAT), null);
+    assert.equal(oldPriceNote(at("2026-11-13T23:00:00+05:30"), SAT), null);
+    assert.equal(oldPriceNote(at("2026-11-13T23:55:00+05:30") - OLD_PRICE_AFTER_MS, SAT), null); // exactly the limit
+  });
+
+  it("says nothing when Upstox gave no time", () => {
+    assert.equal(oldPriceNote(null, SAT), null);
+  });
+
+  it("warns, in one line - when it traded and how long before the close - for a price hours old", () => {
+    const note = oldPriceNote(at("2026-11-13T21:10:00+05:30"), SAT);
+    assert.ok(note);
+    assert.equal(note, "Last traded Fri 21:10, 2h 45m before MCX closed, so this estimate is looser.");
+  });
+
+  it("warns for a price from days ago", () => {
+    assert.match(oldPriceNote(at("2026-11-10T15:00:00+05:30"), SAT) ?? "", /^Last traded Tue 15:00, 3d 8h before MCX closed/);
+  });
+});
 
 describe("deskFigures", () => {
   it("reads the feed's own numbers", () => {

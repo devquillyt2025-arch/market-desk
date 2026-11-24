@@ -14,7 +14,7 @@
 import { isFutureEntry, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { futureBasis } from "@/lib/calculateRisk";
 import { expiryCloseMs } from "@/lib/calculateStrategy";
-import { DEFAULT_LOT_SIZES, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, isCommodityInstrument, type Instrument } from "@/lib/types";
 
 const MS_PER_DAY = 86_400_000;
 const IST_OFFSET_MS = 5.5 * 3_600_000;
@@ -96,12 +96,13 @@ export function weekendCarry(nowMs: number): { days: number; when: "since" | "un
 
 /**
  * The index futures in the portfolio, one per contract, each with its premium over the index and the days to run - or the reason
- * one can't be worked out yet. `nowMs` is the moment of the prices (the last poll), not the clock. A future past its expiry is left out.
+ * one can't be worked out yet. `nowMs` is the moment of the prices (the last poll), not the clock. A future past its expiry is left out,
+ * and so is a commodity's: its options are written on the future itself, so there is no index for it to trade above.
  */
 export function buildFutureCarries(rows: readonly PortfolioRow[], nowMs: number): (FutureCarry | FutureCarryUnavailable)[] {
   const groups = new Map<string, PortfolioRow[]>();
   for (const row of rows) {
-    if (!isFutureEntry(row.entry)) continue;
+    if (!isFutureEntry(row.entry) || isCommodityInstrument(row.entry.instrument)) continue;
     const key = `${row.entry.instrument}|${row.entry.expiry_date}`;
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }

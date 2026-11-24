@@ -8,17 +8,21 @@
  *
  * A failed poll keeps what is on screen once; a second failure in a row takes it away, so a figure that has gone stale
  * (MCX may have reopened since) is never left standing.
+ *
+ * The Natural gas tab asks for a natural gas future of the user's choosing (`contract`); the others ask for none and get the front
+ * month. Each choice is kept on its own, and while another choice's answer is on its way the old one stays up, marked `pending`.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isExpectedOpenError, type ExpectedOpenError, type ExpectedOpenResult } from "@/lib/expectedOpen";
+import type { ContractPref } from "@/lib/natgasContract";
 
 export const EXPECTED_OPEN_POLL_MS = 30_000;
 
-async function fetchExpectedOpen(): Promise<ExpectedOpenResult | ExpectedOpenError> {
+async function fetchExpectedOpen(contract: ContractPref | null): Promise<ExpectedOpenResult | ExpectedOpenError> {
   try {
-    const res = await fetch("/api/expected-open", { cache: "no-store" });
+    const res = await fetch(contract === null ? "/api/expected-open" : `/api/expected-open?contract=${encodeURIComponent(contract)}`, { cache: "no-store" });
     const body: unknown = await res.json();
     if (res.ok && body && typeof body === "object" && Array.isArray((body as ExpectedOpenResult).items)) return body as ExpectedOpenResult;
     const message = body && typeof body === "object" ? (body as Partial<ExpectedOpenError>).error : undefined;
@@ -29,10 +33,11 @@ async function fetchExpectedOpen(): Promise<ExpectedOpenResult | ExpectedOpenErr
 }
 
 /**
- * The last answer, kept across mounts: the Watchlist builds its Global markets tab only while it is open, and without this
- * the panel would appear a moment after the tab does and push the prices sideways. The first poll replaces it at once.
+ * The last answer for each choice of contract ("" for none), kept across mounts: the Watchlist builds its Global markets tab only
+ * while it is open, and without this the panel would appear a moment after the tab does and push the prices sideways. The first
+ * poll replaces it at once.
  */
-let remembered: ExpectedOpenResult | null = null;
+const remembered = new Map<string, ExpectedOpenResult>();
 
 export type ExpectedOpenState = {
   /** The latest answer; null until the first one lands, or after repeated failures. */
@@ -40,32 +45,42 @@ export type ExpectedOpenState = {
   /** The Upstox token has lapsed, so MCX's last price can't be read - the Live Portfolio and Watchlist banners already say so. */
   tokenExpired: boolean;
   lastPolledAt: number | null;
+  /** The answer on screen is for another choice of contract than the one asked for: the new one is still on its way. */
+  pending: boolean;
 };
 
-export function useExpectedOpen(enabled = true, pollMs = EXPECTED_OPEN_POLL_MS): ExpectedOpenState {
-  const [result, setResult] = useState<ExpectedOpenResult | null>(() => remembered);
+export function useExpectedOpen(enabled = true, pollMs = EXPECTED_OPEN_POLL_MS, contract: ContractPref | null = null): ExpectedOpenState {
+  const asked = contract ?? "";
+  const [answer, setAnswer] = useState<{ asked: string; result: ExpectedOpenResult } | null>(() => {
+    const held = remembered.get(asked);
+    return held ? { asked, result: held } : null;
+  });
   const [tokenExpired, setTokenExpired] = useState(false);
   const [lastPolledAt, setLastPolledAt] = useState<number | null>(null);
   const failures = useRef(0);
 
-  const poll = useCallback(async (isCancelled: () => boolean) => {
-    const answer = await fetchExpectedOpen();
-    if (isCancelled()) return;
-    if (isExpectedOpenError(answer)) {
-      failures.current += 1;
-      setTokenExpired(answer.error === "token_expired");
-      if (failures.current >= 2 || answer.error === "token_expired") {
-        remembered = null;
-        setResult(null);
+  const poll = useCallback(
+    async (isCancelled: () => boolean) => {
+      const key = contract ?? "";
+      const latest = await fetchExpectedOpen(contract);
+      if (isCancelled()) return;
+      if (isExpectedOpenError(latest)) {
+        failures.current += 1;
+        setTokenExpired(latest.error === "token_expired");
+        if (failures.current >= 2 || latest.error === "token_expired") {
+          remembered.delete(key);
+          setAnswer(null);
+        }
+        return;
       }
-      return;
-    }
-    failures.current = 0;
-    setTokenExpired(false);
-    remembered = answer;
-    setResult(answer);
-    setLastPolledAt(answer.fetchedAt);
-  }, []);
+      failures.current = 0;
+      setTokenExpired(false);
+      remembered.set(key, latest);
+      setAnswer({ asked: key, result: latest });
+      setLastPolledAt(latest.fetchedAt);
+    },
+    [contract],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -93,5 +108,5 @@ export function useExpectedOpen(enabled = true, pollMs = EXPECTED_OPEN_POLL_MS):
     };
   }, [enabled, pollMs, poll]);
 
-  return { result, tokenExpired, lastPolledAt };
+  return { result: answer?.result ?? null, tokenExpired, lastPolledAt, pending: answer !== null && answer.asked !== asked };
 }

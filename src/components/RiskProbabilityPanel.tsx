@@ -6,6 +6,7 @@ import { AlertCircleIcon, CheckCircleIcon } from "@/components/icons";
 import RangeGauge from "@/components/RangeGauge";
 import type { PositionRisk, RiskAnalysis, RiskSeverity, RiskVerdict } from "@/lib/calculateRisk";
 import { formatINR, pnlColorClass } from "@/lib/format";
+import { isCommodityInstrument } from "@/lib/types";
 
 const tableHeadClass = "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 
@@ -86,7 +87,9 @@ function PositionRow({ p }: { p: PositionRisk }) {
   const itmLabel = p.isFuture ? "Future" : p.itmPct > 0 ? `ITM ${p.itmPct.toFixed(1)}%` : `OTM ${Math.abs(p.itmPct).toFixed(1)}%`;
   const itmClass = p.isFuture ? "text-muted-foreground" : p.itmPct > 0 ? (isShort ? "text-danger-fg" : "text-profit") : "text-muted-foreground";
   const breakevenHint = p.isFuture
-    ? `The index level where this future breaks even - your entry price less the ₹${Math.round(p.futureBasis ?? 0)} the future trades above the index today.`
+    ? isCommodityInstrument(entry.instrument)
+      ? "The price where this future breaks even - what you entered at."
+      : `The index level where this future breaks even - your entry price less the ₹${Math.round(p.futureBasis ?? 0)} the future trades above the index today.`
     : undefined;
 
   return (
@@ -380,11 +383,18 @@ export default function RiskProbabilityPanel({ analysis, asOf, paused = false, s
         Probabilities use each option&apos;s live implied volatility, zero drift, and assume all underlyings move together.
         Figures are at expiry and exclude brokerage — a guide to what to watch, not a forecast.
       </p>
-      {analysis.positions.some((p) => p.isFuture) && (
+      {analysis.positions.some((p) => p.isFuture && isCommodityInstrument(p.row.entry.instrument)) && (
+        <p className="text-xs text-muted-foreground">
+          A commodity future is measured against its own price: the options are written on it, so there is no index and no gap to hold, and its
+          breakeven is simply what you entered at. It uses the at-the-money implied volatility of the options written on it, since a future
+          has none of its own.
+        </p>
+      )}
+      {analysis.positions.some((p) => p.isFuture && !isCommodityInstrument(p.row.entry.instrument)) && (
         <p className="text-xs text-muted-foreground">
           A future is measured against the index, with the gap between them held where it is today
           {analysis.positions
-            .filter((p) => p.isFuture && p.futureBasis !== null)
+            .filter((p) => p.isFuture && p.futureBasis !== null && !isCommodityInstrument(p.row.entry.instrument))
             .map((p) => ` (${p.contract}: ₹${Math.round(p.futureBasis ?? 0)} above the index)`)
             .join("")}
           , so its breakeven is an index level and its P&amp;L at today&apos;s level is what the table shows. It uses the at-the-money

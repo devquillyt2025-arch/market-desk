@@ -46,8 +46,8 @@ export function atr(bars: readonly (Ohlc & { day: string })[], period = ATR_PERI
 
 export type Flip = { index: number; side: "long" | "short" };
 
-/** Every bar whose colour differs from the one before it: a green flip is a long signal, a red flip a short. */
-export function flips(ha: readonly HaBar[]): Flip[] {
+/** Every bar whose colour differs from the one before it: a green flip is a long signal, a red flip a short. Heikin Ashi bars or plain candles - only the colour is read. */
+export function flips(ha: readonly { green: boolean }[]): Flip[] {
   const out: Flip[] = [];
   for (let i = 1; i < ha.length; i++) {
     if (ha[i].green !== ha[i - 1].green) out.push({ index: i, side: ha[i].green ? "long" : "short" });

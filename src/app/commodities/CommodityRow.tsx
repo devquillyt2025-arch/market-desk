@@ -12,7 +12,7 @@ import Sparkline from "./Sparkline";
 import { usePriceFlash } from "./usePriceFlash";
 
 /** One contract as a row, for scanning the whole board at once: mark, name, trace, price, move - with the same pop-up one tap away. */
-export default function CommodityRow({ entry, spark, live, stale, spotlight, index, onOpen }: ItemProps) {
+export default function CommodityRow({ entry, spark, live, stale, index, onOpen }: ItemProps) {
   const { symbol, quote } = entry;
   const direction = moveDirection(quote?.changePct ?? null);
   const flash = usePriceFlash(quote?.price, live);
@@ -37,7 +37,7 @@ export default function CommodityRow({ entry, spark, live, stale, spotlight, ind
   );
 
   return (
-    <motion.li id={`commodity-${symbol}`} layout="position" {...itemMotion(index)} className={`scroll-mt-24 list-none ${spotlight ? "bg-accent/10" : ""} ${stale ? "opacity-[0.85]" : ""} transition-colors`}>
+    <motion.li id={`commodity-${symbol}`} layout="position" {...itemMotion(index)} className={`scroll-mt-24 list-none ${stale ? "opacity-[0.85]" : ""} transition-colors`}>
       {quote ? (
         <button
           type="button"

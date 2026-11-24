@@ -18,7 +18,7 @@
 
 import { isFutureEntry, needsExpiryOnly, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { describeEntryContract } from "@/lib/tradeEntriesStore";
-import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, sessionCloseIst, underlyingFamily, type Instrument } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, INSTRUMENT_LABELS, isCommodityInstrument, sessionCloseIst, underlyingFamily, type Instrument } from "@/lib/types";
 
 // --- Thresholds -----------------------------------------------------------
 // Heuristics, not market law — tuned to be noisy enough to matter and quiet
@@ -561,7 +561,9 @@ function whyNotAnalysed(row: PortfolioRow): string {
       if (isFutureEntry(row.entry)) {
         return row.underlyingSpot == null || !(row.underlyingSpot > 0)
           ? `no option chain for the ${row.entry.expiry_date} expiry to read the index level from`
-          : `no implied volatility in the ${row.entry.expiry_date} option chain to measure it by`;
+          : isCommodityInstrument(row.entry.instrument)
+            ? "no implied volatility from the options written on this future - none are listed, or their prices haven't loaded"
+            : `no implied volatility in the ${row.entry.expiry_date} option chain to measure it by`;
       }
       if (row.underlyingSpot == null || !(row.underlyingSpot > 0)) return "Upstox sent no underlying spot price";
       return "no implied volatility available — none from Upstox, and none could be derived from its price or nearby strikes";

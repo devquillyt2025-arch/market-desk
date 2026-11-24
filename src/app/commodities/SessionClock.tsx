@@ -78,7 +78,7 @@ export default function SessionClock({ nowMs, mcxOpen }: { nowMs: number; mcxOpe
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
         {weekend
           ? `Weekend: MCX is closed all day. NYMEX ${outlook.state === "trading" ? "is still trading" : "is shut"}${outlook.at ? ` until ${istStamp(outlook.at, nowMs)}` : ""}.`
-          : "Solid bars are trading; the hatched stretch is NYMEX's daily break. Between MCX's close and its open, NYMEX is what moves."}
+          : "The hatched stretch is NYMEX's daily break."}
       </p>
     </section>
   );

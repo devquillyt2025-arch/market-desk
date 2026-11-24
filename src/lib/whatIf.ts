@@ -243,8 +243,11 @@ export function buildUnderlyings(chains: Record<string, UpstoxOptionChainResult 
   const today = istDateString(nowMs);
   for (const [key, chain] of Object.entries(chains)) {
     if (!chain || isUpstoxOptionChainError(chain)) continue;
-    const [instrument, expiry] = key.split("|");
-    if (!expiry || !(instrument in DEFAULT_LOT_SIZES)) continue;
+    const [instrument, keyExpiry] = key.split("|");
+    if (!keyExpiry || !(instrument in DEFAULT_LOT_SIZES)) continue;
+    // A commodity future is polled under its own expiry but gets the chain of the options written on it, which end earlier (natural gas:
+    // options 23 Dec, future 28 Dec) - those are priced to the date the chain itself reports, while `key` stays the future's so its leg finds it.
+    const expiry = chain.data.find((r) => typeof r.expiry === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.expiry))?.expiry ?? keyExpiry;
     const years = yearsToExpiry(expiry, now, instrument as Instrument);
     if (!(years > 0)) continue;
     const spot = chain.data.find((r) => r.underlying_spot_price != null && r.underlying_spot_price > 0)?.underlying_spot_price;

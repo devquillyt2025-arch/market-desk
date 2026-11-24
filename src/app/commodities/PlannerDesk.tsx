@@ -1,27 +1,25 @@
 "use client";
 
 /**
- * The Trade plan tab: from live MCX natural gas futures data, what each timeframe's Heikin Ashi bars say, and for the one chosen the
- * plan that goes with it - entry reference, stop, target, ratio, and what it risks and earns per lot after costs - with the
- * evidence for the rule alongside.
+ * The Trade plan tab: from live MCX natural gas futures data, what each timeframe's Heikin Ashi bars say - the signal when the latest
+ * bar has just flipped.
  *
- * It states a signal and a plan, never an instruction, and has no way to place an order. No timeframe or ratio has shown an edge
- * (see the Evidence section); the words "best", "buy" and "sell" do not appear. Loaded on demand, like the natural gas desk.
+ * The contract can be chosen (any future still listed, or the one with the most business); left alone it is the nearest that isn't
+ * about to expire. It states a signal and levels, never an instruction, and has no way to place an order. No timeframe or ratio has shown
+ * an edge, and the note under the cards says so; the words "best", "buy" and "sell" do not appear. Loaded on demand, like the natural gas desk.
  */
 
 import Link from "next/link";
-import { useMemo, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 
-import { THIN_TRADING_PCT } from "@/lib/natgasPlanner/config";
-import { makePlan } from "@/lib/natgasPlanner/plan";
-import { entryWindow } from "@/lib/natgasPlanner/signals";
-import type { Side } from "@/lib/natgasPlanner/types";
+import { shownContract } from "@/lib/natgasContract";
+import { THIN_TRADING_PCT, type Timeframe } from "@/lib/natgasPlanner/config";
 
+import ContractSelect from "./ContractSelect";
 import NatgasSkeleton from "./NatgasSkeleton";
-import PlannerChart, { type ChartLine } from "./PlannerChart";
-import PlannerEvidence from "./PlannerEvidence";
-import { OverviewTable, TimeframeSwitcher } from "./PlannerOverview";
-import { EvidenceNote, PlanBlock, PlanControls, SignalCard } from "./PlannerPlan";
+import { TimeframeStrip } from "./PlannerOverview";
+import SupportResistance from "./SupportResistance";
 import { istClock, istStampLong, pct, price } from "./plannerFormat";
 import { useNatgasPlanner } from "./useNatgasPlanner";
 import { usePlannerPrefs } from "./usePlannerPrefs";
@@ -29,44 +27,23 @@ import { usePlannerPrefs } from "./usePlannerPrefs";
 function Chip({ tone, children }: { tone: "live" | "shut" | "warn"; children: ReactNode }) {
   const dot = tone === "live" ? "bg-profit" : tone === "warn" ? "bg-warning" : "bg-muted-foreground";
   return (
-    <span className={`inline-flex min-w-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${tone === "warn" ? "border-warning/40 bg-warning/10 text-warning-strong" : "border-border bg-card"}`}>
+    <span className={`inline-flex min-w-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs ${tone === "warn" ? "border-warning/40 bg-warning/10 text-warning-strong" : "border-border bg-card"}`}>
       <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dot}`} />
       {children}
     </span>
   );
 }
 
-export default function PlannerDesk({ nowMs }: { nowMs: number }) {
+/** `slot` is the place beside the tabs the contract, status and price are drawn into (null until the toolbar has it). */
+/**
+ * The server's answer carries every timeframe's reading at once, so choosing a timeframe here changes nothing it is asked: it always asks for
+ * the same one (which only decides which chart it also sends, and the page draws no chart). A choice is then instant, with no round trip.
+ */
+const SERVER_TF: Timeframe = 5;
+
+export default function PlannerDesk({ nowMs, slot }: { nowMs: number; slot: HTMLElement | null }) {
   const [prefs, update] = usePlannerPrefs();
-  const { data, tokenExpired, failing, chartPending } = useNatgasPlanner(prefs.tf);
-
-  const overview = data?.timeframes.find((t) => t.tf === prefs.tf) ?? null;
-  const refPrice = data ? (data.ltp?.price ?? data.lastClose) : null;
-  const window = useMemo(() => entryWindow(nowMs, data?.market.open ?? false), [nowMs, data?.market.open]);
-
-  const sides: Side[] = prefs.side === "auto" ? (overview?.direction ? [overview.direction] : ["long", "short"]) : [prefs.side];
-  const noSignal = prefs.side === "auto" && overview !== null && overview.direction === null;
-  const plans = useMemo(
-    () =>
-      overview && refPrice
-        ? sides.map((side) => ({
-            side,
-            plan: makePlan({
-              side,
-              entry: refPrice,
-              atr: overview.atr,
-              atrMult: prefs.atrMult,
-              ratio: prefs.ratio,
-              stopPct: prefs.stopMode === "pct" ? prefs.stopValue : null,
-              stopAbs: prefs.stopMode === "abs" ? prefs.stopValue : null,
-              riskBudget: prefs.riskBudget,
-            }),
-          }))
-        : [],
-    // `sides` follows the signal and the side choice, both listed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [overview, refPrice, prefs.side, prefs.atrMult, prefs.ratio, prefs.stopMode, prefs.stopValue, prefs.riskBudget],
-  );
+  const { data, tokenExpired, failing, contractPending } = useNatgasPlanner(SERVER_TF, prefs.contract);
 
   if (nowMs === 0) return <NatgasSkeleton />;
   if (tokenExpired) {
@@ -83,7 +60,7 @@ export default function PlannerDesk({ nowMs }: { nowMs: number }) {
       </section>
     );
   }
-  if (!data || !overview) {
+  if (!data) {
     return failing ? (
       <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
         <h2 className="text-lg font-semibold tracking-tight">Couldn&apos;t load the planner</h2>
@@ -94,88 +71,80 @@ export default function PlannerDesk({ nowMs }: { nowMs: number }) {
     );
   }
 
+  // What the dropdown shows: the choice made, or - while it is the default - the contract the default turned out to be.
+  const contractValue = shownContract(prefs.contract, data.contracts, data.contract.key);
+  const refPrice = data.ltp?.price ?? data.lastClose;
   const live = data.mode === "live" && data.market.open;
   const change = refPrice !== null && data.prevClose !== null ? refPrice - data.prevClose : null;
   const thin = data.thinPct !== null && data.thinPct > THIN_TRADING_PCT;
-  const entryLabel = live && data.ltp ? "last traded price" : "last close";
-  const one = plans.length === 1 ? plans[0] : null;
-  const lines: ChartLine[] = one?.plan
-    ? [
-        { label: "Target", price: one.plan.target, tone: "target" },
-        { label: "Entry", price: one.plan.entry, tone: "entry" },
-        { label: "Stop", price: one.plan.stop, tone: "stop" },
-      ]
-    : [];
-  const greyed = window.state !== "open" || noSignal;
-  const note = noSignal ? "No signal - shown for planning" : window.state !== "open" ? "Outside the entry window" : prefs.side !== "auto" && overview.direction !== prefs.side ? "Side chosen by you" : null;
+
+  // Drawn beside the tabs, not here: the contract, the two status chips and the price, on the tabs' own row when there is room.
+  const header = (
+    <div className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <ContractSelect id="plan-contract" hideLabel contracts={data.contracts} value={contractValue} onChange={(contract) => update({ contract })} hint={`${data.contract.label}: ${data.contract.reason}. The Natural gas tab follows the same choice.`} />
+        <Chip tone={data.market.open ? "live" : "shut"}>
+          <span className="font-semibold">MCX</span>
+          <span className="text-muted-foreground">{data.market.open ? `trading until ${data.market.closes}` : "shut"}</span>
+        </Chip>
+        <Chip tone={live ? "live" : "shut"}>
+          <span className="font-semibold">{live ? "Live" : "Last session"}</span>
+          <span className="text-muted-foreground">{data.lastCandleAt ? (live ? `last candle ${istClock(data.lastCandleAt)}` : istStampLong(data.lastCandleAt)) : "no candles"}</span>
+        </Chip>
+        {thin && (
+          <Chip tone="warn">
+            <span className="font-semibold">Thin trading</span>
+            <span>{Math.round(data.thinPct ?? 0)}% of the last hour had no trades</span>
+          </Chip>
+        )}
+        {failing && (
+          <Chip tone="warn">
+            <span>Couldn&apos;t refresh - showing the last answer</span>
+          </Chip>
+        )}
+      </div>
+      <p className="flex items-baseline gap-x-3 whitespace-nowrap">
+        <span className="text-2xl font-semibold tabular-nums tracking-tight">{refPrice !== null ? price(refPrice) : "–"}</span>
+        {change !== null && refPrice !== null && (
+          <span className="text-sm tabular-nums text-muted-foreground" title="Change on the previous session">
+            {change >= 0 ? "+" : "-"}
+            {price(Math.abs(change))} ({change >= 0 ? "+" : ""}
+            {pct((change / data.prevClose!) * 100)})<span className="sr-only"> on the previous session</span>
+          </span>
+        )}
+      </p>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
-      <h2 className="sr-only">Natural gas signal and plan</h2>
+      <h2 className="sr-only">Natural gas signals</h2>
 
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip tone={live ? "live" : "shut"}>
-            <span className="font-semibold">{data.contract.label}</span>
-          </Chip>
-          <Chip tone={data.market.open ? "live" : "shut"}>
-            <span className="font-semibold">MCX</span>
-            <span className="text-muted-foreground">{data.market.open ? `trading until ${data.market.closes}` : "shut"}</span>
-          </Chip>
-          <Chip tone={live ? "live" : "shut"}>
-            <span className="font-semibold">{live ? "Live" : "Last session"}</span>
-            <span className="text-muted-foreground">{data.lastCandleAt ? (live ? `last candle ${istClock(data.lastCandleAt)}` : istStampLong(data.lastCandleAt)) : "no candles"}</span>
-          </Chip>
-          {thin && (
-            <Chip tone="warn">
-              <span className="font-semibold">Thin trading</span>
-              <span>{Math.round(data.thinPct ?? 0)}% of the last hour had no trades</span>
-            </Chip>
-          )}
-          {failing && (
-            <Chip tone="warn">
-              <span>Couldn&apos;t refresh - showing the last answer</span>
-            </Chip>
-          )}
-        </div>
-        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-          <span className="text-2xl font-semibold tabular-nums tracking-tight">{refPrice !== null ? price(refPrice) : "–"}</span>
-          {change !== null && refPrice !== null && (
-            <span className="text-sm tabular-nums text-muted-foreground">
-              {change >= 0 ? "+" : "-"}
-              {price(Math.abs(change))} ({change >= 0 ? "+" : ""}
-              {pct((change / data.prevClose!) * 100)}) <span className="text-xs">on the previous session</span>
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground">Active contract: {data.contract.reason}.</span>
-        </p>
-      </div>
+      {slot && createPortal(header, slot)}
 
-      <section aria-label="Timeframes" className="rounded-2xl border border-border bg-card p-4 sm:p-5">
-        <TimeframeSwitcher timeframes={data.timeframes} selected={prefs.tf} onSelect={(tf) => update({ tf })} />
-        <div className="mt-4">
-          <OverviewTable timeframes={data.timeframes} selected={prefs.tf} onSelect={(tf) => update({ tf })} entry={refPrice} />
-        </div>
-      </section>
-
-      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <SignalCard overview={overview} window={window} side={prefs.side} onSide={(side) => update({ side })} flipEnd={overview.fresh ? overview.lastBarEnd : null} />
-        <section aria-label="Plan" className="rounded-2xl border border-border bg-card p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Plan</h2>
-          <div className="mt-3">
-            <PlanControls prefs={prefs} onChange={update} />
-          </div>
-          <div className={`mt-4 grid gap-3 ${plans.length > 1 ? "2xl:grid-cols-2" : ""}`}>
-            {plans.map(({ side, plan }) => (
-              <PlanBlock key={side} side={side} plan={plan} atrMult={prefs.atrMult} entryLabel={entryLabel} greyed={greyed} note={note} />
-            ))}
-          </div>
-          <EvidenceNote />
+      <div className={`space-y-3 transition-opacity ${contractPending ? "pointer-events-none opacity-50" : ""}`} aria-busy={contractPending}>
+        <section aria-label="Timeframes" className="rounded-2xl border border-border bg-card p-3.5 sm:p-4">
+          <TimeframeStrip title="Heikin Ashi" legend="Latest completed bar: its colour, bars since it last flipped, and ATR" timeframes={data.timeframes} selected={prefs.tf} onSelect={(tf) => update({ tf })} entry={refPrice} updatedAt={data.asOf} />
+          {/* The same timeframes read from plain candles. (Absent from an older server's answer, so the strip waits for it.) */}
+          {data.candleTimeframes && (
+            <TimeframeStrip
+              title="Candles"
+              legend="Latest completed candle: open, high, low, close. Green when it closes above its open"
+              timeframes={data.candleTimeframes}
+              selected={prefs.tf}
+              onSelect={(tf) => update({ tf })}
+              entry={refPrice}
+              updatedAt={data.asOf}
+              candle
+              className="mt-4 border-t border-border/60 pt-4"
+            />
+          )}
+          <p className="mt-3 text-[13px] text-muted-foreground">No timeframe or ratio has shown a proven edge. Costs are about ₹330 a lot per round trip.</p>
         </section>
-      </div>
 
-      <PlannerChart bars={data.selected.chart} tf={data.selected.tf} lines={data.selected.tf === prefs.tf ? lines : []} pending={chartPending} />
-      <PlannerEvidence replay={data.replay} tf={prefs.tf} ratio={prefs.ratio} />
+        {/* For the timeframe chosen here or on a card above (the ringed one). */}
+        <SupportResistance tf={prefs.tf} onSelect={(tf) => update({ tf })} overview={data.timeframes.find((t) => t.tf === prefs.tf) ?? null} price={refPrice} />
+      </div>
     </div>
   );
 }

@@ -18,6 +18,7 @@
  */
 
 import { isMarketOpen } from "@/lib/averaging";
+import type { ActiveContract, ContractChoice, NatgasFuture } from "@/lib/natgasContract";
 import { mcxSessionCloseIst, type Instrument } from "@/lib/types";
 
 export const EXPECTED_OPEN_MARKETS = ["NATURALGAS", "CRUDEOIL"] as const;
@@ -125,7 +126,7 @@ export const NYMEX_STALE_MS = 45 * 60_000;
 
 export type ExpectedOpenItem = {
   market: ExpectedOpenMarket;
-  /** The MCX contract (its current-month future) and its expiry. */
+  /** The MCX contract (its current-month future, or the natural gas future that was chosen) and its expiry. */
   contract: { label: string; expiry: string };
   /** MCX's last price. */
   mcxClose: number;
@@ -155,6 +156,18 @@ export type ExpectedOpenUnavailable = {
 /** Rupees per US dollar, and when Yahoo last updated it - to show NYMEX's dollar prices in rupees beside MCX's. */
 export type UsdInr = { rate: number; asOf: number };
 
+/**
+ * Which natural gas future the answer is about, when the caller chose one (the Natural gas tab does; the Watchlist and Live Portfolio
+ * ask for none and get the front month). `last` is that contract's own last price - what the tab shows while MCX trades.
+ */
+export type NatgasChoice = {
+  /** Every future still listed, soonest first - what the tab offers to pick from. */
+  contracts: NatgasFuture[];
+  contract: ActiveContract;
+  choice: ContractChoice;
+  last: { price: number; lastTradeMs: number | null } | null;
+};
+
 export type ExpectedOpenResult = {
   /** MCX is trading: there is nothing to expect. */
   open: boolean;
@@ -166,6 +179,8 @@ export type ExpectedOpenResult = {
   fetchedAt: number;
   /** Optional: an older deployed server sends none, and the rate can be missing when Yahoo has no answer. */
   usdInr?: UsdInr | null;
+  /** Present only when a natural gas contract was asked for. */
+  natgas?: NatgasChoice;
 };
 
 export type ExpectedOpenError = { error: string };
@@ -184,6 +199,11 @@ export type MarketInput = {
   /** The MCX current-month future, or null if the exchange lists none. */
   contract: { label: string; expiry: string } | null;
   mcx: { price: number; lastTradeMs: number | null } | null;
+  /**
+   * When the contract that stands for the whole market (its front month) last traded, which settles whether MCX is trading. Left out,
+   * `mcx`'s own last trade does - the two differ only when another contract was chosen, which can be thin and quiet while MCX trades.
+   */
+  stateLastTradeMs?: number | null;
   nymex: { symbol: string; label: string; atClose: number | null; now: { price: number; asOf: number } | null } | null;
 };
 
@@ -195,7 +215,7 @@ export function assembleExpectedOpen(nowMs: number, inputs: readonly MarketInput
 
   for (const input of inputs) {
     const instrument: Instrument = input.market === "NATURALGAS" ? "NATURALGAS" : "CRUDEOIL";
-    const state = input.mcx ? mcxState(nowMs, input.mcx.lastTradeMs, instrument) : mcxState(nowMs, null, instrument);
+    const state = mcxState(nowMs, input.stateLastTradeMs !== undefined ? input.stateLastTradeMs : (input.mcx?.lastTradeMs ?? null), instrument);
     if (state === "open") continue;
     if (state === "closed") anyClosed = true;
     else anyQuiet = true;

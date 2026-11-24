@@ -11,7 +11,7 @@ import { round2 } from "@/lib/calculateTrade";
 import { localIsoDate } from "@/lib/localDate";
 import { atmIvOfRows, spotOfRows } from "@/lib/strategyFutures";
 import { calculateEntryPnl } from "@/lib/tradeEntriesStore";
-import { DEFAULT_LOT_SIZES, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
+import { DEFAULT_LOT_SIZES, isCommodityInstrument, type TradeEntry, type TradeEntryOptionType } from "@/lib/types";
 import {
   isUpstoxFutureQuoteError,
   isUpstoxOptionChainError,
@@ -355,6 +355,10 @@ function computeFutureRow(
     return { entry, entryPrice, status: "error", errorMessage: quote.error, ...EMPTY_LIVE_FIELDS };
   }
 
+  // A commodity's options are written on its future itself, so there is no index for it to sit above: its own price is the level the
+  // models measure it against (a gap of exactly nothing), rather than a second quote of the same contract a poll apart.
+  const underlyingSpot = isCommodityInstrument(entry.instrument) ? quote.ltp : spot;
+
   return pricedRow(
     entry,
     entryPrice,
@@ -369,7 +373,7 @@ function computeFutureRow(
       oi: quote.oi,
       iv: null,
       volume: quote.volume,
-      underlyingSpot: spot,
+      underlyingSpot,
       nearbyIv: iv,
     },
     { stale: false, asOf: null },

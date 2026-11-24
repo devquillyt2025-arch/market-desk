@@ -1,5 +1,5 @@
 /**
- * Which view the Commodities page shows: the contracts, the natural gas desk or the long/short planner. It lives in the address
+ * Which view the Commodities page shows: the contracts, the natural gas desk or the trade plan. It lives in the address
  * (`#natural-gas`, `#planner`), so a view can be bookmarked and shared and a reload comes back to it - and nothing else needs to know. The server and the first
  * client render both say "contracts" (a hash never reaches the server); the store then moves a deep link over to the desk.
  */

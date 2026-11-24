@@ -20,8 +20,6 @@ export type ItemProps = {
   live: boolean;
   /** Holding last-known prices through an outage. */
   stale: boolean;
-  /** Just jumped to from the strip at the top: ring it for a moment. */
-  spotlight: boolean;
   /** Position in the list, for the staggered entrance. */
   index: number;
   /** Open this contract's pop-up (lot size, open, volume). */
@@ -38,7 +36,7 @@ export function itemMotion(index: number) {
 }
 
 /** One contract as a card: its mark and name, the price and move, a live trace, where the price sits in the day - and, in a pop-up, the lot. */
-export default function CommodityCard({ entry, spark, live, stale, spotlight, index, onOpen }: ItemProps) {
+export default function CommodityCard({ entry, spark, live, stale, index, onOpen }: ItemProps) {
   const { symbol, quote } = entry;
   const direction = moveDirection(quote?.changePct ?? null);
   const flash = usePriceFlash(quote?.price, live);
@@ -48,9 +46,7 @@ export default function CommodityCard({ entry, spark, live, stale, spotlight, in
   return (
     <motion.li id={`commodity-${symbol}`} layout="position" {...itemMotion(index)} className="scroll-mt-24 list-none">
       <div
-        className={`group relative h-full overflow-hidden rounded-2xl border bg-card transition-[transform,box-shadow,border-color,opacity] duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-xl hover:shadow-black/10 ${
-          spotlight ? "border-accent ring-2 ring-accent/60" : "border-border"
-        } ${stale ? "opacity-[0.85]" : ""}`}
+        className={`group relative h-full overflow-hidden rounded-2xl border border-border bg-card transition-[transform,box-shadow,border-color,opacity] duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-xl hover:shadow-black/10 ${stale ? "opacity-[0.85]" : ""}`}
       >
         {/* The metal's halo, behind everything, and a hairline across the top that takes the move's colour. */}
         <span aria-hidden="true" className="pointer-events-none absolute -left-12 -top-14 size-48 rounded-full opacity-[0.13] blur-3xl" style={{ background: tone.glow }} />
