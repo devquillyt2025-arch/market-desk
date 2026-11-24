@@ -8,6 +8,7 @@ import {
   BarChartIcon,
   CalendarIcon,
   CommoditiesIcon,
+  DashboardIcon,
   EyeIcon,
   FlaskIcon,
   GridIcon,
@@ -25,6 +26,7 @@ type Icon = React.ComponentType<{ className?: string }>;
 export type NavLink = NavPage & { icon: Icon };
 
 const ICONS: Record<string, Icon> = {
+  "/dashboard": DashboardIcon,
   "/commodities": CommoditiesIcon,
   "/portfolio": TrendingUpIcon,
   "/watchlist": EyeIcon,

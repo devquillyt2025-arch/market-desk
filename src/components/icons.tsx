@@ -204,6 +204,17 @@ export function SearchIcon({ className }: IconProps) {
   );
 }
 
+export function DashboardIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <rect x="3" y="3" width="8" height="10" rx="1" />
+      <rect x="13" y="3" width="8" height="5" rx="1" />
+      <rect x="13" y="12" width="8" height="9" rx="1" />
+      <rect x="3" y="17" width="8" height="4" rx="1" />
+    </svg>
+  );
+}
+
 export function GridIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

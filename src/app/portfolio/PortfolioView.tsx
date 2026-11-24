@@ -16,15 +16,7 @@ import LivePricingBanners from "@/components/LivePricingBanners";
 import PortfolioInsights, { type InsightsTab } from "@/components/PortfolioInsights";
 import TradeEntryModal from "@/components/TradeEntryModal";
 import { simulationInputs } from "@/lib/averaging";
-import {
-  calculateTodayPnl,
-  isFutureEntry,
-  isTrackedEntry,
-  legSnapshotKey,
-  syntheticPrices,
-  toLivePositionInfo,
-  type PortfolioRow,
-} from "@/lib/calculatePortfolio";
+import { syntheticPrices, toLivePositionInfo, type PortfolioRow } from "@/lib/calculatePortfolio";
 import { analyzeRisk } from "@/lib/calculateRisk";
 import { downloadBlob, downloadCsvFile, downloadJsonFile } from "@/lib/download";
 import { applyMove, expectedOpenMarketFor, isExpectedOpenItem, type ExpectedOpenItem, type ExpectedOpenMarket } from "@/lib/expectedOpen";
@@ -41,9 +33,9 @@ import {
   type AddTradeEntryInput,
 } from "@/lib/livePortfolioEntriesStore";
 import { buildPortfolioCsv, buildPortfolioReport, exportFilename } from "@/lib/portfolioExport";
+import { computePortfolioStats } from "@/lib/portfolioStats";
 import { showToast } from "@/lib/toast";
-import { DEFAULT_LOT_SIZES, type LivePortfolioEntry, type TradeEntrySide } from "@/lib/types";
-import { positionContractKey, positionDayPnl } from "@/lib/upstoxSync";
+import type { LivePortfolioEntry, TradeEntrySide } from "@/lib/types";
 import { useExpectedOpen } from "@/lib/useExpectedOpen";
 import { useLivePricing } from "@/lib/useLivePricing";
 import { useMargin } from "@/lib/useMargin";
@@ -148,57 +140,8 @@ export default function PortfolioView() {
   );
   const closedToday = useMemo(() => (todaysPositions ?? []).filter((p) => p.quantity === 0), [todaysPositions]);
 
-  // Current mark value of open positions (premium terms) and their
-  // unrealized P&L — livePnl is already sign-correct for both buy and sell
-  // sides, so it's summed directly rather than derived from value math that
-  // would get the sign backwards for a short position.
-  //
-  // Today's P&L comes from today's Upstox positions when there are some —
-  // they also cover what was squared off today, which the open rows no longer
-  // show — with each open contract marked at the live LTP the table polls.
-  // Otherwise it falls back to the open rows measured from the previous close
-  // (or entry price, if opened today). Null when nothing has anything to
-  // measure against (e.g. all prices are from an earlier session), so the
-  // tile shows "—" rather than a misleading ₹0.
-  const portfolioStats = useMemo(() => {
-    if (!rows) return null;
-    const today = todayISODate();
-    // "Total Value" is the options' premium value. A future's price is an index level - a contract worth a few lakh
-    // of rupees of exposure, not of premium - so adding it in would drown the figure; its P&L still counts below.
-    let value = 0;
-    let unrealizedPnl = 0;
-    for (const row of rows) {
-      const qty = row.entry.lots * DEFAULT_LOT_SIZES[row.entry.instrument];
-      unrealizedPnl += row.livePnl ?? 0;
-      if (isFutureEntry(row.entry)) continue;
-      value += (row.liveLtp ?? row.entryPrice) * qty;
-    }
-
-    let todayPnl: number | null = null;
-    let bookedToday = 0;
-    if (todaysPositions && todaysPositions.length > 0) {
-      const liveLtpByContract = new Map<string, number>();
-      for (const row of rows) {
-        if (row.status === "ok" && row.liveLtp != null && isTrackedEntry(row.entry)) {
-          liveLtpByContract.set(legSnapshotKey(row.entry), row.liveLtp);
-        }
-      }
-      for (const position of todaysPositions) {
-        const pnl = positionDayPnl(position, liveLtpByContract.get(positionContractKey(position)) ?? null);
-        if (pnl === null) continue;
-        todayPnl = (todayPnl ?? 0) + pnl;
-        if (position.quantity === 0) bookedToday += pnl;
-      }
-    } else {
-      for (const row of rows) {
-        const rowToday = calculateTodayPnl(row, today);
-        if (rowToday !== null) todayPnl = (todayPnl ?? 0) + rowToday;
-      }
-    }
-    // Null when nothing is an option (a futures-only book): there is no premium to value, and "₹0" would read as worthless.
-    const hasOptions = rows.some((row) => !isFutureEntry(row.entry));
-    return { value: hasOptions ? value : null, unrealizedPnl, todayPnl, bookedToday };
-  }, [rows, todaysPositions]);
+  // Unrealized P&L, the options' value and today's P&L - one definition shared with the Dashboard (see portfolioStats.ts).
+  const portfolioStats = useMemo(() => (rows ? computePortfolioStats(rows, todaysPositions, todayISODate()) : null), [rows, todaysPositions]);
 
   // The moment the figures being analysed are from: the poll timestamp (not
   // Date.now()) so "now" is stable between renders and the analysis only

@@ -1,7 +1,7 @@
 /**
  * The app's pages, in one place (no icons, so it is plain logic): the desktop sidebar lists them and the phone's tab bar shows the
  * first few and puts the rest under "More". This is the *default* list and order - navPrefs.ts lets each device hide pages and
- * reorder them. Live Portfolio, Watchlist, Heatmap and Important Links come first - the tabs checked most often through the day -
+ * reorder them. The Dashboard heads the sidebar; Live Portfolio, Watchlist, Heatmap and Important Links come next - the tabs checked most often through the day -
  * followed by the workflow tabs (Brokerage, Paper Trade, Analysis, Trade Entries, Reports, Payment). Notes and Logs are reference
  * utilities, so they sit in their own group after a divider (SECONDARY_GROUP_START).
  */
@@ -14,6 +14,7 @@ export type NavPage = {
 };
 
 export const NAV_PAGES: readonly NavPage[] = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/commodities", label: "Commodities" },
   { href: "/portfolio", label: "Live Portfolio", short: "Portfolio" },
   { href: "/watchlist", label: "Watchlist" },
@@ -33,7 +34,7 @@ export const NAV_PAGES: readonly NavPage[] = [
 export const SETTINGS_PAGE: NavPage = { href: "/settings", label: "Settings" };
 
 /** Everything from this index on (Notes/Logs) of the default order is the "secondary" group, set apart by a divider. */
-export const SECONDARY_GROUP_START = 11;
+export const SECONDARY_GROUP_START = 12;
 
 const BY_HREF = new Map<string, NavPage>(NAV_PAGES.map((page) => [page.href, page]));
 

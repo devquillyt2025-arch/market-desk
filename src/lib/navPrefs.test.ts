@@ -96,15 +96,15 @@ describe("editing the list", () => {
     const moved = moveNavPage(start, "/reports", 0);
     assert.equal(moved.order[0], "/reports");
     assert.deepEqual(moved.order.slice(1), ALL.filter((h) => h !== "/reports"));
-    const down = moveNavPage(start, "/commodities", 2);
-    assert.deepEqual(down.order.slice(0, 3), ["/portfolio", "/watchlist", "/commodities"]);
+    const down = moveNavPage(start, "/dashboard", 2);
+    assert.deepEqual(down.order.slice(0, 3), ["/commodities", "/portfolio", "/dashboard"]);
   });
 
   it("clamps a move past either end, and a move to where it is changes nothing", () => {
-    assert.equal(moveNavPage(start, "/commodities", -5), start);
-    assert.equal(moveNavPage(start, "/commodities", 0), start);
+    assert.equal(moveNavPage(start, "/dashboard", -5), start);
+    assert.equal(moveNavPage(start, "/dashboard", 0), start);
     assert.equal(moveNavPage(start, "/logs", 99), start);
-    assert.equal(moveNavPage(start, "/commodities", 99).order.at(-1), "/commodities");
+    assert.equal(moveNavPage(start, "/dashboard", 99).order.at(-1), "/dashboard");
   });
 
   it("moving a hidden page keeps it hidden", () => {
@@ -144,7 +144,7 @@ describe("the phone's bar and More", () => {
 
   it("skips a hidden page rather than leaving a gap", () => {
     const prefs = toggleNavPage(defaultNavPrefs(true), "/portfolio");
-    assert.deepEqual(hrefs(tabBarPages(prefs)), ["/watchlist", "/heatmap", "/reports", "/commodities"]);
+    assert.deepEqual(hrefs(tabBarPages(prefs)), ["/watchlist", "/heatmap", "/reports", "/dashboard"]);
   });
 
   it("lists on More everything shown that is not on the bar - every shown page once, hidden ones nowhere", () => {
@@ -176,7 +176,7 @@ describe("the sidebar's dividers", () => {
 
   it("follows Notes and Logs wherever they are put", () => {
     const front = moveNavPage(moveNavPage(defaultNavPrefs(false), "/logs", 0), "/notes", 0);
-    assert.deepEqual(dividers(shownPages(front)), ["/commodities"]);
+    assert.deepEqual(dividers(shownPages(front)), ["/dashboard"]);
   });
 
   it("has none when only one group is left, or the list is empty", () => {
